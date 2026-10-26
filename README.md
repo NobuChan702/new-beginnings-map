@@ -114,7 +114,7 @@ Thresholds live in `js/config.js`.
 - Province id labels start at `provinceLabelMinZoom` and stay available through the closest zoom.
 - `overzoomLevels` is how many steps past native resolution the map allows. Native resolution is `native_zoom` in `data/meta.json` (6 for the current 12000×5600 sheet). The source art is 5.5 km per pixel, so the raster cannot get sharper than that. Zoom 7 through 9 does not magnify the painting. It crossfades, across `flatFadeStartOffset` to `flatFadeEndOffset` past native zoom, to a flat board: solid nation colors, crisp province and nation outlines, and a flat opaque fog over the hidden west. Roads and routes stay vector strokes on top of that board.
 
-Reload the page after editing the numbers. A rebuild is not required unless the image size or the province borders change. Borders live in `data/flat.geojson`, which the build writes. Do not draw the hidden west into that file; the fog feature is a plain rectangle.
+Reload the page after editing the numbers. A rebuild is not required unless the image size or the province borders change. Borders live in `data/flat.geojson`, which the build writes. Each shared border is simplified and smoothed once, so the two neighbors use the same line and the fill matches the outline. Do not draw the hidden west into that file; the fog feature is a plain rectangle.
 
 The view control can force Political, Terrain, or Depth while the photo is showing. Past native zoom every view becomes the same flat board.
 

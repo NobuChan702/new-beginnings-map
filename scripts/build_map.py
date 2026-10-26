@@ -25,6 +25,7 @@ import math
 import shutil
 import sys
 import time
+from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
@@ -603,20 +604,13 @@ def secrecy_check(world: dict, lookup_path: Path, allowed: set[int]) -> None:
     log("  secrecy checks passed")
 
 
-FLAT_EPSILON = 1.25
+# Collapse 1px stairs, then round corners locally. Shared borders are smoothed once.
+FLAT_SIMPLIFY = 1.6
+FLAT_DENSIFY = 4.0
+FLAT_CHAIKIN = 2
+FLAT_CLEAN = 0.45
 UNCLAIMED_COLOR = "#8d8678"
 SEA_COLOR = "#0B1A4A"
-
-
-def _cv2():
-    try:
-        import cv2
-    except ImportError as exc:
-        raise SystemExit(
-            "opencv-python-headless is required to build the flat close-up layer. "
-            "Install it with: pip install -r scripts/requirements.txt"
-        ) from exc
-    return cv2
 
 
 def _fog_hex(path: Path) -> str:
@@ -631,53 +625,390 @@ def _fog_hex(path: Path) -> str:
     return "#{:02x}{:02x}{:02x}".format(*(int(v) for v in med))
 
 
-def _trace_rings(cv2, mask: np.ndarray, origin_x: int, origin_y: int, epsilon: float):
-    found = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
-    if len(found) == 3:
-        contours, hier = found[1], found[2]
-    else:
-        contours, hier = found[0], found[1]
-    if hier is None or len(contours) == 0:
-        return [], None
-    hier = hier[0]
-    rings = []
-    for idx, cnt in enumerate(contours):
-        if abs(float(cv2.contourArea(cnt))) < 6:
+def _collapse_collinear(pts: list[tuple[int, int]]) -> list[tuple[int, int]]:
+    if len(pts) < 3:
+        return pts
+    closed = pts[0] == pts[-1]
+    seq = list(pts[:-1] if closed else pts)
+    out = [seq[0]]
+    for point in seq[1:]:
+        if out[-1] == point:
             continue
-        approx = cv2.approxPolyDP(cnt, epsilon, True)
-        ring = []
-        for x, y in approx.reshape(-1, 2):
-            px = int(x) + origin_x
-            py = int(y) + origin_y
-            if px < HIDDEN_WEST_OF:
-                if HIDDEN_WEST_OF - px > 2:
-                    raise SystemExit("secrecy: a traced outline stepped into the hidden west")
-                px = HIDDEN_WEST_OF
-            point = [px, py]
-            if ring and ring[-1] == point:
+        if len(out) >= 2:
+            ax, ay = out[-2]
+            bx, by = out[-1]
+            cx, cy = point
+            if (bx - ax) * (cy - by) == (by - ay) * (cx - bx):
+                out[-1] = point
                 continue
-            ring.append(point)
-        if len(ring) >= 3 and ring[0] != ring[-1]:
+        out.append(point)
+    if not closed:
+        return out
+    if len(out) >= 3:
+        ax, ay = out[-1]
+        bx, by = out[0]
+        cx, cy = out[1]
+        if (bx - ax) * (cy - by) == (by - ay) * (cx - bx):
+            out.pop(0)
+    if len(out) >= 3:
+        ax, ay = out[-2]
+        bx, by = out[-1]
+        cx, cy = out[0]
+        if (bx - ax) * (cy - by) == (by - ay) * (cx - bx):
+            out.pop()
+    if len(out) >= 3 and out[0] != out[-1]:
+        out.append(out[0])
+    return out
+
+
+def _rdp(pts: list[tuple], epsilon: float) -> list[tuple]:
+    if len(pts) < 3:
+        return pts
+    keep = [False] * len(pts)
+    keep[0] = keep[-1] = True
+    stack = [(0, len(pts) - 1)]
+    limit = epsilon * epsilon
+    while stack:
+        start, end = stack.pop()
+        ax, ay = pts[start]
+        bx, by = pts[end]
+        dx = bx - ax
+        dy = by - ay
+        den = dx * dx + dy * dy
+        best = -1
+        best_d = limit
+        for index in range(start + 1, end):
+            px, py = pts[index]
+            if den == 0:
+                dist = (px - ax) ** 2 + (py - ay) ** 2
+            else:
+                tee = ((px - ax) * dx + (py - ay) * dy) / den
+                if tee <= 0:
+                    dist = (px - ax) ** 2 + (py - ay) ** 2
+                elif tee >= 1:
+                    dist = (px - bx) ** 2 + (py - by) ** 2
+                else:
+                    qx = ax + tee * dx
+                    qy = ay + tee * dy
+                    dist = (px - qx) ** 2 + (py - qy) ** 2
+            if dist > best_d:
+                best_d = dist
+                best = index
+        if best != -1:
+            keep[best] = True
+            stack.append((start, best))
+            stack.append((best, end))
+    return [point for point, flag in zip(pts, keep) if flag]
+
+
+def _rdp_closed(pts: list[tuple], epsilon: float) -> list[tuple]:
+    ring = list(pts[:-1] if pts[0] == pts[-1] else pts)
+    if len(ring) < 4:
+        if ring[0] != ring[-1]:
             ring.append(ring[0])
-        if len(ring) >= 4:
-            rings.append((idx, ring))
-    return rings, hier
+        return ring
+    x0, y0 = ring[0]
+    far = max(range(1, len(ring)), key=lambda i: (ring[i][0] - x0) ** 2 + (ring[i][1] - y0) ** 2)
+    left = _rdp(ring[: far + 1], epsilon)
+    right = _rdp(ring[far:] + [ring[0]], epsilon)
+    merged = left[:-1] + right
+    if merged[0] != merged[-1]:
+        merged.append(merged[0])
+    return merged
 
 
-def _polygons_from_rings(rings, hier):
-    by_idx = {idx: ring for idx, ring in rings}
+def _chaikin(pts: list[tuple], iterations: int, closed: bool) -> list[tuple]:
+    if iterations <= 0 or len(pts) < 3:
+        return pts
+    if closed:
+        ring = list(pts[:-1] if pts[0] == pts[-1] else pts)
+        for _ in range(iterations):
+            if len(ring) < 3:
+                break
+            nxt = []
+            count = len(ring)
+            for index in range(count):
+                ax, ay = ring[index]
+                bx, by = ring[(index + 1) % count]
+                nxt.append((0.75 * ax + 0.25 * bx, 0.75 * ay + 0.25 * by))
+                nxt.append((0.25 * ax + 0.75 * bx, 0.25 * ay + 0.75 * by))
+            ring = nxt
+        if not ring:
+            return pts
+        return ring + [ring[0]]
+    cur = list(pts)
+    for _ in range(iterations):
+        if len(cur) < 3:
+            break
+        nxt = [cur[0]]
+        for (ax, ay), (bx, by) in zip(cur, cur[1:]):
+            nxt.append((0.75 * ax + 0.25 * bx, 0.75 * ay + 0.25 * by))
+            nxt.append((0.25 * ax + 0.75 * bx, 0.25 * ay + 0.75 * by))
+        nxt.append(cur[-1])
+        cur = nxt
+    return cur
+
+
+def _densify(pts: list[tuple], spacing: float, closed: bool) -> list[tuple]:
+    """Add points along long segments so corner rounding stays local."""
+    if len(pts) < 2 or spacing <= 0:
+        return pts
+    ring = list(pts[:-1] if closed and pts[0] == pts[-1] else pts)
+    if len(ring) < 2:
+        return pts
+    pairs = list(zip(ring, ring[1:] + ring[:1])) if closed else list(zip(ring, ring[1:]))
+    out = [ring[0]]
+    for (ax, ay), (bx, by) in pairs:
+        dist = math.hypot(bx - ax, by - ay)
+        steps = max(1, int(math.ceil(dist / spacing)))
+        for step in range(1, steps):
+            tee = step / steps
+            out.append((ax + (bx - ax) * tee, ay + (by - ay) * tee))
+        if not out or out[-1] != (bx, by):
+            out.append((bx, by))
+    if closed and out[0] != out[-1]:
+        out.append(out[0])
+    return out
+
+
+def _smooth_arc(pts: list[tuple[int, int]]) -> list[tuple]:
+    if len(pts) < 2:
+        return []
+    closed = pts[0] == pts[-1] and len(pts) >= 4
+    if closed:
+        simplified = _rdp_closed(pts, FLAT_SIMPLIFY)
+        smoothed = _chaikin(_densify(simplified, FLAT_DENSIFY, True), FLAT_CHAIKIN, True)
+        cleaned = _rdp_closed(smoothed, FLAT_CLEAN)
+    else:
+        simplified = _rdp(pts, FLAT_SIMPLIFY)
+        smoothed = _chaikin(_densify(simplified, FLAT_DENSIFY, False), FLAT_CHAIKIN, False)
+        cleaned = _rdp(smoothed, FLAT_CLEAN)
+    rounded = []
+    for x, y in cleaned:
+        if x < HIDDEN_WEST_OF:
+            if HIDDEN_WEST_OF - x > 2:
+                raise SystemExit("secrecy: a smoothed outline stepped into the hidden west")
+            x = HIDDEN_WEST_OF
+        rx = round(float(x), 2)
+        ry = round(float(y), 2)
+        if abs(rx - round(rx)) < 1e-6:
+            rx = int(round(rx))
+        if abs(ry - round(ry)) < 1e-6:
+            ry = int(round(ry))
+        point = (rx, ry)
+        if not rounded or rounded[-1] != point:
+            rounded.append(point)
+    if closed and rounded and rounded[0] != rounded[-1]:
+        rounded.append(rounded[0])
+    if len(rounded) < (4 if closed else 2):
+        return []
+    return rounded
+
+
+def _boundary_arcs(ids: np.ndarray) -> list[dict]:
+    """One smoothed polyline per shared border, oriented with `left` on the left."""
+    height, width = ids.shape
+    pad = np.zeros((height + 2, width + 2), dtype=ids.dtype)
+    pad[1:-1, 1:-1] = ids
+    adj: dict[tuple[int, int], list[tuple[tuple[int, int], int, int]]] = defaultdict(list)
+    edges: list[tuple[tuple[int, int], tuple[int, int], int, int]] = []
+
+    def add(ax: int, ay: int, bx: int, by: int, left: int, right: int) -> None:
+        if left == right:
+            return
+        start = (ax, ay)
+        end = (bx, by)
+        if start == end:
+            return
+        adj[start].append((end, left, right))
+        edges.append((start, end, left, right))
+
+    ys, xs = np.nonzero(pad[:, 1:] != pad[:, :-1])
+    if len(ys):
+        west = pad[ys, xs]
+        east = pad[ys, xs + 1]
+        for y, x, w_id, e_id in zip(ys.tolist(), xs.tolist(), west.tolist(), east.tolist()):
+            # Map-space vertical edge at x, from y-1 to y. Walking down leaves the east id on the left.
+            mx = int(x)
+            my = int(y) - 1
+            add(mx, my, mx, my + 1, int(e_id), int(w_id))
+            add(mx, my + 1, mx, my, int(w_id), int(e_id))
+
+    ys, xs = np.nonzero(pad[1:, :] != pad[:-1, :])
+    if len(ys):
+        north = pad[ys, xs]
+        south = pad[ys + 1, xs]
+        for y, x, n_id, s_id in zip(ys.tolist(), xs.tolist(), north.tolist(), south.tolist()):
+            # Map-space horizontal edge at y, from x-1 to x. Walking right leaves the north id on the left.
+            mx = int(x) - 1
+            my = int(y)
+            add(mx, my, mx + 1, my, int(n_id), int(s_id))
+            add(mx + 1, my, mx, my, int(s_id), int(n_id))
+
+    used: set[tuple] = set()
+    arcs = []
+    for start, nxt, left, right in edges:
+        key = (start, nxt, left, right)
+        if key in used or left == right:
+            continue
+        points = [start]
+        cur = start
+        arriving = nxt
+        closed = False
+        for _ in range(len(edges) + 2):
+            step = (cur, arriving, left, right)
+            if step in used:
+                break
+            used.add(step)
+            used.add((arriving, cur, right, left))
+            points.append(arriving)
+            if arriving == start and len(points) > 2:
+                closed = True
+                break
+            incoming = (arriving[0] - cur[0], arriving[1] - cur[1])
+            options = []
+            for nb, n_left, n_right in adj[arriving]:
+                if n_left == left and n_right == right and (arriving, nb, left, right) not in used:
+                    options.append(nb)
+            if not options:
+                break
+            if len(options) == 1:
+                chosen = options[0]
+            else:
+                base = math.atan2(incoming[1], incoming[0])
+                best_delta = None
+                chosen = options[0]
+                for nb in options:
+                    delta = (math.atan2(nb[1] - arriving[1], nb[0] - arriving[0]) - base) % (2 * math.pi)
+                    if best_delta is None or delta < best_delta:
+                        best_delta = delta
+                        chosen = nb
+            cur = arriving
+            arriving = chosen
+        points = _collapse_collinear(points)
+        smoothed = _smooth_arc(points)
+        if smoothed:
+            arcs.append({"pts": smoothed, "left": left, "right": right, "closed": closed or smoothed[0] == smoothed[-1]})
+    return arcs
+
+
+def _shoelace(ring: list) -> float:
+    area = 0.0
+    for (x1, y1), (x2, y2) in zip(ring, ring[1:]):
+        area += x1 * y2 - x2 * y1
+    return area / 2
+
+
+def _point_in_ring(x: float, y: float, ring: list) -> bool:
+    inside = False
+    j = len(ring) - 1
+    for i in range(len(ring)):
+        xi, yi = ring[i]
+        xj, yj = ring[j]
+        if (yi > y) != (yj > y):
+            denom = yj - yi
+            if denom != 0 and x < (xj - xi) * (y - yi) / denom + xi:
+                inside = not inside
+        j = i
+    return inside
+
+
+def _pick_turn(incoming: tuple[float, float], directed: list[list], choices: list[int]) -> int:
+    base = math.atan2(incoming[1], incoming[0])
+    best = choices[0]
+    best_delta = None
+    for index in choices:
+        pts = directed[index]
+        delta = (math.atan2(pts[1][1] - pts[0][1], pts[1][0] - pts[0][0]) - base) % (2 * math.pi)
+        if best_delta is None or delta < best_delta:
+            best_delta = delta
+            best = index
+    return best
+
+
+def _rings_for_province(arcs: list[dict], pid: int) -> list[list]:
+    directed: list[list] = []
+    for arc in arcs:
+        pts = arc["pts"]
+        if len(pts) < 2:
+            continue
+        if arc["left"] == pid:
+            directed.append(pts)
+        elif arc["right"] == pid:
+            directed.append(list(reversed(pts)))
+    if not directed:
+        return []
+    starts: dict[tuple, list[int]] = defaultdict(list)
+    for index, pts in enumerate(directed):
+        starts[(pts[0][0], pts[0][1])].append(index)
+    used: set[int] = set()
+    rings = []
+    for index, pts in enumerate(directed):
+        if index in used:
+            continue
+        if pts[0] == pts[-1] and len(pts) >= 4:
+            used.add(index)
+            rings.append(pts)
+            continue
+        used.add(index)
+        ring = list(pts)
+        guard = 0
+        while ring[0] != ring[-1] and guard <= len(directed):
+            guard += 1
+            end = (ring[-1][0], ring[-1][1])
+            incoming = (end[0] - ring[-2][0], end[1] - ring[-2][1])
+            choices = [item for item in starts[end] if item not in used]
+            if not choices:
+                break
+            nxt = choices[0] if len(choices) == 1 else _pick_turn(incoming, directed, choices)
+            used.add(nxt)
+            ring.extend(directed[nxt][1:])
+        if len(ring) >= 4 and ring[0] == ring[-1]:
+            rings.append(ring)
+    return rings
+
+
+def _polygons_from_rings(rings: list[list]) -> list[list]:
+    info = []
+    for ring in rings:
+        area = abs(_shoelace(ring))
+        if area < 1.5 or len(ring) < 4:
+            continue
+        xs = [point[0] for point in ring]
+        ys = [point[1] for point in ring]
+        info.append(
+            {
+                "ring": [[point[0], point[1]] for point in ring],
+                "area": area,
+                "box": (min(xs), min(ys), max(xs), max(ys)),
+                "depth": 0,
+            }
+        )
+    for outer in info:
+        px, py = outer["ring"][0]
+        for other in info:
+            if other is outer or other["area"] <= outer["area"]:
+                continue
+            minx, miny, maxx, maxy = other["box"]
+            if px < minx or px > maxx or py < miny or py > maxy:
+                continue
+            if _point_in_ring(px, py, other["ring"]):
+                outer["depth"] += 1
     polys = []
-    for idx, ring in rings:
-        if int(hier[idx][3]) != -1:
+    for outer in info:
+        if outer["depth"] % 2:
             continue
         holes = []
-        child = int(hier[idx][2])
-        while child != -1:
-            hole = by_idx.get(child)
-            if hole:
-                holes.append(hole)
-            child = int(hier[child][0])
-        polys.append([ring, *holes])
+        for hole in info:
+            if hole["depth"] != outer["depth"] + 1:
+                continue
+            px, py = hole["ring"][0]
+            minx, miny, maxx, maxy = outer["box"]
+            if px < minx or px > maxx or py < miny or py > maxy:
+                continue
+            if _point_in_ring(px, py, outer["ring"]):
+                holes.append(hole["ring"])
+        polys.append([outer["ring"], *holes])
     return polys
 
 
@@ -732,9 +1063,9 @@ def write_flat_layer(ids: np.ndarray, world: dict, width: int, height: int, poli
 
     The source sheet has no pixels finer than native zoom, so the close view is a
     flat board: solid sea, solid nation color, crisp borders, and a flat fog
-    rectangle over the hidden west. No western coastline is traced.
+    rectangle over the hidden west. No western coastline is traced. Neighboring
+    provinces share one smoothed border, so the fills meet without gaps.
     """
-    cv2 = _cv2()
     nation_of: dict[int, int] = {}
     color_of: dict[int, str] = {}
     for nation in world["nations"]:
@@ -745,12 +1076,15 @@ def write_flat_layer(ids: np.ndarray, world: dict, width: int, height: int, poli
             nation_of[int(pid)] = int(nation["id"])
             color_of[int(pid)] = color
 
-    max_id = int(ids.max())
-    lut = np.zeros(max_id + 1, np.int32)
-    for pid, nid in nation_of.items():
-        if 0 < pid <= max_id:
-            lut[pid] = nid
-    nation_grid = lut[ids]
+    log("  tracing shared borders…")
+    arcs = _boundary_arcs(ids)
+    log(f"  {len(arcs)} shared borders")
+    by_pid: dict[int, list[dict]] = defaultdict(list)
+    for arc in arcs:
+        if arc["left"]:
+            by_pid[arc["left"]].append(arc)
+        if arc["right"]:
+            by_pid[arc["right"]].append(arc)
 
     features = [
         {
@@ -769,24 +1103,27 @@ def write_flat_layer(ids: np.ndarray, world: dict, width: int, height: int, poli
         }
     ]
 
+    counts = np.bincount(ids.ravel())
     pids = sorted(int(pid) for pid in world["provinces"])
     province_count = 0
+    bad_shape = 0
     for pid in pids:
         box = world["provinces"][str(pid)]["bbox"]
-        minx, miny, maxx, maxy = (int(v) for v in box)
-        if minx < HIDDEN_WEST_OF:
+        if int(box[0]) < HIDDEN_WEST_OF:
             raise SystemExit(f"secrecy: flat province {pid} bbox starts in the hidden west")
-        sub = ids[miny : maxy + 1, minx : maxx + 1]
-        if sub.size == 0 or int((sub == pid).sum()) < 6:
+        pixels = int(counts[pid]) if pid < len(counts) else 0
+        if pixels < 6:
             continue
-        mask = np.zeros((sub.shape[0] + 2, sub.shape[1] + 2), np.uint8)
-        mask[1:-1, 1:-1] = sub == pid
-        rings, hier = _trace_rings(cv2, mask, minx - 1, miny - 1, FLAT_EPSILON)
-        if hier is None:
-            continue
-        polys = _polygons_from_rings(rings, hier)
+        polys = _polygons_from_rings(_rings_for_province(by_pid.get(pid, []), pid))
         if not polys:
             continue
+        poly_area = 0.0
+        for poly in polys:
+            poly_area += abs(_shoelace(poly[0]))
+            for hole in poly[1:]:
+                poly_area -= abs(_shoelace(hole))
+        if pixels >= 40 and not (0.45 * pixels <= poly_area <= 1.8 * pixels):
+            bad_shape += 1
         features.append(
             {
                 "type": "Feature",
@@ -801,22 +1138,19 @@ def write_flat_layer(ids: np.ndarray, world: dict, width: int, height: int, poli
         )
         province_count += 1
         if province_count % 500 == 0:
-            log(f"  traced {province_count} provinces")
+            log(f"  assembled {province_count} provinces")
+    if bad_shape:
+        log(f"  {bad_shape} provinces changed area more than expected")
+        if bad_shape > max(30, int(len(pids) * 0.03)):
+            raise SystemExit("flat borders drifted too far from the province shapes")
 
     nation_lines = []
-    for nation in world["nations"]:
-        minx, miny, maxx, maxy = (int(v) for v in nation["bbox"])
-        minx = max(minx, HIDDEN_WEST_OF)
-        if maxx < minx or maxy < miny:
+    for arc in arcs:
+        left_nation = nation_of.get(arc["left"], 0)
+        right_nation = nation_of.get(arc["right"], 0)
+        if left_nation == right_nation:
             continue
-        sub = nation_grid[miny : maxy + 1, minx : maxx + 1]
-        if sub.size == 0 or int((sub == int(nation["id"])).sum()) < 6:
-            continue
-        mask = np.zeros((sub.shape[0] + 2, sub.shape[1] + 2), np.uint8)
-        mask[1:-1, 1:-1] = sub == int(nation["id"])
-        rings, _hier = _trace_rings(cv2, mask, minx - 1, miny - 1, FLAT_EPSILON)
-        for _idx, ring in rings:
-            nation_lines.append(ring)
+        nation_lines.append([[point[0], point[1]] for point in arc["pts"]])
     if nation_lines:
         features.append(
             {
