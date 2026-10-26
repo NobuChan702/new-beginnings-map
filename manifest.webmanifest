@@ -1,0 +1,8 @@
+{
+  "name": "New Beginnings – World Map",
+  "short_name": "New Beginnings",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#0D0D0F",
+  "theme_color": "#0B1A4A"
+}
