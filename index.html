@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0B1A4A">
+  <title>New Beginnings – World Map</title>
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="css/map.css">
+</head>
+<body>
+  <header>
+    <h1>New Beginnings – World Map</h1>
+    <div class="search">
+      <label class="sr-only" for="nation-search">Search nations or a province ID</label>
+      <input id="nation-search" type="search" placeholder="Search nations or province ID" autocomplete="off" spellcheck="false" enterkeyhint="search">
+      <ul id="search-results" hidden></ul>
+    </div>
+  </header>
+  <div id="map" role="application" aria-label="New Beginnings world map"></div>
+  <aside id="info">
+    <button type="button" id="info-toggle" aria-expanded="true">How to pick</button>
+    <div class="info-body">
+      <p>How to pick: find a nation, click it, and DM Blake its name. Nation names are placeholders: you can rename yours and choose a real-world or custom culture. The western lands are unexplored.</p>
+    </div>
+  </aside>
+  <div id="depth-legend" hidden>
+    <span><i class="swatch shallow"></i>Shallow</span>
+    <span><i class="swatch mid"></i>Mid</span>
+    <span><i class="swatch deep"></i>Deep</span>
+  </div>
+  <p id="status" class="status" role="status" hidden></p>
+  <noscript><p class="noscript">New Beginnings needs JavaScript to show the map.</p></noscript>
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/map.js"></script>
+</body>
+</html>
