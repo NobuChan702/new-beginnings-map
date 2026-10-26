@@ -222,6 +222,9 @@
     state.meta = meta;
     state.imageBounds = L.latLngBounds([0, 0], [meta.height, meta.width]);
     const maxZoom = Math.max(CFG.maxZoom, meta.native_zoom);
+    // Keep infinite: true. Leaflet's Simple CRS uses a longitude/latitude
+    // projection whose world is only -180..180. With infinite turned off,
+    // every tile of this 12000px sheet is rejected and the map stays blank.
     const crs = L.extend({}, L.CRS.Simple, {
       transformation: new L.Transformation(1, 0, 1, 0),
       scale: function (zoom) {
@@ -235,7 +238,7 @@
         const dy = b.lat - a.lat;
         return Math.sqrt(dx * dx + dy * dy) * meta.km_per_px * 1000;
       },
-      infinite: false,
+      infinite: true,
     });
     const map = L.map("map", {
       crs: crs,
