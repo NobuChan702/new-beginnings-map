@@ -50,6 +50,7 @@ Commit the regenerated files:
 - `data/world.json`
 - `data/lookup.png`
 - `data/meta.json`
+- `data/flat.geojson`
 - `assets/overview.webp`
 - `assets/empty.webp` and `assets/blank.webp`
 
@@ -79,7 +80,7 @@ A taken nation gets a red hatch, a Taken marker at its capital, and “Claimed b
 
 Edit `data/infrastructure.geojson`. Coordinates are image pixels, `[x, y]`, with x increasing east from the left edge and y increasing south from the top. Those numbers are the map longitude and latitude. The layer is vector, so roads and markers stay sharp when the map is zoomed past the raster.
 
-`properties.kind` is `road`, `port`, `fort`, or `trade_route`. `properties.name` is the label. Ports and forts are points. Roads and trade routes are lines.
+`properties.kind` is `road`, `port`, `fort`, `trade_route`, or `supply_route`. `properties.name` is the label. Ports and forts are points. Roads, trade routes, and supply routes are lines. Supply routes draw as red dashed strokes.
 
 ```json
 {
@@ -104,17 +105,18 @@ Edit `data/infrastructure.geojson`. Coordinates are image pixels, `[x, y]`, with
 
 The committed file starts empty. Commit and push after editing. A rebuild is not required. Players toggle the layer under Layers → Roads and places.
 
-## Zoom crossfade
+## Zoom
 
 Thresholds live in `js/config.js`.
 
 - Below `politicalOpaqueUntil` the political map is solid.
-- By `politicalFadeEnd` it has faded to `politicalTintOpacity` over the terrain, and province borders have faded in.
-- `maxZoom` can sit above native resolution so the map overzooms. Native resolution is `native_zoom` in `data/meta.json` (6 for the current 12000×5600 sheet).
+- By `politicalFadeEnd` it has faded to `politicalTintOpacity` over the terrain, and province borders have faded in. That fade finishes before native zoom, while the picture is still sharp.
+- Province id labels start at `provinceLabelMinZoom` and stay available through the closest zoom.
+- `overzoomLevels` is how many steps past native resolution the map allows. Native resolution is `native_zoom` in `data/meta.json` (6 for the current 12000×5600 sheet). The source art is 5.5 km per pixel, so the raster cannot get sharper than that. Zoom 7 through 9 does not magnify the painting. It crossfades, across `flatFadeStartOffset` to `flatFadeEndOffset` past native zoom, to a flat board: solid nation colors, crisp province and nation outlines, and a flat opaque fog over the hidden west. Roads and routes stay vector strokes on top of that board.
 
-Reload the page after editing. A rebuild is not required unless the image size changes and the build picks a new native zoom. If that happens, retune the thresholds to the new zoom numbers.
+Reload the page after editing the numbers. A rebuild is not required unless the image size or the province borders change. Borders live in `data/flat.geojson`, which the build writes. Do not draw the hidden west into that file; the fog feature is a plain rectangle.
 
-The view control can force Political, Terrain, or Depth. Auto is the crossfade.
+The view control can force Political, Terrain, or Depth while the photo is showing. Past native zoom every view becomes the same flat board.
 
 ## Minimap
 

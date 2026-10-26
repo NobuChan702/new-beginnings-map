@@ -31,6 +31,11 @@ html, body {
   font-family: inherit;
 }
 
+/* Overscaled photo tiles stay soft during the short fade into the flat board. */
+.leaflet-layer.nb-raster .leaflet-tile {
+  image-rendering: auto;
+}
+
 header {
   position: fixed;
   z-index: 1300;

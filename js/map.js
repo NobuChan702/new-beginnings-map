@@ -4,13 +4,16 @@
   const CFG = Object.assign(
     {
       minZoom: 0,
-      maxZoom: 8,
+      overzoomLevels: 3,
       politicalOpaqueUntil: 2,
       politicalFadeEnd: 4.25,
       politicalTintOpacity: 0.28,
       outlinesFadeStart: 2.75,
       outlinesFadeEnd: 4.5,
       outlineOpacity: 0.9,
+      provinceLabelMinZoom: 5,
+      flatFadeStartOffset: 0,
+      flatFadeEndOffset: 1,
     },
     window.NB_CONFIG || {}
   );
@@ -33,6 +36,12 @@
     claimUrl: null,
     claimMarkers: null,
     infraLayer: null,
+    flatLayer: null,
+    flatRenderer: null,
+    flatBorderOn: null,
+    flatCollection: null,
+    markLayer: null,
+    marksRenderer: null,
     imageBounds: null,
     activeNationId: null,
   };
@@ -124,6 +133,53 @@
     return fade(zoom, CFG.outlinesFadeStart, CFG.outlinesFadeEnd, 0, CFG.outlineOpacity);
   }
 
+  function zoomCeiling(meta) {
+    const extra = Number(CFG.overzoomLevels);
+    const levels = Number.isFinite(extra) ? extra : 3;
+    return meta.native_zoom + levels;
+  }
+
+  function flatAmount(zoom) {
+    if (!state.flatLayer || !state.meta) return 0;
+    const native = state.meta.native_zoom;
+    const start = native + Number(CFG.flatFadeStartOffset || 0);
+    const endOffset = CFG.flatFadeEndOffset == null ? 1 : Number(CFG.flatFadeEndOffset);
+    const end = Math.max(start + 0.05, native + endOffset);
+    return fade(zoom, start, end, 0, 1);
+  }
+
+  function flatStyle(feature) {
+    const props = (feature && feature.properties) || {};
+    const kind = props.kind;
+    const borders = state.overlays.borders;
+    if (kind === "sea" || kind === "fog") {
+      return { stroke: false, fill: true, fillColor: props.color || "#0B1A4A", fillOpacity: 1, interactive: false };
+    }
+    if (kind === "province") {
+      return {
+        stroke: !!borders,
+        color: "#16140f",
+        weight: borders ? 1 : 0,
+        opacity: 0.9,
+        lineJoin: "round",
+        fill: true,
+        fillColor: props.color || "#8d8678",
+        fillOpacity: 1,
+        interactive: false,
+      };
+    }
+    return {
+      stroke: !!borders,
+      color: "#E6E6EA",
+      weight: borders ? 2.5 : 0,
+      opacity: 1,
+      lineJoin: "round",
+      lineCap: "round",
+      fill: false,
+      interactive: false,
+    };
+  }
+
   function setOn(layer, on) {
     const map = state.map;
     if (!layer || !map) return;
@@ -141,48 +197,66 @@
     });
   }
 
+  function showPhoto(layer, opacity) {
+    if (!layer) return;
+    if (opacity <= 0.01) {
+      // Leave an already-mounted photo in place at opacity 0 so zooming back
+      // does not wait on tiles, and so the flat board is what the player sees.
+      if (state.map.hasLayer(layer)) layer.setOpacity(0);
+      return;
+    }
+    setOn(layer, true);
+    layer.setOpacity(opacity);
+  }
+
   function applyMode() {
     const map = state.map;
     if (!map) return;
     const zoom = map.getZoom();
     const borders = state.overlays.borders;
+    const flat = flatAmount(zoom);
+    const photo = 1 - flat;
     const political = state.layers.political;
     const terrain = state.layers.terrain;
     const depth = state.layers.depth;
     const outlines = state.layers.outlines;
     if (state.mode === "political") {
-      setOn(political, true);
-      political.setOpacity(1);
+      showPhoto(political, photo);
       setOn(terrain, false);
       setOn(depth, false);
-      setOn(outlines, borders);
-      if (borders) outlines.setOpacity(CFG.outlineOpacity);
+      showPhoto(outlines, borders ? CFG.outlineOpacity * photo : 0);
     } else if (state.mode === "terrain") {
-      setOn(terrain, true);
-      terrain.setOpacity(1);
+      showPhoto(terrain, photo);
       setOn(political, false);
       setOn(depth, false);
-      setOn(outlines, borders);
-      if (borders) outlines.setOpacity(CFG.outlineOpacity);
+      showPhoto(outlines, borders ? CFG.outlineOpacity * photo : 0);
     } else if (state.mode === "depth") {
-      setOn(depth, true);
-      depth.setOpacity(1);
+      showPhoto(depth, photo);
       setOn(political, false);
       setOn(terrain, false);
-      setOn(outlines, borders);
-      if (borders) outlines.setOpacity(CFG.outlineOpacity * 0.7);
+      showPhoto(outlines, borders ? CFG.outlineOpacity * 0.7 * photo : 0);
     } else {
-      setOn(terrain, true);
-      terrain.setOpacity(1);
-      setOn(political, true);
-      political.setOpacity(politicalOpacity(zoom));
+      showPhoto(terrain, photo);
+      showPhoto(political, politicalOpacity(zoom) * photo);
       setOn(depth, false);
-      const amount = outlineOpacity(zoom);
-      setOn(outlines, borders && amount > 0.02);
-      if (borders && map.hasLayer(outlines)) outlines.setOpacity(amount);
+      const amount = outlineOpacity(zoom) * photo;
+      showPhoto(outlines, borders ? amount : 0);
     }
     stackRasters();
-    document.getElementById("depth-legend").hidden = state.mode !== "depth";
+    if (state.claimLayer && map.hasLayer(state.claimLayer)) state.claimLayer.setOpacity(photo);
+    if (state.highlightLayer && map.hasLayer(state.highlightLayer)) state.highlightLayer.setOpacity(photo);
+    const pane = map.getPane("flat");
+    if (pane) pane.style.opacity = flat > 0.02 ? String(flat) : "0";
+    setOn(state.flatLayer, flat > 0.02);
+    const marks = map.getPane("marks");
+    if (marks) marks.style.opacity = flat > 0.02 ? String(flat) : "0";
+    setOn(state.markLayer, state.overlays.claims && flat > 0.02);
+    if (state.overlays.claims && flat > 0.02) installHatchPattern();
+    if (state.flatLayer && state.flatBorderOn !== borders) {
+      state.flatLayer.setStyle(flatStyle);
+      state.flatBorderOn = borders;
+    }
+    document.getElementById("depth-legend").hidden = state.mode !== "depth" || flat > 0.98;
   }
 
   function syncClaimVisibility() {
@@ -209,8 +283,9 @@
       tileSize: meta.tile_size,
       noWrap: true,
       minZoom: CFG.minZoom,
-      maxZoom: Math.max(CFG.maxZoom, meta.native_zoom),
+      maxZoom: zoomCeiling(meta),
       maxNativeZoom: meta.native_zoom,
+      className: "nb-raster",
       bounds: state.imageBounds,
       errorTileUrl: errorTile,
       updateWhenZooming: false,
@@ -221,7 +296,7 @@
   function initMap(meta) {
     state.meta = meta;
     state.imageBounds = L.latLngBounds([0, 0], [meta.height, meta.width]);
-    const maxZoom = Math.max(CFG.maxZoom, meta.native_zoom);
+    const maxZoom = zoomCeiling(meta);
     // Keep infinite: true. Leaflet's Simple CRS uses a longitude/latitude
     // projection whose world is only -180..180. With infinite turned off,
     // every tile of this 12000px sheet is rejected and the map stays blank.
@@ -256,6 +331,19 @@
       inertia: true,
     });
     state.map = map;
+    window.nbMap = map;
+    map.createPane("flat");
+    const flatPane = map.getPane("flat");
+    flatPane.style.zIndex = "350";
+    flatPane.style.pointerEvents = "none";
+    flatPane.style.opacity = "0";
+    state.flatRenderer = L.canvas({ pane: "flat", padding: 0.5 });
+    map.createPane("marks");
+    const marksPane = map.getPane("marks");
+    marksPane.style.zIndex = "360";
+    marksPane.style.pointerEvents = "none";
+    marksPane.style.opacity = "0";
+    state.marksRenderer = L.svg({ pane: "marks", padding: 0.5 });
     map.zoomControl.setPosition("topleft");
     state.layers.terrain = makeTileLayer("terrain", "assets/empty.webp");
     state.layers.political = makeTileLayer("political", "assets/empty.webp");
@@ -1008,6 +1096,75 @@
     });
     paintClaims();
     syncClaimVisibility();
+    rebuildMarks();
+  }
+
+  function installHatchPattern() {
+    const svg = document.querySelector(".leaflet-marks-pane svg");
+    if (!svg || svg.querySelector("#nb-claim-hatch")) return;
+    const ns = "http://www.w3.org/2000/svg";
+    const defs = document.createElementNS(ns, "defs");
+    const pattern = document.createElementNS(ns, "pattern");
+    pattern.setAttribute("id", "nb-claim-hatch");
+    pattern.setAttribute("patternUnits", "userSpaceOnUse");
+    pattern.setAttribute("width", "8");
+    pattern.setAttribute("height", "8");
+    pattern.setAttribute("patternTransform", "rotate(45)");
+    const wash = document.createElementNS(ns, "rect");
+    wash.setAttribute("width", "8");
+    wash.setAttribute("height", "8");
+    wash.setAttribute("fill", "rgba(188,5,1,0.16)");
+    const stripe = document.createElementNS(ns, "path");
+    stripe.setAttribute("d", "M0 0 H8");
+    stripe.setAttribute("stroke", "#BC0501");
+    stripe.setAttribute("stroke-width", "3");
+    pattern.appendChild(wash);
+    pattern.appendChild(stripe);
+    defs.appendChild(pattern);
+    svg.insertBefore(defs, svg.firstChild);
+  }
+
+  function rebuildMarks() {
+    const map = state.map;
+    if (!map) return;
+    if (state.markLayer) {
+      map.removeLayer(state.markLayer);
+      state.markLayer = null;
+    }
+    if (!state.flatCollection) return;
+    const claimed = new Set();
+    state.claims.forEach(function (_name, id) {
+      const nation = state.nationsById.get(Number(id));
+      if (nation) claimed.add(nation.id);
+    });
+    if (!claimed.size) return;
+    const features = [];
+    state.flatCollection.features.forEach(function (feature) {
+      const props = feature.properties || {};
+      if (props.kind === "province" && claimed.has(props.nation_id)) {
+        features.push({ type: "Feature", properties: { role: "claim" }, geometry: feature.geometry });
+      }
+    });
+    if (!features.length) return;
+    state.markLayer = L.geoJSON(
+      { type: "FeatureCollection", features: features },
+      {
+        pane: "marks",
+        renderer: state.marksRenderer,
+        smoothFactor: 0,
+        interactive: false,
+        bubblingMouseEvents: false,
+        style: function () {
+          return {
+            stroke: false,
+            fill: true,
+            fillColor: "url(#nb-claim-hatch)",
+            fillOpacity: 1,
+            interactive: false,
+          };
+        },
+      }
+    );
   }
 
   function kindLabel(kind) {
@@ -1015,17 +1172,38 @@
     if (kind === "port") return "Port";
     if (kind === "fort") return "Fort";
     if (kind === "trade_route") return "Trade route";
+    if (kind === "supply_route") return "Supply route";
     return kind ? String(kind) : "Place";
+  }
+
+  function applyFlat(collection) {
+    if (!collection || collection.type !== "FeatureCollection" || !collection.features || !state.map) return;
+    state.flatCollection = collection;
+    if (state.flatLayer) state.map.removeLayer(state.flatLayer);
+    state.flatLayer = L.geoJSON(collection, {
+      pane: "flat",
+      renderer: state.flatRenderer,
+      smoothFactor: 0,
+      interactive: false,
+      bubblingMouseEvents: false,
+      style: flatStyle,
+    });
+    state.flatBorderOn = state.overlays.borders;
+    rebuildMarks();
+    applyMode();
   }
 
   function applyInfra(collection) {
     const data = collection && collection.type === "FeatureCollection" ? collection : { type: "FeatureCollection", features: [] };
     state.infraLayer = L.geoJSON(data, {
+      renderer: L.svg({ padding: 0.5 }),
+      smoothFactor: 0,
       style: function (feature) {
         const kind = feature.properties && feature.properties.kind;
-        if (kind === "trade_route") return { color: "#E6E6EA", weight: 2, opacity: 0.9, dashArray: "7 6" };
+        if (kind === "trade_route") return { color: "#E6E6EA", weight: 2.5, opacity: 0.95, dashArray: "8 6", lineCap: "butt" };
+        if (kind === "supply_route") return { color: "#BC0501", weight: 2.5, opacity: 0.95, dashArray: "2 7", lineCap: "butt" };
         if (kind === "fort") return { color: "#BC0501", weight: 2, fillColor: "#0B1A4A", fillOpacity: 1 };
-        return { color: "#E6E6EA", weight: 2, opacity: 0.9 };
+        return { color: "#E6E6EA", weight: 2.5, opacity: 0.95, lineJoin: "round", lineCap: "round" };
       },
       pointToLayer: function (feature, latlng) {
         const kind = feature.properties && feature.properties.kind;
@@ -1087,6 +1265,14 @@
     });
     initMap(meta);
     const stamp = Date.now();
+    const flatPromise = fetch("data/flat.geojson")
+      .then(function (res) {
+        if (!res.ok) throw new Error("flat");
+        return res.json();
+      })
+      .catch(function () {
+        return null;
+      });
     const [world, claims, infra, lut] = await Promise.all([
       fetch("data/world.json").then(function (res) {
         if (!res.ok) throw new Error("world");
@@ -1119,6 +1305,8 @@
     });
     if (location.hash.indexOf("#nation=") === 0) openHash(true);
     setStatus("", false);
+    const flat = await flatPromise;
+    if (flat) applyFlat(flat);
   }
 
   main().catch(function (err) {
