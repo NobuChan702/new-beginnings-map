@@ -432,6 +432,24 @@ h1 {
   cursor: pointer;
 }
 
+.prov-id-label {
+  background: transparent;
+  border: 0;
+  pointer-events: none;
+}
+
+.prov-id-label span {
+  display: inline-block;
+  background: rgba(13, 13, 15, 0.78);
+  color: var(--silver);
+  border: 1px solid rgba(230, 230, 234, 0.45);
+  font-size: 11px;
+  line-height: 14px;
+  padding: 0 3px;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
 .claim-marker { background: transparent; border: 0; }
 .claim-marker span {
   display: block;

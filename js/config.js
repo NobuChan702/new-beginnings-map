@@ -16,4 +16,7 @@ window.NB_CONFIG = {
   outlinesFadeStart: 2.75,
   outlinesFadeEnd: 4.5,
   outlineOpacity: 0.9,
+
+  // Layers → Province IDs draws numbers only at this zoom and closer.
+  provinceLabelMinZoom: 5,
 };

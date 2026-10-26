@@ -23,7 +23,8 @@
     provinces: new Map(),
     claims: new Map(),
     mode: "auto",
-    overlays: { borders: true, claims: true, infra: true },
+    overlays: { borders: true, claims: true, infra: true, ids: false },
+    labelLayer: null,
     map: null,
     layers: {},
     highlightLayer: null,
@@ -260,7 +261,9 @@
     L.control.scale({ imperial: false, metric: true, position: "bottomright", maxWidth: 160 }).addTo(map);
     installMinimap(map, meta);
     installLayers(map);
+    state.labelLayer = L.layerGroup();
     map.on("zoom", applyMode);
+    map.on("moveend zoomend", refreshProvinceLabels);
     map.fitBounds(state.imageBounds, {
       paddingTopLeft: [12, headerOffset() + 8],
       paddingBottomRight: [12, 12],
@@ -291,6 +294,7 @@
           '<label><input type="checkbox" data-overlay="borders" checked> Province borders</label>' +
           '<label><input type="checkbox" data-overlay="claims" checked> Claimed nations</label>' +
           '<label><input type="checkbox" data-overlay="infra" checked> Roads and places</label>' +
+          '<label><input type="checkbox" data-overlay="ids"> Province IDs</label>' +
           "</div>";
         L.DomEvent.disableClickPropagation(el);
         L.DomEvent.disableScrollPropagation(el);
@@ -315,6 +319,7 @@
             applyMode();
             syncClaimVisibility();
             syncInfraVisibility();
+            refreshProvinceLabels();
           });
         });
         return el;
@@ -589,11 +594,18 @@
       nation.province_count +
       " provinces · " +
       fmtArea(nation.area_km2) +
-      '</p><p class="meta">Capital: province ' +
+      '</p><p class="meta">Capital: Province ' +
       nation.capital_province +
       "</p>" +
       (who ? '<div class="claim">Claimed by ' + esc(who) + "</div>" : "") +
-      (prov ? '<hr><p class="meta">This province · ' + fmtArea(prov.area_km2) + "</p>" + provinceFields(prov) : "") +
+      (prov
+        ? '<hr><p class="meta">Province ' +
+          (state.provinces.has(provinceId) ? provinceId : nation.capital_province) +
+          " · " +
+          fmtArea(prov.area_km2) +
+          "</p>" +
+          provinceFields(prov)
+        : "") +
       "</div>"
     );
   }
@@ -632,16 +644,88 @@
     }
   }
 
-  function flyToNation(nation) {
-    const box = nation.bbox;
+  function flyToBox(box, maxZoom) {
     const bounds = L.latLngBounds([box[1], box[0]], [box[3], box[2]]);
     const mini = document.querySelector(".nb-minimap");
     const right = mini && !mini.classList.contains("is-collapsed") ? mini.offsetWidth + 24 : 20;
     state.map.fitBounds(bounds, {
       paddingTopLeft: [20, headerOffset() + 12],
       paddingBottomRight: [right, 24],
-      maxZoom: 5,
+      maxZoom: maxZoom,
       animate: true,
+    });
+  }
+
+  function flyToNation(nation) {
+    flyToBox(nation.bbox, 5);
+  }
+
+  function provinceIsPublic(id, prov) {
+    if (!prov || !state.meta) return false;
+    if (prov.bbox && prov.bbox[0] < state.meta.hidden_west_of) return false;
+    if (prov.xy && prov.xy[0] < state.meta.hidden_west_of) return false;
+    return state.provinces.has(id);
+  }
+
+  function provinceFill(prov) {
+    if (prov.nation_id && state.nationsById.has(prov.nation_id)) {
+      return hexToRgb(state.nationsById.get(prov.nation_id).color);
+    }
+    return [230, 230, 234];
+  }
+
+  function selectProvince(id, options) {
+    options = options || {};
+    const prov = state.provinces.get(id);
+    if (!provinceIsPublic(id, prov) || !prov.bbox || !prov.xy) return;
+    showHighlight([id], provinceFill(prov));
+    setNationHash(null);
+    if (options.fly) flyToBox(prov.bbox, 6);
+    if (options.popup) {
+      const latlng = L.latLng(prov.xy[1], prov.xy[0]);
+      if (prov.nation_id && state.nationsById.has(prov.nation_id)) {
+        openPopup(latlng, nationHtml(state.nationsById.get(prov.nation_id), id));
+      } else {
+        openPopup(latlng, unclaimedHtml(id, prov));
+      }
+    }
+  }
+
+  function refreshProvinceLabels() {
+    const map = state.map;
+    if (!map || !state.labelLayer) return;
+    state.labelLayer.clearLayers();
+    const enabled = state.overlays.ids && map.getZoom() >= (CFG.provinceLabelMinZoom || 5);
+    if (!enabled) {
+      if (map.hasLayer(state.labelLayer)) map.removeLayer(state.labelLayer);
+      return;
+    }
+    if (!map.hasLayer(state.labelLayer)) state.labelLayer.addTo(map);
+    const bounds = map.getBounds();
+    const west = bounds.getWest();
+    const east = bounds.getEast();
+    const south = bounds.getSouth();
+    const north = bounds.getNorth();
+    let drawn = 0;
+    state.provinces.forEach(function (prov, id) {
+      if (drawn >= 180) return;
+      if (!provinceIsPublic(id, prov) || !prov.xy || !prov.bbox) return;
+      const box = prov.bbox;
+      if (box[2] < west || box[0] > east || box[3] < south || box[1] > north) return;
+      const label = String(id);
+      const width = Math.max(22, label.length * 8 + 8);
+      const marker = L.marker([prov.xy[1], prov.xy[0]], {
+        icon: L.divIcon({
+          className: "prov-id-label",
+          html: "<span>" + label + "</span>",
+          iconSize: [width, 16],
+          iconAnchor: [Math.round(width / 2), 8],
+        }),
+        interactive: false,
+        keyboard: false,
+      });
+      marker.addTo(state.labelLayer);
+      drawn += 1;
     });
   }
 
@@ -713,24 +797,33 @@
         results.hidden = true;
         return;
       }
-      list.forEach(function (nation, index) {
+      list.forEach(function (entry, index) {
         const item = document.createElement("li");
         const button = document.createElement("button");
         button.type = "button";
-        button.textContent = nation.short_name;
-        const tier = document.createElement("span");
-        tier.className = "tier";
-        tier.textContent = labelTier(nation.tier);
-        button.appendChild(tier);
-        if (state.claims.has(String(nation.id))) {
-          const taken = document.createElement("span");
-          taken.className = "taken";
-          taken.textContent = "Taken";
-          button.appendChild(taken);
+        if (entry.kind === "province") {
+          button.textContent = "Province " + entry.id;
+          const tier = document.createElement("span");
+          tier.className = "tier";
+          const nation = entry.prov.nation_id && state.nationsById.get(entry.prov.nation_id);
+          tier.textContent = nation ? nation.short_name : "Unclaimed";
+          button.appendChild(tier);
+        } else {
+          button.textContent = entry.nation.short_name;
+          const tier = document.createElement("span");
+          tier.className = "tier";
+          tier.textContent = labelTier(entry.nation.tier);
+          button.appendChild(tier);
+          if (state.claims.has(String(entry.nation.id))) {
+            const taken = document.createElement("span");
+            taken.className = "taken";
+            taken.textContent = "Taken";
+            button.appendChild(taken);
+          }
         }
         if (index === 0) button.classList.add("is-active");
         button.addEventListener("click", function () {
-          choose(nation);
+          choose(entry);
         });
         item.appendChild(button);
         results.appendChild(item);
@@ -748,10 +841,15 @@
       if (chosen) chosen.scrollIntoView({ block: "nearest" });
     }
 
-    function choose(nation) {
+    function choose(entry) {
       hide();
-      input.value = nation.short_name;
-      selectNation(nation, { fly: true, popup: true, provinceId: nation.capital_province });
+      if (entry.kind === "province") {
+        input.value = String(entry.id);
+        selectProvince(entry.id, { fly: true, popup: true });
+        return;
+      }
+      input.value = entry.nation.short_name;
+      selectNation(entry.nation, { fly: true, popup: true, provinceId: entry.nation.capital_province });
     }
 
     input.addEventListener("input", function () {
@@ -760,17 +858,26 @@
         hide();
         return;
       }
+      const items = [];
+      if (/^\d+$/.test(query)) {
+        const id = Number(query);
+        if (state.nationsById.has(id)) items.push({ kind: "nation", nation: state.nationsById.get(id) });
+        const prov = state.provinces.get(id);
+        if (provinceIsPublic(id, prov)) items.push({ kind: "province", id: id, prov: prov });
+      }
       const starts = [];
       const rest = [];
       state.nations.forEach(function (nation) {
         const name = nation.short_name.toLowerCase();
         const full = nation.name.toLowerCase();
         const id = String(nation.id);
-        if (!(name.includes(query) || full.includes(query) || id === query)) return;
-        if (name.startsWith(query) || id === query) starts.push(nation);
-        else rest.push(nation);
+        if (id === query) return;
+        if (!(name.includes(query) || full.includes(query))) return;
+        const entry = { kind: "nation", nation: nation };
+        if (name.startsWith(query)) starts.push(entry);
+        else rest.push(entry);
       });
-      render(starts.concat(rest).slice(0, 8));
+      render(items.concat(starts, rest).slice(0, 8));
     });
 
     input.addEventListener("keydown", function (event) {

@@ -531,14 +531,25 @@ def build_world(paths: dict[str, Path], ids: np.ndarray, allowed: set[int], boxe
             ((str(k), as_num(v)) for k, v in mix.items() if float(v) >= 1),
             key=lambda item: -float(item[1]),
         )[:5]
+        box = boxes[pid]
+        centroid = (prov or {}).get("centroid")
+        if centroid and float(centroid[0]) >= HIDDEN_WEST_OF:
+            xy = [round(float(centroid[0]), 1), round(float(centroid[1]), 1)]
+        else:
+            xy = [
+                round((int(box["minx"]) + int(box["maxx"])) / 2, 1),
+                round((int(box["miny"]) + int(box["maxy"])) / 2, 1),
+            ]
         record = {
             "area_km2": as_num(prov["area_km2"] if prov else terr.get("area_km2") or 0),
             "terrain": terr.get("dominant") or "unknown",
             "mix": [[name, pct] for name, pct in mix_pairs],
             "river": bool(terr.get("river")),
             "coastal": bool(terr.get("coastal")),
-            "water": depth_word(boxes[pid].get("water")),
+            "water": depth_word(box.get("water")),
             "nation_id": nation_of.get(pid),
+            "bbox": [int(box["minx"]), int(box["miny"]), int(box["maxx"]), int(box["maxy"])],
+            "xy": xy,
         }
         published_provinces[str(pid)] = record
 
@@ -567,6 +578,10 @@ def secrecy_check(world: dict, lookup_path: Path, allowed: set[int]) -> None:
             raise SystemExit(f"secrecy: province {pid} was published")
         if prov.get("nation_id") is not None and prov["nation_id"] not in {n["id"] for n in world["nations"]}:
             raise SystemExit(f"secrecy: province {pid} points at an unpublished nation")
+        bbox = prov.get("bbox") or [HIDDEN_WEST_OF, 0, HIDDEN_WEST_OF, 0]
+        xy = prov.get("xy") or [HIDDEN_WEST_OF, 0]
+        if int(bbox[0]) < HIDDEN_WEST_OF or float(xy[0]) < HIDDEN_WEST_OF:
+            raise SystemExit(f"secrecy: province {pid} anchor sits in the hidden west")
     for nation in world["nations"]:
         for pid in nation["provinces"]:
             if pid not in allowed:

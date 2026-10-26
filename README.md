@@ -57,6 +57,12 @@ Leave `source/` untracked. Push to `main` (or open a pull request). GitHub Actio
 
 `nations.yaml` may contain a `removed_americas` section and a spare `palette`. The build ignores both and does not write them.
 
+## Search
+
+The header box finds a nation by name. Type a province id, such as `1459`, to fly to that province and open its popup (`Province 1459`). Only provinces on the published side of the map resolve. A hidden id produces no result.
+
+Layers → Province IDs draws those same ids on the map once you are zoomed in. The zoom cutoff is `provinceLabelMinZoom` in `js/config.js`.
+
 ## Claims
 
 Edit `data/claims.json`. Keys are nation ids as strings. Values are player names. `{}` means nothing is taken.
