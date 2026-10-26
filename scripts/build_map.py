@@ -9,6 +9,8 @@ secrecy line), then writes only player-safe outputs:
   province-outline tiles for published provinces
 - data/lookup.png, an eastern-only province id image
 - data/world.json and data/meta.json
+- data/flat.geojson, eastern province fills plus nation outlines for the
+  close zoom (a flat board, not a sharper copy of the raster)
 - assets/overview.webp, a low-resolution fogged political image
 
 Provinces that touch x < HIDDEN_WEST_OF are omitted. The removed_americas
@@ -601,6 +603,291 @@ def secrecy_check(world: dict, lookup_path: Path, allowed: set[int]) -> None:
     log("  secrecy checks passed")
 
 
+FLAT_EPSILON = 1.25
+UNCLAIMED_COLOR = "#8d8678"
+SEA_COLOR = "#0B1A4A"
+
+
+def _cv2():
+    try:
+        import cv2
+    except ImportError as exc:
+        raise SystemExit(
+            "opencv-python-headless is required to build the flat close-up layer. "
+            "Install it with: pip install -r scripts/requirements.txt"
+        ) from exc
+    return cv2
+
+
+def _fog_hex(path: Path) -> str:
+    """One flat color for the hidden west, sampled from the fog artwork."""
+    with Image.open(path) as im:
+        right = min(2400, HIDDEN_WEST_OF - 80, im.width)
+        bottom = max(1, im.height - 200)
+        crop = im.crop((200, 200, max(201, right), bottom))
+        small = crop.resize((32, 16), Image.Resampling.BOX)
+        arr = np.asarray(small.convert("RGB")).reshape(-1, 3)
+    med = np.median(arr, axis=0)
+    return "#{:02x}{:02x}{:02x}".format(*(int(v) for v in med))
+
+
+def _trace_rings(cv2, mask: np.ndarray, origin_x: int, origin_y: int, epsilon: float):
+    found = cv2.findContours(mask, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+    if len(found) == 3:
+        contours, hier = found[1], found[2]
+    else:
+        contours, hier = found[0], found[1]
+    if hier is None or len(contours) == 0:
+        return [], None
+    hier = hier[0]
+    rings = []
+    for idx, cnt in enumerate(contours):
+        if abs(float(cv2.contourArea(cnt))) < 6:
+            continue
+        approx = cv2.approxPolyDP(cnt, epsilon, True)
+        ring = []
+        for x, y in approx.reshape(-1, 2):
+            px = int(x) + origin_x
+            py = int(y) + origin_y
+            if px < HIDDEN_WEST_OF:
+                if HIDDEN_WEST_OF - px > 2:
+                    raise SystemExit("secrecy: a traced outline stepped into the hidden west")
+                px = HIDDEN_WEST_OF
+            point = [px, py]
+            if ring and ring[-1] == point:
+                continue
+            ring.append(point)
+        if len(ring) >= 3 and ring[0] != ring[-1]:
+            ring.append(ring[0])
+        if len(ring) >= 4:
+            rings.append((idx, ring))
+    return rings, hier
+
+
+def _polygons_from_rings(rings, hier):
+    by_idx = {idx: ring for idx, ring in rings}
+    polys = []
+    for idx, ring in rings:
+        if int(hier[idx][3]) != -1:
+            continue
+        holes = []
+        child = int(hier[idx][2])
+        while child != -1:
+            hole = by_idx.get(child)
+            if hole:
+                holes.append(hole)
+            child = int(hier[child][0])
+        polys.append([ring, *holes])
+    return polys
+
+
+def _assert_flat_secret(collection: dict, allowed: set[int], width: int, height: int) -> None:
+    blob = json.dumps(collection, separators=(",", ":"))
+    if "removed_americas" in blob:
+        raise SystemExit("secrecy: removed_americas leaked into flat.geojson")
+    seen = set()
+
+    def check_xy(pt, kind: str):
+        x, y = int(pt[0]), int(pt[1])
+        if y < -1 or y > height + 1:
+            raise SystemExit(f"secrecy: flat {kind} coordinate is outside the map")
+        if kind == "fog":
+            if x not in (0, HIDDEN_WEST_OF):
+                raise SystemExit("secrecy: fog shape is not a plain western rectangle")
+            return
+        if x < HIDDEN_WEST_OF:
+            raise SystemExit(f"secrecy: flat {kind} geometry crosses into the hidden west")
+        if x > width + 1:
+            raise SystemExit(f"secrecy: flat {kind} coordinate is outside the map")
+
+    def walk(coords, kind: str, depth: int):
+        if not coords:
+            return
+        if isinstance(coords[0], (int, float)):
+            check_xy(coords, kind)
+            return
+        for item in coords:
+            walk(item, kind, depth + 1)
+
+    for feature in collection["features"]:
+        props = feature.get("properties") or {}
+        kind = props.get("kind")
+        if kind not in {"sea", "fog", "province", "nation"}:
+            raise SystemExit(f"secrecy: unexpected flat feature {kind}")
+        if kind == "province":
+            pid = int(props["id"])
+            if pid not in allowed:
+                raise SystemExit(f"secrecy: flat layer publishes hidden province {pid}")
+            seen.add(pid)
+        walk(feature["geometry"]["coordinates"], kind, 0)
+    missing = allowed - seen
+    if len(missing) > max(20, int(len(allowed) * 0.02)):
+        raise SystemExit(f"secrecy: flat layer dropped {len(missing)} published provinces")
+    if missing:
+        log(f"  flat layer skipped {len(missing)} tiny provinces")
+
+
+def write_flat_layer(ids: np.ndarray, world: dict, width: int, height: int, political_path: Path, dest: Path) -> None:
+    """Eastern province fills and nation outlines for zoom levels past the raster.
+
+    The source sheet has no pixels finer than native zoom, so the close view is a
+    flat board: solid sea, solid nation color, crisp borders, and a flat fog
+    rectangle over the hidden west. No western coastline is traced.
+    """
+    cv2 = _cv2()
+    nation_of: dict[int, int] = {}
+    color_of: dict[int, str] = {}
+    for nation in world["nations"]:
+        color = str(nation.get("color") or "#E6E6EA").lower()
+        if len(color) != 7 or any(c not in "0123456789abcdef" for c in color[1:]):
+            color = "#e6e6ea"
+        for pid in nation["provinces"]:
+            nation_of[int(pid)] = int(nation["id"])
+            color_of[int(pid)] = color
+
+    max_id = int(ids.max())
+    lut = np.zeros(max_id + 1, np.int32)
+    for pid, nid in nation_of.items():
+        if 0 < pid <= max_id:
+            lut[pid] = nid
+    nation_grid = lut[ids]
+
+    features = [
+        {
+            "type": "Feature",
+            "properties": {"kind": "sea", "color": SEA_COLOR},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[
+                    [HIDDEN_WEST_OF, 0],
+                    [width, 0],
+                    [width, height],
+                    [HIDDEN_WEST_OF, height],
+                    [HIDDEN_WEST_OF, 0],
+                ]],
+            },
+        }
+    ]
+
+    pids = sorted(int(pid) for pid in world["provinces"])
+    province_count = 0
+    for pid in pids:
+        box = world["provinces"][str(pid)]["bbox"]
+        minx, miny, maxx, maxy = (int(v) for v in box)
+        if minx < HIDDEN_WEST_OF:
+            raise SystemExit(f"secrecy: flat province {pid} bbox starts in the hidden west")
+        sub = ids[miny : maxy + 1, minx : maxx + 1]
+        if sub.size == 0 or int((sub == pid).sum()) < 6:
+            continue
+        mask = np.zeros((sub.shape[0] + 2, sub.shape[1] + 2), np.uint8)
+        mask[1:-1, 1:-1] = sub == pid
+        rings, hier = _trace_rings(cv2, mask, minx - 1, miny - 1, FLAT_EPSILON)
+        if hier is None:
+            continue
+        polys = _polygons_from_rings(rings, hier)
+        if not polys:
+            continue
+        features.append(
+            {
+                "type": "Feature",
+                "properties": {
+                    "kind": "province",
+                    "id": pid,
+                    "nation_id": nation_of.get(pid),
+                    "color": color_of.get(pid, UNCLAIMED_COLOR),
+                },
+                "geometry": {"type": "MultiPolygon", "coordinates": polys},
+            }
+        )
+        province_count += 1
+        if province_count % 500 == 0:
+            log(f"  traced {province_count} provinces")
+
+    nation_lines = []
+    for nation in world["nations"]:
+        minx, miny, maxx, maxy = (int(v) for v in nation["bbox"])
+        minx = max(minx, HIDDEN_WEST_OF)
+        if maxx < minx or maxy < miny:
+            continue
+        sub = nation_grid[miny : maxy + 1, minx : maxx + 1]
+        if sub.size == 0 or int((sub == int(nation["id"])).sum()) < 6:
+            continue
+        mask = np.zeros((sub.shape[0] + 2, sub.shape[1] + 2), np.uint8)
+        mask[1:-1, 1:-1] = sub == int(nation["id"])
+        rings, _hier = _trace_rings(cv2, mask, minx - 1, miny - 1, FLAT_EPSILON)
+        for _idx, ring in rings:
+            nation_lines.append(ring)
+    if nation_lines:
+        features.append(
+            {
+                "type": "Feature",
+                "properties": {"kind": "nation"},
+                "geometry": {"type": "MultiLineString", "coordinates": nation_lines},
+            }
+        )
+
+    features.append(
+        {
+            "type": "Feature",
+            "properties": {"kind": "fog", "color": _fog_hex(political_path)},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[
+                    [0, 0],
+                    [HIDDEN_WEST_OF, 0],
+                    [HIDDEN_WEST_OF, height],
+                    [0, height],
+                    [0, 0],
+                ]],
+            },
+        }
+    )
+
+    collection = {"type": "FeatureCollection", "features": features}
+    _assert_flat_secret(collection, set(pids), width, height)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_text(json.dumps(collection, separators=(",", ":")) + "\n", encoding="utf-8")
+    log(
+        f"  flat layer: {province_count} provinces, {len(nation_lines)} nation rings, "
+        f"fog {features[-1]['properties']['color']}, {dest.stat().st_size / 1e6:.1f} MB"
+    )
+
+
+def main_flat_only() -> None:
+    """Rebuild data/flat.geojson without touching tiles."""
+    started = time.perf_counter()
+    paths = require_source()
+    with Image.open(paths["political"]) as im:
+        width, height = im.size
+    log(f"Flat layer only, map {width}x{height}")
+    provinces = json.loads(paths["provinces"].read_text(encoding="utf-8"))["provinces"]
+    ids = build_id_raster(paths["province_ids"], provinces, (height, width))
+    del provinces
+    minx, maxx, miny, maxy, count = extents(ids)
+    allowed = {pid for pid in range(1, len(count)) if count[pid] and int(minx[pid]) >= HIDDEN_WEST_OF}
+    drop = np.ones(len(count), dtype=bool)
+    drop[0] = False
+    for pid in allowed:
+        drop[pid] = False
+    ids[drop[ids]] = 0
+    ids[:, :HIDDEN_WEST_OF] = 0
+    boxes = {}
+    for pid in allowed:
+        boxes[pid] = {
+            "minx": int(minx[pid]),
+            "maxx": int(maxx[pid]),
+            "miny": int(miny[pid]),
+            "maxy": int(maxy[pid]),
+            "water": None,
+        }
+    del minx, maxx, miny, maxy, count
+    world = build_world(paths, ids, allowed, boxes)
+    world.pop("km_per_px", None)
+    world.pop("removed_names", None)
+    write_flat_layer(ids, world, width, height, paths["political"], ROOT / "data" / "flat.geojson")
+    log(f"Done in {time.perf_counter() - started:.0f}s")
+
+
 def compare_fog_tiles() -> None:
     """A fully western native tile of the depth layer must match the political fog."""
     political = np.asarray(Image.open(ROOT / "tiles" / "political" / "6" / "2" / "2.webp").convert("RGB"))
@@ -677,6 +964,9 @@ def main() -> None:
     lookup_w, lookup_h = write_lookup(ids, lookup_path)
     world["removed_names"] = removed_names
     secrecy_check(world, lookup_path, allowed)
+
+    log("Writing flat close-up vectors…")
+    write_flat_layer(ids, world, width, height, paths["political"], data_dir / "flat.geojson")
 
     log("Writing outline tiles…")
     _, blank = write_blank_tiles()
@@ -756,6 +1046,9 @@ def main() -> None:
 
 if __name__ == "__main__":
     try:
-        main()
+        if "--only-flat" in sys.argv:
+            main_flat_only()
+        else:
+            main()
     except BrokenPipeError:
         sys.exit(0)
