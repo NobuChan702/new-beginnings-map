@@ -142,6 +142,26 @@ Land routes are thin gold lines. Sea routes are thin blue lines. Each has a soft
 
 Commit and push after editing. A rebuild is not required. A snapshot can add or remove routes for its own date. See History.
 
+## Sectors
+
+Every published province is split into sectors so a war can take part of it. The shapes are in `data/sectors.geojson`. Who holds them is in `data/sector_control.csv`. The layer is Layers → Sectors, on by default.
+
+`python3 scripts/build_sectors.py` cuts each province with a Voronoi diagram. The seeds are the province's city (the capital, on a capital province), its town, and one interior point. The cells are clipped to the province. A province under 80,000 km² keeps the city and the town, so two sectors. A province under 20,000 km² stays one piece. Ids are stable: `<province>-A` is the city, `B` the town, and `C` the interior. Running the script again rewrites both files and sets every controller back to the province owner at cycle 0, so copy `sector_control.csv` aside first if it already records conquests.
+
+The control file is three columns:
+
+```csv
+sector_id,controller,cycle
+562-A,25,0
+562-B,26,1
+```
+
+`controller` is a nation id. Leave it empty for unclaimed. `cycle` is the history date. There is no round column. A row applies when the slider reaches that cycle and stays in force. A later cycle for the same sector replaces it. With no row yet, the sector stays with the province owner.
+
+From zoom 6, each sector has a faint outline. A sector held by its province's owner keeps the owner's existing colour. A sector held by someone else uses the same occupation style as an occupied province: the owner's wash, the holder's diagonal stripe, and the holder's outline. Below zoom 6 those split sectors are drawn as one province in that same occupation style, using the holder who has the most sectors. Layers → Occupied territory is unchanged, and a whole-province occupation still draws exactly as it does today, on top of the sectors. Claimed-nations stripes are also unchanged.
+
+Sector control does not change the province owner. Taking every sector still shows occupation, not a transfer. A transfer stays a history `transfers` entry. Concealed provinces, and anything west of x = 3592, are left off the layer.
+
 ## History
 
 The bar at the bottom of the map is the timeline. Dates live in `data/history/`. `index.json` is the slider order, earliest first. The page opens on the last file.
@@ -212,7 +232,7 @@ A colony `stage` is `outpost`, `colony`, `integrated`, or `abandoned`. An outpos
 
 `fog.provinces` hides published provinces until a later snapshot reveals them. Cycle 0 leaves this empty, so the eastern map the site already shows stays visible. A hidden province draws in the fog color. Clicking it says Unexplored, and search will not find it. Revealing an id lifts that fog from that date onward.
 
-The slider also filters `data/infrastructure.json` and `data/trade_routes.json`. A place, road, or route with `cycle` and `round` appears once the slider reaches that date and stays afterward.
+The slider also filters `data/infrastructure.json`, `data/trade_routes.json`, and `data/sector_control.csv`. A place, road, or route with `cycle` and `round` appears once the slider reaches that date and stays afterward. A sector row applies from its `cycle` the same way, and a later row for that sector replaces it. Sector control does not transfer the province.
 
 ### Man-made land
 
@@ -235,7 +255,7 @@ The polygon is drawn at every zoom. Close up, it is the real outline. Zoomed out
 
 ### What must stay off the map
 
-Snapshot files, `data/infrastructure.json`, and `data/trade_routes.json` are public. Do not put a western province id, a western name, a western nation, or a coordinate with x < 3592 in them. The page drops geometry that crosses the fog line, and a click west of it only says that the western lands are unexplored. `python3 scripts/check_history.py` checks the history files, the infrastructure catalog, and the trade routes before deploy. A trade route that is not `"public": true` fails that check.
+Snapshot files, `data/infrastructure.json`, `data/trade_routes.json`, `data/sectors.geojson`, and `data/sector_control.csv` are public. Do not put a western province id, a western name, a western nation, or a coordinate with x < 3592 in them. The page drops geometry that crosses the fog line, and a click west of it only says that the western lands are unexplored. `python3 scripts/check_history.py` checks the history files, the infrastructure catalog, the trade routes, and the sectors before deploy. A trade route that is not `"public": true` fails that check. So does a sector whose controller is not a published nation.
 
 ## Zoom
 
