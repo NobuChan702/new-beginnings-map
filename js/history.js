@@ -9,6 +9,8 @@
 //   fog.provinces stay hidden until a later reveal lists them
 //   infrastructure.places and infrastructure.roads accumulate by id
 //     infrastructure.remove drops an id from that date on
+//   trade.routes accumulate by id; trade.remove drops an id from that date on
+//     a route is kept only when public is true
 // Geometry with any point west of the fog line is dropped, not clipped.
 (function (root) {
   "use strict";
@@ -242,6 +244,52 @@
     });
   }
 
+  function tradeEndpoint(value) {
+    if (!value) return null;
+    var nation = num(value.nation != null ? value.nation : value.nation_id);
+    var settlement = value.settlement != null ? value.settlement : value.name;
+    if (nation == null || settlement == null || String(settlement).trim() === "") return null;
+    return { nation: nation, settlement: String(settlement) };
+  }
+
+  function absorbTrade(snap, routes, removed) {
+    var block = snap.trade;
+    if (!block) return;
+    var cycle = num(snap.cycle);
+    if (cycle == null) cycle = 0;
+    var round = snap.round == null || snap.round === "" ? null : num(snap.round);
+    (block.remove || []).forEach(function (id) {
+      if (id == null || id === "") return;
+      var key = String(id);
+      delete routes[key];
+      removed[key] = true;
+    });
+    (block.routes || []).forEach(function (row) {
+      if (!row || row.public !== true) return;
+      var kind = String(row.kind || "").toLowerCase();
+      var status = String(row.status || "").toLowerCase();
+      if (kind !== "land" && kind !== "sea") return;
+      if (status !== "active" && status !== "disrupted") return;
+      var from = tradeEndpoint(row.from);
+      var to = tradeEndpoint(row.to);
+      if (!from || !to) return;
+      var dates = inheritDate(row, cycle, round);
+      var id = row.id != null && row.id !== "" ? String(row.id) : kind + "-" + from.nation + "-" + to.nation + "-" + from.settlement;
+      delete removed[id];
+      routes[id] = {
+        id: id,
+        from: from,
+        to: to,
+        kind: kind,
+        goods: row.goods ? String(row.goods) : "",
+        status: status,
+        public: true,
+        cycle: dates.cycle,
+        round: dates.round,
+      };
+    });
+  }
+
   function copyWorkFields(prev, work) {
     if (work.name) prev.name = String(work.name);
     if (work.type) prev.type = workType(work.type);
@@ -268,6 +316,8 @@
     var infraPlaces = {};
     var infraRoads = {};
     var infraRemoved = {};
+    var tradeRoutes = {};
+    var tradeRemoved = {};
 
     for (var i = 0; i <= end; i++) {
       var snap = list[i] || {};
@@ -402,6 +452,7 @@
       });
 
       absorbInfra(snap, infraPlaces, infraRoads, infraRemoved, west);
+      absorbTrade(snap, tradeRoutes, tradeRemoved);
     }
 
     var concealedSeas = [];
@@ -443,6 +494,12 @@
           return infraRoads[key];
         }),
         removed: Object.keys(infraRemoved),
+      },
+      trade: {
+        routes: Object.keys(tradeRoutes).map(function (key) {
+          return tradeRoutes[key];
+        }),
+        removed: Object.keys(tradeRemoved),
       },
     };
   }

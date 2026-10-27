@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Refuse history snapshots that publish anything west of the fog line."""
+"""Refuse history, infrastructure, or trade data that publishes the hidden west.
+
+A trade route in the catalog or a snapshot has to be public. Anything else fails the build.
+"""
 
 import json
 import sys
@@ -85,6 +88,64 @@ def check_point(x, y, where, width, height):
         fail(f"{where}: point {(x, y)} is outside the map")
 
 
+def check_endpoint(value, where, nations):
+    if not isinstance(value, dict):
+        fail(f"{where}: endpoint must be an object")
+    nation = value.get("nation")
+    if isinstance(nation, bool) or not isinstance(nation, int) or nation not in nations:
+        fail(f"{where}: nation {nation} is not on the published map")
+    record = nations[nation]
+    box = record.get("bbox") or [0, 0, 0, 0]
+    xy = record.get("capital_xy") or [0, 0]
+    if box[0] < WEST or xy[0] < WEST:
+        fail(f"{where}: nation {nation} is west of the fog line")
+    name = value.get("settlement", value.get("name"))
+    if not isinstance(name, str) or not name.strip():
+        fail(f"{where}: settlement name is missing")
+
+
+def check_trade_list(routes, where, nations, width, height):
+    if routes is None:
+        return
+    if not isinstance(routes, list):
+        fail(f"{where}: trade routes must be a list")
+    for index, row in enumerate(routes):
+        if not isinstance(row, dict):
+            fail(f"{where}: trade route must be an object")
+        label = row.get("id", index)
+        spot = f"{where} route {label}"
+        if row.get("public") is not True:
+            fail(f"{spot}: a published trade route must be public")
+        kind = row.get("kind")
+        if kind not in ("land", "sea"):
+            fail(f"{spot}: kind must be land or sea")
+        status = row.get("status")
+        if status not in ("active", "disrupted"):
+            fail(f"{spot}: status must be active or disrupted")
+        goods = row.get("goods")
+        if not isinstance(goods, str) or not goods.strip():
+            fail(f"{spot}: goods text is missing")
+        check_endpoint(row.get("from"), f"{spot} from", nations)
+        check_endpoint(row.get("to"), f"{spot} to", nations)
+        optional_int(row.get("cycle"), f"{spot} cycle")
+        optional_int(row.get("round"), f"{spot} round")
+        for pt in row.get("points") or []:
+            if not isinstance(pt, list) or len(pt) < 2:
+                fail(f"{spot}: route point is incomplete")
+            check_point(pt[0], pt[1], spot, width, height)
+
+
+def check_trade_block(block, where, nations, width, height):
+    if block is None:
+        return
+    if not isinstance(block, dict):
+        fail(f"{where}: trade must be an object")
+    check_trade_list(block.get("routes"), where, nations, width, height)
+    for item in block.get("remove") or []:
+        if item is None or item == "" or not isinstance(item, (str, int)) or isinstance(item, bool):
+            fail(f"{where}: remove ids must be strings or numbers")
+
+
 def check_infra_block(block, where, width, height, province_id):
     if block is None:
         return
@@ -135,6 +196,7 @@ def main():
     height = meta["height"]
     world = load(ROOT / "data" / "world.json")
     provinces = {int(key): value for key, value in world["provinces"].items()}
+    nations = {int(nation["id"]): nation for nation in world["nations"]}
     index = load(ROOT / "data" / "history" / "index.json")
     files = index["snapshots"] if isinstance(index, dict) else index
     if not isinstance(files, list) or not files:
@@ -162,6 +224,14 @@ def main():
     if "capitals" in catalog and not isinstance(catalog["capitals"], bool):
         fail("data/infrastructure.json capitals must be true or false")
     check_infra_block(catalog, "infrastructure.json", width, height, province_id)
+
+    trade_path = ROOT / "data" / "trade_routes.json"
+    if not trade_path.is_file():
+        fail("missing data/trade_routes.json")
+    trade = load(trade_path)
+    if not isinstance(trade, dict):
+        fail("data/trade_routes.json must be an object")
+    check_trade_list(trade.get("routes"), "trade_routes.json", nations, width, height)
 
     for name in files:
         if not isinstance(name, str) or "/" in name or "\\" in name or name.startswith("."):
@@ -203,6 +273,8 @@ def main():
                 fail(f"{name} marker is outside the map")
         if "infrastructure" in snap:
             check_infra_block(snap.get("infrastructure"), f"{name} infrastructure", width, height, province_id)
+        if "trade" in snap:
+            check_trade_block(snap.get("trade"), f"{name} trade", nations, width, height)
     print(f"history secrecy ok ({len(files)} snapshots)")
 
 

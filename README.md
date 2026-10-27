@@ -111,6 +111,37 @@ Roads are thin dashed tan lines. The other marks are small medieval icons in the
 
 A snapshot can add works for its own date. See History. Those entries follow the same types, the same zoom, and the same fog rule.
 
+## Trade routes
+
+Edit `data/trade_routes.json`. The layer is Layers → Trade routes, on by default. Cycle 0 ships with an empty list. A route appears when the history slider reaches its `cycle`, and its `round` when that is set, the same way a road does. Leave both off and it is on the map from the start. The lines are drawn at every zoom. Routes outside the current view are skipped.
+
+Only a route with `"public": true` is published. `python3 scripts/check_history.py` fails the build if a route in this file, or in a snapshot, omits that flag or sets it to false. The page also drops a route that is not public.
+
+`from` and `to` each name a nation id and a settlement. The settlement is a capital, city, town, or port already on the map. `kind` is `land` or `sea`. `goods` is the cargo text. `status` is `active` or `disrupted`.
+
+A land route follows the roads between its two settlements. Where those roads do not meet, it crosses the land between the nearest road ends, and if that is not possible it follows a land path instead. It does not cross the sea. A sea route runs from port to port and stays on the water. When the named settlement is not itself a port, the nation's port is used. A route with no path, or one that would enter the fog, is left off the map.
+
+Land routes are thin gold lines. Sea routes are thin blue lines. Each has a soft glow and no arrow. A disrupted route is red and dashed. The popup names the two settlements, the kind of route, the two nations with the player's short name in brackets when the nation is claimed, the goods, and the status.
+
+```json
+{
+  "routes": [
+    {
+      "id": "grain-run",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Grain and wool",
+      "from": { "nation": 25, "settlement": "Haldortel" },
+      "to": { "nation": 26, "settlement": "Qua" },
+      "cycle": 1
+    }
+  ]
+}
+```
+
+Commit and push after editing. A rebuild is not required. A snapshot can add or remove routes for its own date. See History.
+
 ## History
 
 The bar at the bottom of the map is the timeline. Dates live in `data/history/`. `index.json` is the slider order, earliest first. The page opens on the last file.
@@ -142,6 +173,20 @@ The bar at the bottom of the map is the timeline. Dates live in `data/history/`.
     "places": [{ "id": "fort-span", "type": "fort", "name": "Span Fort", "province": 1202 }],
     "roads": [{ "id": "coast-road", "name": "Coast road", "provinces": [562, 1201] }],
     "remove": []
+  },
+  "trade": {
+    "routes": [
+      {
+        "id": "grain-run",
+        "public": true,
+        "kind": "land",
+        "status": "active",
+        "goods": "Grain and wool",
+        "from": { "nation": 25, "settlement": "Haldortel" },
+        "to": { "nation": 26, "settlement": "Qua" }
+      }
+    ],
+    "remove": []
   }
 }
 ```
@@ -154,6 +199,7 @@ These fields accumulate as the slider moves forward:
 - `reveals.provinces` and `reveals.seas` lift fog. Once revealed, a province or sea stays revealed.
 - `works` add man-made land. A later snapshot can update the same id. `"status": "removed"` takes it off the map.
 - `infrastructure.places` and `infrastructure.roads` add forts, ports, roads, and the other works from Infrastructure. An entry with no `cycle` starts on this snapshot's date. The same `id` in a later snapshot updates it. `infrastructure.remove` lists ids to take off the map from that date on, including a capital star (`capital-25` is Haldortel's).
+- `trade.routes` add routes for that date. The fields match Trade routes, and `"public": true` is required. An entry with no `cycle` starts on this snapshot's date. The same `id` in a later snapshot updates it. `trade.remove` lists ids to take off the map from that date on.
 - `seas` add a named sea zone. The rings are the zone. It stays fogged until `reveals.seas` lists its id.
 - `colonies` update one province at a time. A province you leave out keeps its previous stage.
 
@@ -166,7 +212,7 @@ A colony `stage` is `outpost`, `colony`, `integrated`, or `abandoned`. An outpos
 
 `fog.provinces` hides published provinces until a later snapshot reveals them. Cycle 0 leaves this empty, so the eastern map the site already shows stays visible. A hidden province draws in the fog color. Clicking it says Unexplored, and search will not find it. Revealing an id lifts that fog from that date onward.
 
-The slider also filters `data/infrastructure.json`. A place or road with `cycle` and `round` appears once the slider reaches that date and stays afterward.
+The slider also filters `data/infrastructure.json` and `data/trade_routes.json`. A place, road, or route with `cycle` and `round` appears once the slider reaches that date and stays afterward.
 
 ### Man-made land
 
@@ -189,7 +235,7 @@ The polygon is drawn at every zoom. Close up, it is the real outline. Zoomed out
 
 ### What must stay off the map
 
-Snapshot files and `data/infrastructure.json` are public. Do not put a western province id, a western name, or a coordinate with x < 3592 in them. The page drops geometry that crosses the fog line, and a click west of it only says that the western lands are unexplored. `python3 scripts/check_history.py` checks the history files and the infrastructure catalog before deploy.
+Snapshot files, `data/infrastructure.json`, and `data/trade_routes.json` are public. Do not put a western province id, a western name, a western nation, or a coordinate with x < 3592 in them. The page drops geometry that crosses the fog line, and a click west of it only says that the western lands are unexplored. `python3 scripts/check_history.py` checks the history files, the infrastructure catalog, and the trade routes before deploy. A trade route that is not `"public": true` fails that check.
 
 ## Zoom
 
