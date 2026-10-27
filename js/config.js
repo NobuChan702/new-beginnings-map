@@ -2,8 +2,8 @@
 // Zoom 0 shows the whole world. Native resolution is native_zoom in
 // data/meta.json (6 for this sheet). The source image is 12000×5600 at
 // 5.5 km per pixel, so the raster cannot get any sharper than that.
-// overzoomLevels adds close-up steps past that point. Those steps are a
-// flat board (solid nation colors, crisp borders), not a magnified photo.
+// overzoomLevels adds close-up steps past that point. Auto, Political, and
+// Depth become a flat board there. Terrain keeps the terrain tiles.
 // Reload the page after editing. A rebuild is not required for these numbers.
 window.NB_CONFIG = {
   minZoom: 0,
