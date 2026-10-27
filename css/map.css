@@ -260,6 +260,78 @@ h1 {
 
 .leaflet-tooltip-top.nb-tip::before { border-top-color: var(--navy); }
 
+#timeline {
+  position: fixed;
+  z-index: 1200;
+  left: 50%;
+  bottom: max(10px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(560px, calc(100vw - 24px));
+  padding: 8px 10px;
+  background: rgba(11, 26, 74, 0.94);
+  color: var(--silver);
+  border: 1px solid rgba(230, 230, 234, 0.22);
+  border-top: 2px solid var(--red);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+
+.timeline-main {
+  flex: 1;
+  min-width: 0;
+}
+
+#timeline-label {
+  font-family: "Iowan Old Style", Palatino, Georgia, serif;
+  font-size: 0.95rem;
+  line-height: 1.2;
+  margin-bottom: 2px;
+}
+
+#timeline-range {
+  width: 100%;
+  margin: 0;
+  accent-color: var(--red);
+  cursor: pointer;
+}
+
+#timeline-range:disabled {
+  cursor: default;
+  opacity: 0.85;
+}
+
+#timeline button {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+  background: var(--bg);
+  color: var(--silver);
+  border: 1px solid rgba(230, 230, 234, 0.35);
+  font: inherit;
+  font-size: 1.3rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#timeline button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+body.has-timeline #info {
+  bottom: calc(76px + env(safe-area-inset-bottom));
+}
+
+body.has-timeline .leaflet-bottom {
+  bottom: calc(76px + env(safe-area-inset-bottom));
+}
+
+body.has-timeline #depth-legend {
+  bottom: calc(108px + env(safe-area-inset-bottom));
+}
+
 #info {
   position: fixed;
   z-index: 900;
@@ -454,6 +526,20 @@ h1 {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+
+.nb-event { background: transparent; border: 0; }
+.nb-event span {
+  display: block;
+  color: #fff;
+  font-size: 10px;
+  line-height: 16px;
+  text-align: center;
+  letter-spacing: 0.04em;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(230, 230, 234, 0.7);
+}
+.nb-event-battle span { background: var(--red); }
+.nb-event-army span { background: var(--navy); }
 
 .claim-marker { background: transparent; border: 0; overflow: visible; }
 .claim-marker span {

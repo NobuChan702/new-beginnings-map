@@ -26,7 +26,7 @@
     provinces: new Map(),
     claims: new Map(),
     mode: "auto",
-    overlays: { borders: true, claims: true, infra: true, ids: false },
+    overlays: { borders: true, claims: true, occupied: true, markers: true, infra: true, ids: false },
     labelLayer: null,
     map: null,
     layers: {},
@@ -40,6 +40,20 @@
     flatRenderer: null,
     flatBorderOn: null,
     flatCollection: null,
+    flatById: null,
+    historySnapshots: [],
+    historyIndex: 0,
+    historyView: null,
+    historyRenderer: null,
+    fogRenderer: null,
+    changeLayer: null,
+    occLayer: null,
+    workLayer: null,
+    workMarkers: null,
+    fogLayer: null,
+    battleLayer: null,
+    infraRaw: null,
+    historyStyled: null,
     markLayer: null,
     marksRenderer: null,
     imageBounds: null,
@@ -156,14 +170,19 @@
       return { stroke: false, fill: true, fillColor: props.color || "#0B1A4A", fillOpacity: 1, interactive: false };
     }
     if (kind === "province") {
+      const look = historyLook(props.id);
+      if (look.fog) {
+        return { stroke: false, fill: true, fillColor: fogColor(), fillOpacity: 1, interactive: false };
+      }
       return {
         stroke: !!borders,
-        color: "#16140f",
-        weight: borders ? 1 : 0,
-        opacity: 0.9,
+        color: look.stroke || "#16140f",
+        weight: borders ? look.weight || 1 : 0,
+        opacity: 0.95,
+        dashArray: look.dash || null,
         lineJoin: "round",
         fill: true,
-        fillColor: props.color || "#8d8678",
+        fillColor: look.fill || props.color || "#8d8678",
         fillOpacity: 1,
         interactive: false,
       };
@@ -255,7 +274,10 @@
     if (state.flatLayer && state.flatBorderOn !== borders) {
       state.flatLayer.setStyle(flatStyle);
       state.flatBorderOn = borders;
+      state.historyStyled = null;
+      restyleFlatForHistory();
     }
+    refreshHistoryZoom();
     document.getElementById("depth-legend").hidden = state.mode !== "depth" || flat > 0.98;
   }
 
@@ -338,6 +360,16 @@
     flatPane.style.pointerEvents = "none";
     flatPane.style.opacity = "0";
     state.flatRenderer = L.canvas({ pane: "flat", padding: 0.5 });
+    map.createPane("history");
+    const historyPane = map.getPane("history");
+    historyPane.style.zIndex = "380";
+    historyPane.style.pointerEvents = "none";
+    state.historyRenderer = L.svg({ pane: "history", padding: 0.75 });
+    map.createPane("fog");
+    const fogPane = map.getPane("fog");
+    fogPane.style.zIndex = "480";
+    fogPane.style.pointerEvents = "none";
+    state.fogRenderer = L.svg({ pane: "fog", padding: 0.5 });
     map.createPane("marks");
     const marksPane = map.getPane("marks");
     marksPane.style.zIndex = "360";
@@ -384,6 +416,8 @@
           "<p>Overlays</p>" +
           '<label><input type="checkbox" data-overlay="borders" checked> Province borders</label>' +
           '<label><input type="checkbox" data-overlay="claims" checked> Claimed nations</label>' +
+          '<label><input type="checkbox" data-overlay="occupied" checked> Occupied territory</label>' +
+          '<label><input type="checkbox" data-overlay="markers" checked> Battles &amp; armies</label>' +
           '<label><input type="checkbox" data-overlay="infra" checked> Roads and places</label>' +
           '<label><input type="checkbox" data-overlay="ids"> Province IDs</label>' +
           "</div>";
@@ -409,6 +443,7 @@
             state.overlays[input.dataset.overlay] = input.checked;
             applyMode();
             syncClaimVisibility();
+            syncHistoryOverlays();
             syncInfraVisibility();
             refreshProvinceLabels();
           });
@@ -608,6 +643,9 @@
   }
 
   function showHighlight(ids, rgb) {
+    ids = (ids || []).filter(function (id) {
+      return !isConcealed(id);
+    });
     if (!state.lut || !ids.length) return;
     highlightCanvas.width = state.meta.lookup_width;
     highlightCanvas.height = state.meta.lookup_height;
@@ -627,7 +665,10 @@
   function paintClaims() {
     const ids = [];
     state.nations.forEach(function (nation) {
-      if (state.claims.has(String(nation.id))) ids.push.apply(ids, nation.provinces);
+      if (!state.claims.has(String(nation.id))) return;
+      nation.provinces.forEach(function (id) {
+        if (!isConcealed(id)) ids.push(id);
+      });
     });
     claimCanvas.width = state.meta.lookup_width;
     claimCanvas.height = state.meta.lookup_height;
@@ -700,7 +741,9 @@
       '</p><p class="meta">Capital: Province ' +
       nation.capital_province +
       "</p>" +
-      (claim ? '<div class="claim">Claimed by ' + esc(claim.player) + "</div>" : "") +
+(claim ? '<div class="claim">Claimed by ' + esc(claim.player) + "</div>" : "") +
+      colonyLine(provinceId) +
+      occupationSentence(provinceId) +
       (prov
         ? '<hr><p class="meta">Province ' +
           (state.provinces.has(provinceId) ? provinceId : nation.capital_province) +
@@ -720,6 +763,8 @@
       " · " +
       fmtArea(prov.area_km2) +
       "</p>" +
+      colonyLine(id) +
+      occupationSentence(id) +
       provinceFields(prov) +
       "</div>"
     );
@@ -731,7 +776,7 @@
       className: "nb-popup",
       maxWidth: 320,
       autoPanPaddingTopLeft: L.point(16, pad + 12),
-      autoPanPaddingBottomRight: L.point(16, 16),
+      autoPanPaddingBottomRight: L.point(16, 78),
     })
       .setLatLng(latlng)
       .setContent(html)
@@ -753,7 +798,7 @@
     const right = mini && !mini.classList.contains("is-collapsed") ? mini.offsetWidth + 24 : 20;
     state.map.fitBounds(bounds, {
       paddingTopLeft: [20, headerOffset() + 12],
-      paddingBottomRight: [right, 24],
+      paddingBottomRight: [right, 84],
       maxZoom: maxZoom,
       animate: true,
     });
@@ -780,17 +825,18 @@
   function selectProvince(id, options) {
     options = options || {};
     const prov = state.provinces.get(id);
-    if (!provinceIsPublic(id, prov) || !prov.bbox || !prov.xy) return;
-    showHighlight([id], provinceFill(prov));
+    if (!provinceIsPublic(id, prov) || !prov.bbox || !prov.xy || isConcealed(id)) return;
+    const colony = colonyOf(id);
+    const owner = legalOwnerId(id, prov);
+    const nation = colony
+      ? state.nationsById.get(colony.owner)
+      : owner && state.nationsById.get(owner);
+    showHighlight([id], nation ? hexToRgb(nation.color) : provinceFill(prov));
     setNationHash(null);
     if (options.fly) flyToBox(prov.bbox, 6);
     if (options.popup) {
       const latlng = L.latLng(prov.xy[1], prov.xy[0]);
-      if (prov.nation_id && state.nationsById.has(prov.nation_id)) {
-        openPopup(latlng, nationHtml(state.nationsById.get(prov.nation_id), id));
-      } else {
-        openPopup(latlng, unclaimedHtml(id, prov));
-      }
+      openPopup(latlng, nation ? nationHtml(nation, id) : unclaimedHtml(id, prov));
     }
   }
 
@@ -828,6 +874,25 @@
         keyboard: false,
       });
       marker.addTo(state.labelLayer);
+      drawn += 1;
+    });
+    const works = (state.historyView && state.historyView.works) || [];
+    works.forEach(function (work) {
+      if (drawn >= 180) return;
+      const box = work.bbox;
+      if (!box || box[2] < west || box[0] > east || box[3] < south || box[1] > north) return;
+      const label = String(work.id);
+      const width = Math.max(22, label.length * 8 + 8);
+      L.marker([work.centroid[1], work.centroid[0]], {
+        icon: L.divIcon({
+          className: "prov-id-label",
+          html: "<span>" + label + "</span>",
+          iconSize: [width, 16],
+          iconAnchor: [Math.round(width / 2), 8],
+        }),
+        interactive: false,
+        keyboard: false,
+      }).addTo(state.labelLayer);
       drawn += 1;
     });
   }
@@ -917,8 +982,13 @@
           button.textContent = "Province " + entry.id;
           const tier = document.createElement("span");
           tier.className = "tier";
-          const nation = entry.prov.nation_id && state.nationsById.get(entry.prov.nation_id);
-          tier.textContent = nation ? nationLabel(nation) : "Unclaimed";
+tier.textContent = provinceSearchLabel(entry.id, entry.prov);
+          button.appendChild(tier);
+        } else if (entry.kind === "work") {
+          button.textContent = entry.work.id + " · " + entry.work.name;
+          const tier = document.createElement("span");
+          tier.className = "tier";
+          tier.textContent = workTypeLabel(entry.work.type);
           button.appendChild(tier);
         } else {
           button.textContent = nationLabel(entry.nation);
@@ -960,6 +1030,11 @@
         selectProvince(entry.id, { fly: true, popup: true });
         return;
       }
+if (entry.kind === "work") {
+        input.value = String(entry.work.id);
+        showWork(entry.work, entry.index);
+        return;
+      }
       input.value = nationLabel(entry.nation);
       selectNation(entry.nation, { fly: true, popup: true, provinceId: entry.nation.capital_province });
     }
@@ -973,9 +1048,14 @@
       const items = [];
       if (/^\d+$/.test(query)) {
         const id = Number(query);
-        if (state.nationsById.has(id)) items.push({ kind: "nation", nation: state.nationsById.get(id) });
-        const prov = state.provinces.get(id);
-        if (provinceIsPublic(id, prov)) items.push({ kind: "province", id: id, prov: prov });
+        if (id >= window.NB_HISTORY.WORK_ID_MIN) {
+          const found = findWorkAny(id);
+          if (found) items.push({ kind: "work", work: found.work, index: found.index });
+        } else {
+          if (state.nationsById.has(id)) items.push({ kind: "nation", nation: state.nationsById.get(id) });
+          const prov = state.provinces.get(id);
+          if (provinceIsPublic(id, prov) && !isConcealed(id)) items.push({ kind: "province", id: id, prov: prov });
+        }
       }
       const pinned = [];
       const starts = [];
@@ -1042,21 +1122,50 @@
 
   function onMapClick(event) {
     const meta = state.meta;
-    if (!state.lut) return;
     const x = event.latlng.lng;
     const y = event.latlng.lat;
     if (x < meta.hidden_west_of) {
       clearHighlight();
       setNationHash(null);
-      openPopup(event.latlng, '<div class="nb-pop"><h2>Unexplored</h2><p>The western lands are unexplored.</p></div>');
+      openPopup(event.latlng, unexploredHtml(true));
       return;
     }
-    const id = provinceAt(x, y);
+    if (concealedSeaAt(x, y)) {
+      clearHighlight();
+      setNationHash(null);
+      openPopup(event.latlng, unexploredHtml(false));
+      return;
+    }
+    const id = state.lut ? provinceAt(x, y) : 0;
+    if (id && isConcealed(id)) {
+      clearHighlight();
+      setNationHash(null);
+      openPopup(event.latlng, unexploredHtml(false));
+      return;
+    }
+    const work = workAt(x, y);
+    if (work) {
+      clearHighlight();
+      setNationHash(null);
+      openPopup(event.latlng, workHtml(work));
+      return;
+    }
     if (!id) {
       state.map.closePopup();
       return;
     }
     const prov = state.provinces.get(id);
+    const colony = colonyOf(id);
+    const transferred = hasOwnerOverride(id);
+    if (colony || transferred) {
+      state.activeNationId = null;
+      setNationHash(null);
+      const ownerId = colony ? colony.owner : legalOwnerId(id, prov);
+      const nation = ownerId && state.nationsById.get(ownerId);
+      showHighlight([id], nation ? hexToRgb(nation.color) : [230, 230, 234]);
+      openPopup(event.latlng, nation ? nationHtml(nation, id) : unclaimedHtml(id, prov));
+      return;
+    }
     if (prov && prov.nation_id && state.nationsById.has(prov.nation_id)) {
       const nation = state.nationsById.get(prov.nation_id);
       selectNation(nation, { fly: false, popup: true, latlng: event.latlng, provinceId: id });
@@ -1114,8 +1223,8 @@
     }
     state.claimMarkers = L.layerGroup();
     state.nations.forEach(function (nation) {
-      const claim = claimOf(nation);
-      if (!claim) return;
+const claim = claimOf(nation);
+      if (!claim || isConcealed(nation.capital_province)) return;
       const xy = nationPoint(nation);
       const label = nationLabel(nation);
       const width = Math.max(48, Math.ceil(label.length * 7.4) + 18);
@@ -1184,7 +1293,7 @@
     const features = [];
     state.flatCollection.features.forEach(function (feature) {
       const props = feature.properties || {};
-      if (props.kind === "province" && claimed.has(props.nation_id)) {
+      if (props.kind === "province" && claimed.has(props.nation_id) && !isConcealed(props.id)) {
         features.push({ type: "Feature", properties: { role: "claim" }, geometry: feature.geometry });
       }
     });
@@ -1232,12 +1341,27 @@
       style: flatStyle,
     });
     state.flatBorderOn = state.overlays.borders;
+    state.flatById = new Map();
+    state.flatLayer.eachLayer(function (layer) {
+      const id = layer.feature && layer.feature.properties && layer.feature.properties.id;
+      if (id) state.flatById.set(id, layer);
+    });
     rebuildMarks();
+    renderHistory();
+    restyleFlatForHistory();
     applyMode();
   }
 
   function applyInfra(collection) {
-    const data = collection && collection.type === "FeatureCollection" ? collection : { type: "FeatureCollection", features: [] };
+    if (collection) state.infraRaw = collection;
+    const raw = state.infraRaw && state.infraRaw.type === "FeatureCollection" ? state.infraRaw : { type: "FeatureCollection", features: [] };
+    const data = {
+      type: "FeatureCollection",
+      features: (raw.features || []).filter(function (feature) {
+        return infraVisible(feature && feature.properties);
+      }),
+    };
+    if (state.infraLayer && state.map) state.map.removeLayer(state.infraLayer);
     state.infraLayer = L.geoJSON(data, {
       renderer: L.svg({ padding: 0.5 }),
       smoothFactor: 0,
@@ -1297,6 +1421,718 @@
     });
   }
 
+  function nationColor(id) {
+    const nation = id && state.nationsById.get(id);
+    return nation ? safeColor(nation.color) : "#E6E6EA";
+  }
+
+  function lighten(color, amount) {
+    const rgb = hexToRgb(color);
+    const mixed = rgb.map(function (channel) {
+      return Math.round(channel + (255 - channel) * amount);
+    });
+    return (
+      "#" +
+      mixed
+        .map(function (channel) {
+          return channel.toString(16).padStart(2, "0");
+        })
+        .join("")
+    );
+  }
+
+  function fogColor() {
+    if (state.fogColor) return state.fogColor;
+    const features = state.flatCollection && state.flatCollection.features;
+    if (features) {
+      for (let i = 0; i < features.length; i++) {
+        const props = features[i].properties || {};
+        if (props.kind === "fog" && props.color) {
+          state.fogColor = props.color;
+          return state.fogColor;
+        }
+      }
+    }
+    return "#dac092";
+  }
+
+  function isConcealed(id) {
+    const view = state.historyView;
+    return !!(view && view.concealedProvinces && view.concealedProvinces[id]);
+  }
+
+  function hasOwnerOverride(id) {
+    const view = state.historyView;
+    return !!(view && view.owners && Object.prototype.hasOwnProperty.call(view.owners, id));
+  }
+
+  function legalOwnerId(id, prov) {
+    prov = prov || state.provinces.get(id);
+    if (hasOwnerOverride(id)) return state.historyView.owners[id];
+    return prov && prov.nation_id ? prov.nation_id : null;
+  }
+
+  function colonyOf(id) {
+    const view = state.historyView;
+    if (!view || !view.colonies) return null;
+    return view.colonies[id] || null;
+  }
+
+  function occupationOf(id) {
+    const rows = (state.historyView && state.historyView.occupations) || [];
+    for (let i = 0; i < rows.length; i++) {
+      if (rows[i].province === id) return rows[i];
+    }
+    return null;
+  }
+
+  function historyLook(id) {
+    if (!state.historyView || isConcealed(id)) {
+      return isConcealed(id) ? { fog: true } : {};
+    }
+    const colony = colonyOf(id);
+    if (colony) {
+      const color = nationColor(colony.owner);
+      return {
+        fill: lighten(color, colony.stage === "outpost" ? 0.62 : 0.38),
+        stroke: color,
+        dash: "1 5",
+        weight: 2,
+      };
+    }
+    if (hasOwnerOverride(id)) {
+      const owner = state.historyView.owners[id];
+      return { fill: owner == null ? "#E6E6EA" : nationColor(owner) };
+    }
+    return {};
+  }
+
+  function colonyLine(id) {
+    const colony = colonyOf(id);
+    if (!colony) return "";
+    const nation = state.nationsById.get(colony.owner);
+    const stage = colony.stage === "colony" ? "Colony" : "Outpost";
+    const name = nation ? nationLabel(nation) : "nation " + colony.owner;
+    return '<p class="meta">' + esc(stage + " of " + name) + "</p>";
+  }
+
+  function occupationSentence(id) {
+    const occ = occupationOf(id);
+    if (!occ || isConcealed(id)) return "";
+    const owner = legalOwnerId(id);
+    const ownerNation = owner && state.nationsById.get(owner);
+    const occupier = state.nationsById.get(occ.occupier);
+    let text = "Owned by " + (ownerNation ? nationLabel(ownerNation) : "nobody");
+    text += ", occupied by " + (occupier ? nationLabel(occupier) : "nation " + occ.occupier);
+    if (occ.war) text += " (war: " + occ.war + ")";
+    return '<p class="claim">' + esc(text) + "</p>";
+  }
+
+  function provinceSearchLabel(id, prov) {
+    const colony = colonyOf(id);
+    if (colony) return colony.stage === "colony" ? "Colony" : "Outpost";
+    const owner = legalOwnerId(id, prov);
+    const nation = owner && state.nationsById.get(owner);
+    return nation ? nationLabel(nation) : "Unclaimed";
+  }
+
+  function workTypeLabel(type) {
+    return type === "reclaimed" ? "Reclaimed land" : "Land bridge";
+  }
+
+  function workHtml(work) {
+    const owner = work.owner && state.nationsById.get(work.owner);
+    const building = work.status === "building";
+    return (
+      '<div class="nb-pop"><h2><i style="background:' +
+      esc(nationColor(work.owner)) +
+      '"></i>' +
+      esc(work.name) +
+      '</h2><p class="tier">' +
+      esc(workTypeLabel(work.type)) +
+      (building ? " · under construction" : "") +
+      '</p><p class="meta">Province ' +
+      work.id +
+      '</p><p class="meta">Owned by ' +
+      esc(owner ? nationLabel(owner) : work.owner ? "nation " + work.owner : "nobody") +
+      "</p></div>"
+    );
+  }
+
+  function markerHtml(marker) {
+    const owner = marker.owner && state.nationsById.get(marker.owner);
+    const kind = marker.kind === "army" ? "Army" : "Battle";
+    return (
+      '<div class="nb-pop"><h2>' +
+      esc(marker.name) +
+      '</h2><p class="tier">' +
+      kind +
+      "</p>" +
+      (owner ? '<p class="meta">' + esc(nationLabel(owner)) + "</p>" : "") +
+      (marker.text ? "<p>" + esc(marker.text) + "</p>" : "") +
+      "</div>"
+    );
+  }
+
+  function unexploredHtml(western) {
+    const text = western ? "The western lands are unexplored." : "This part of the world is unexplored.";
+    return '<div class="nb-pop"><h2>Unexplored</h2><p>' + text + "</p></div>";
+  }
+
+  function workScreen(work) {
+    const box = work && work.bbox;
+    if (!state.map || !box) return { weight: 3.5, marker: true, minor: 0, major: 0 };
+    const a = state.map.latLngToContainerPoint([box[1], box[0]]);
+    const b = state.map.latLngToContainerPoint([box[3], box[2]]);
+    const width = Math.abs(b.x - a.x);
+    const height = Math.abs(b.y - a.y);
+    const minor = Math.min(width, height);
+    const major = Math.max(width, height);
+    const thin = minor < 8;
+    return {
+      weight: thin ? 3.5 : 1.75,
+      marker: thin && major < 18,
+      minor: minor,
+      major: major,
+    };
+  }
+
+  function changeStyle(feature) {
+    const props = feature.properties || {};
+    const cover = 1 - flatAmount(state.map ? state.map.getZoom() : 0);
+    if (props.role === "colony") {
+      const color = nationColor(props.owner);
+      return {
+        color: color,
+        weight: 2,
+        opacity: cover,
+        dashArray: "1 5",
+        lineCap: "butt",
+        fill: true,
+        fillColor: lighten(color, props.stage === "outpost" ? 0.62 : 0.38),
+        fillOpacity: 0.74 * cover,
+        interactive: false,
+      };
+    }
+    const visible = cover > 0.03;
+    return {
+      color: "#16140f",
+      weight: 1,
+      opacity: visible ? 0.9 : 0,
+      fill: true,
+      fillColor: props.owner == null ? "#E6E6EA" : nationColor(props.owner),
+      fillOpacity: visible ? 0.9 * cover : 0,
+      interactive: false,
+    };
+  }
+
+  function workStyle(feature) {
+    const props = feature.properties || {};
+    const screen = workScreen(props);
+    const building = props.status === "building";
+    return {
+      color: "#16140f",
+      weight: screen.weight,
+      opacity: 1,
+      dashArray: building ? "6 5" : null,
+      lineCap: "round",
+      lineJoin: "round",
+      fill: true,
+      fillColor: nationColor(props.owner),
+      fillOpacity: building ? 0.4 : 0.94,
+      interactive: false,
+    };
+  }
+
+  function occPatternId(ownerHex, occupierHex) {
+    return "nb-occ-" + String(ownerHex).slice(1).toLowerCase() + "-" + String(occupierHex).slice(1).toLowerCase();
+  }
+
+  function installOccPatterns(pairs) {
+    const svg = document.querySelector(".leaflet-history-pane svg");
+    if (!svg) return;
+    const ns = "http://www.w3.org/2000/svg";
+    let defs = svg.querySelector("defs");
+    if (!defs) {
+      defs = document.createElementNS(ns, "defs");
+      svg.insertBefore(defs, svg.firstChild);
+    }
+    (pairs || []).forEach(function (pair) {
+      const id = occPatternId(pair.owner, pair.occupier);
+      if (svg.querySelector("#" + id)) return;
+      const pattern = document.createElementNS(ns, "pattern");
+      pattern.setAttribute("id", id);
+      pattern.setAttribute("patternUnits", "userSpaceOnUse");
+      pattern.setAttribute("width", "8");
+      pattern.setAttribute("height", "8");
+      pattern.setAttribute("patternTransform", "rotate(45)");
+      const wash = document.createElementNS(ns, "rect");
+      wash.setAttribute("width", "8");
+      wash.setAttribute("height", "8");
+      wash.setAttribute("fill", pair.owner);
+      const stripe = document.createElementNS(ns, "path");
+      stripe.setAttribute("d", "M0 0 H8");
+      stripe.setAttribute("stroke", pair.occupier);
+      stripe.setAttribute("stroke-width", "3");
+      pattern.appendChild(wash);
+      pattern.appendChild(stripe);
+      defs.appendChild(pattern);
+    });
+  }
+
+  function occStyle(feature) {
+    const props = feature.properties || {};
+    const owner = nationColor(props.owner);
+    const occupier = nationColor(props.occupier);
+    return {
+      stroke: true,
+      color: occupier,
+      weight: 2,
+      opacity: 0.95,
+      fill: true,
+      fillColor: "url(#" + occPatternId(owner, occupier) + ")",
+      fillOpacity: 1,
+      interactive: false,
+    };
+  }
+
+  function dropLayer(layer) {
+    if (layer && state.map && state.map.hasLayer(layer)) state.map.removeLayer(layer);
+  }
+
+  function provinceFeature(id, props) {
+    const layer = state.flatById && state.flatById.get(id);
+    const prov = state.provinces.get(id);
+    if (!layer || !layer.feature || !provinceIsPublic(id, prov)) return null;
+    return { type: "Feature", properties: props, geometry: layer.feature.geometry };
+  }
+
+  function markerHidden(marker) {
+    if (concealedSeaAt(marker.x, marker.y)) return true;
+    const id = state.lut ? provinceAt(marker.x, marker.y) : 0;
+    return !!(id && isConcealed(id));
+  }
+
+  function renderHistory() {
+    const map = state.map;
+    if (!map) return;
+    dropLayer(state.changeLayer);
+    dropLayer(state.occLayer);
+    dropLayer(state.workLayer);
+    dropLayer(state.workMarkers);
+    dropLayer(state.fogLayer);
+    dropLayer(state.battleLayer);
+    state.changeLayer = null;
+    state.occLayer = null;
+    state.workLayer = null;
+    state.workMarkers = null;
+    state.workMarkerKey = null;
+    state.fogLayer = null;
+    state.battleLayer = null;
+    state.occPairs = [];
+    const view = state.historyView;
+    if (!view) return;
+
+    const changes = [];
+    Object.keys(view.colonies).forEach(function (key) {
+      const colony = view.colonies[key];
+      if (view.concealedProvinces[colony.province]) return;
+      const feature = provinceFeature(colony.province, {
+        role: "colony",
+        id: colony.province,
+        owner: colony.owner,
+        stage: colony.stage,
+      });
+      if (feature) changes.push(feature);
+    });
+    Object.keys(view.owners).forEach(function (key) {
+      const id = Number(key);
+      if (view.colonies[id] || view.concealedProvinces[id]) return;
+      const prov = state.provinces.get(id);
+      const nextOwner = view.owners[id];
+      const original = prov && prov.nation_id ? prov.nation_id : null;
+      if (nextOwner === original) return;
+      const feature = provinceFeature(id, { role: "transfer", id: id, owner: nextOwner });
+      if (feature) changes.push(feature);
+    });
+    if (changes.length) {
+      state.changeLayer = L.geoJSON(
+        { type: "FeatureCollection", features: changes },
+        {
+          pane: "history",
+          renderer: state.historyRenderer,
+          smoothFactor: 0,
+          interactive: false,
+          style: changeStyle,
+        }
+      );
+      state.changeLayer.addTo(map);
+    }
+
+    const occupations = [];
+    view.occupations.forEach(function (occ) {
+      if (view.concealedProvinces[occ.province]) return;
+      const prov = state.provinces.get(occ.province);
+      if (!provinceIsPublic(occ.province, prov)) return;
+      const feature = provinceFeature(occ.province, {
+        role: "occupation",
+        id: occ.province,
+        occupier: occ.occupier,
+        owner: legalOwnerId(occ.province, prov),
+      });
+      if (!feature) return;
+      occupations.push(feature);
+      state.occPairs.push({
+        owner: nationColor(feature.properties.owner),
+        occupier: nationColor(occ.occupier),
+      });
+    });
+    if (occupations.length) {
+      state.occLayer = L.geoJSON(
+        { type: "FeatureCollection", features: occupations },
+        {
+          pane: "history",
+          renderer: state.historyRenderer,
+          smoothFactor: 0,
+          interactive: false,
+          style: occStyle,
+        }
+      );
+      if (state.overlays.occupied) state.occLayer.addTo(map);
+      installOccPatterns(state.occPairs);
+      state.occLayer.setStyle(occStyle);
+    }
+
+    if (view.works.length) {
+      state.workLayer = L.geoJSON(
+        {
+          type: "FeatureCollection",
+          features: view.works.map(function (work) {
+            return {
+              type: "Feature",
+              properties: {
+                role: "work",
+                id: work.id,
+                name: work.name,
+                type: work.type,
+                status: work.status,
+                owner: work.owner,
+                bbox: work.bbox,
+              },
+              geometry: { type: "Polygon", coordinates: work.rings },
+            };
+          }),
+        },
+        {
+          pane: "history",
+          renderer: state.historyRenderer,
+          smoothFactor: 0,
+          interactive: false,
+          style: workStyle,
+        }
+      );
+      state.workLayer.addTo(map);
+    }
+
+    const fogFeatures = [];
+    Object.keys(view.concealedProvinces).forEach(function (key) {
+      const feature = provinceFeature(Number(key), { role: "fog" });
+      if (feature) fogFeatures.push(feature);
+    });
+    view.concealedSeas.forEach(function (sea) {
+      fogFeatures.push({
+        type: "Feature",
+        properties: { role: "sea", id: sea.id },
+        geometry: { type: "Polygon", coordinates: sea.rings },
+      });
+    });
+    if (fogFeatures.length) {
+      state.fogLayer = L.geoJSON(
+        { type: "FeatureCollection", features: fogFeatures },
+        {
+          pane: "fog",
+          renderer: state.fogRenderer,
+          smoothFactor: 0,
+          interactive: false,
+          style: function () {
+            return { stroke: false, fill: true, fillColor: fogColor(), fillOpacity: 1, interactive: false };
+          },
+        }
+      );
+      state.fogLayer.addTo(map);
+    }
+
+    state.battleLayer = L.layerGroup();
+    view.markers.forEach(function (marker) {
+      if (markerHidden(marker)) return;
+      const icon = L.divIcon({
+        className: "nb-event nb-event-" + marker.kind,
+        html: "<span>" + (marker.kind === "army" ? "Army" : "Battle") + "</span>",
+        iconSize: marker.kind === "army" ? [52, 18] : [58, 18],
+        iconAnchor: [26, 9],
+      });
+      const pin = L.marker([marker.y, marker.x], {
+        icon: icon,
+        keyboard: true,
+        title: marker.name,
+        zIndexOffset: 700,
+      });
+      pin.on("click", function (event) {
+        L.DomEvent.stopPropagation(event);
+        clearHighlight();
+        setNationHash(null);
+        openPopup(event.latlng, markerHtml(marker));
+      });
+      pin.addTo(state.battleLayer);
+    });
+    if (state.overlays.markers) state.battleLayer.addTo(map);
+    refreshWorkMarkers();
+  }
+
+  function refreshWorkMarkers() {
+    const map = state.map;
+    if (!map) return;
+    const works = (state.historyView && state.historyView.works) || [];
+    const key = works
+      .filter(function (work) {
+        return workScreen(work).marker;
+      })
+      .map(function (work) {
+        return work.id;
+      })
+      .join(",");
+    if (key === state.workMarkerKey && (state.workMarkers || !key)) return;
+    state.workMarkerKey = key;
+    dropLayer(state.workMarkers);
+    state.workMarkers = null;
+    if (!key) return;
+    const group = L.layerGroup();
+    works.forEach(function (work) {
+      if (!workScreen(work).marker) return;
+      L.circleMarker([work.centroid[1], work.centroid[0]], {
+        pane: "history",
+        renderer: state.historyRenderer,
+        radius: 5,
+        weight: 2,
+        color: "#16140f",
+        fillColor: nationColor(work.owner),
+        fillOpacity: work.status === "building" ? 0.45 : 1,
+        interactive: false,
+      }).addTo(group);
+    });
+    state.workMarkers = group.addTo(map);
+  }
+
+  function refreshHistoryZoom() {
+    if (state.changeLayer) state.changeLayer.setStyle(changeStyle);
+    if (state.workLayer) state.workLayer.setStyle(workStyle);
+    if (state.occPairs && state.occPairs.length) installOccPatterns(state.occPairs);
+    refreshWorkMarkers();
+  }
+
+  function syncHistoryOverlays() {
+    setOn(state.occLayer, !!state.overlays.occupied);
+    setOn(state.battleLayer, !!state.overlays.markers);
+  }
+
+  function restyleFlatForHistory() {
+    if (!state.flatById) return;
+    const next = new Set();
+    const view = state.historyView;
+    if (view) {
+      Object.keys(view.owners).forEach(function (id) {
+        next.add(Number(id));
+      });
+      Object.keys(view.colonies).forEach(function (id) {
+        next.add(Number(id));
+      });
+      Object.keys(view.concealedProvinces).forEach(function (id) {
+        next.add(Number(id));
+      });
+    }
+    const prev = state.historyStyled || new Set();
+    prev.forEach(function (id) {
+      if (next.has(id)) return;
+      const layer = state.flatById.get(id);
+      if (layer) layer.setStyle(flatStyle(layer.feature));
+    });
+    next.forEach(function (id) {
+      const layer = state.flatById.get(id);
+      if (layer) layer.setStyle(flatStyle(layer.feature));
+    });
+    state.historyStyled = next;
+  }
+
+  function pointSegDistance(px, py, ax, ay, bx, by) {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len = dx * dx + dy * dy;
+    if (!len) return Math.hypot(px - ax, py - ay);
+    let t = ((px - ax) * dx + (py - ay) * dy) / len;
+    t = Math.max(0, Math.min(1, t));
+    return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+  }
+
+  function workAt(x, y) {
+    const works = (state.historyView && state.historyView.works) || [];
+    const history = window.NB_HISTORY;
+    for (let i = works.length - 1; i >= 0; i--) {
+      const box = works[i].bbox;
+      if (x < box[0] || x > box[2] || y < box[1] || y > box[3]) continue;
+      if (history.pointInRings(x, y, works[i].rings)) return works[i];
+    }
+    if (!state.map) return null;
+    const click = state.map.latLngToContainerPoint([y, x]);
+    for (let i = works.length - 1; i >= 0; i--) {
+      const screen = workScreen(works[i]);
+      if (screen.minor >= 12) continue;
+      const ring = works[i].rings[0];
+      for (let p = 0; p < ring.length - 1; p++) {
+        const a = state.map.latLngToContainerPoint([ring[p][1], ring[p][0]]);
+        const b = state.map.latLngToContainerPoint([ring[p + 1][1], ring[p + 1][0]]);
+        if (pointSegDistance(click.x, click.y, a.x, a.y, b.x, b.y) <= 8) return works[i];
+      }
+      if (screen.marker) {
+        const center = state.map.latLngToContainerPoint([works[i].centroid[1], works[i].centroid[0]]);
+        if (Math.hypot(click.x - center.x, click.y - center.y) <= 12) return works[i];
+      }
+    }
+    return null;
+  }
+
+  function concealedSeaAt(x, y) {
+    const seas = (state.historyView && state.historyView.concealedSeas) || [];
+    for (let i = seas.length - 1; i >= 0; i--) {
+      const box = seas[i].bbox;
+      if (x < box[0] || x > box[2] || y < box[1] || y > box[3]) continue;
+      if (window.NB_HISTORY.pointInRings(x, y, seas[i].rings)) return seas[i];
+    }
+    return null;
+  }
+
+  function findWorkAny(id) {
+    const west = state.meta ? state.meta.hidden_west_of : 3592;
+    const index = window.NB_HISTORY.workIndex(state.historySnapshots, id, west);
+    if (index < 0) return null;
+    const folded = window.NB_HISTORY.fold(state.historySnapshots, index, west);
+    const work = folded.works.find(function (item) {
+      return item.id === id;
+    });
+    return work ? { work: work, index: index } : null;
+  }
+
+  function showWork(work, index) {
+    const visible = state.historyView && state.historyView.works.some(function (item) {
+      return item.id === work.id;
+    });
+    if (!visible) goToHistory(index);
+    const shown =
+      (state.historyView &&
+        state.historyView.works.find(function (item) {
+          return item.id === work.id;
+        })) ||
+      work;
+    clearHighlight();
+    setNationHash(null);
+    if (shown.bbox) flyToBox(shown.bbox, 8);
+    openPopup(L.latLng(shown.centroid[1], shown.centroid[0]), workHtml(shown));
+  }
+
+  function infraVisible(props) {
+    if (!props) return true;
+    const hasCycle = props.cycle != null && props.cycle !== "";
+    const hasRound = props.round != null && props.round !== "";
+    if (!hasCycle && !hasRound) return true;
+    const view = state.historyView || { cycle: 0, round: null };
+    const cycle = hasCycle ? Number(props.cycle) : 0;
+    if (!isFinite(cycle)) return true;
+    if (view.cycle > cycle) return true;
+    if (view.cycle < cycle) return false;
+    if (!hasRound) return true;
+    const round = Number(props.round);
+    if (!isFinite(round)) return true;
+    const current = view.round == null ? 0 : view.round;
+    return current >= round;
+  }
+
+  function goToHistory(index, options) {
+    options = options || {};
+    const snaps = state.historySnapshots || [];
+    const max = Math.max(0, snaps.length - 1);
+    const next = snaps.length ? Math.max(0, Math.min(Number(index) || 0, max)) : 0;
+    if (!options.force && state.historyView && next === state.historyIndex) return;
+    state.historyIndex = next;
+    const west = state.meta ? state.meta.hidden_west_of : 3592;
+    state.historyView = window.NB_HISTORY.fold(snaps, next, west);
+    const range = document.getElementById("timeline-range");
+    const label = document.getElementById("timeline-label");
+    const prev = document.getElementById("timeline-prev");
+    const nextButton = document.getElementById("timeline-next");
+    if (range) {
+      range.max = String(max);
+      range.value = String(next);
+      range.disabled = snaps.length < 2;
+      range.setAttribute("aria-valuetext", state.historyView.label);
+    }
+    if (label) label.textContent = state.historyView.label;
+    if (prev) prev.disabled = next <= 0;
+    if (nextButton) nextButton.disabled = next >= max;
+    renderHistory();
+    restyleFlatForHistory();
+    if (state.infraRaw) applyInfra();
+    const concealedKey = Object.keys((state.historyView && state.historyView.concealedProvinces) || {})
+      .sort()
+      .join(",");
+    if (concealedKey !== state.concealedKey && state.nations.length) {
+      state.concealedKey = concealedKey;
+      applyClaims();
+    }
+    refreshProvinceLabels();
+    if (!options.silent && state.map) state.map.closePopup();
+  }
+
+  function installTimeline() {
+    if (state.timelineReady) return;
+    state.timelineReady = true;
+    const range = document.getElementById("timeline-range");
+    const prev = document.getElementById("timeline-prev");
+    const nextButton = document.getElementById("timeline-next");
+    if (!range || !prev || !nextButton) return;
+    document.body.classList.add("has-timeline");
+    range.addEventListener("input", function () {
+      goToHistory(Number(range.value));
+    });
+    prev.addEventListener("click", function () {
+      goToHistory(state.historyIndex - 1);
+    });
+    nextButton.addEventListener("click", function () {
+      goToHistory(state.historyIndex + 1);
+    });
+  }
+
+  async function loadHistory() {
+    const fallback = [{ id: "cycle-0", cycle: 0, label: "Start (Cycle 0)" }];
+    try {
+      const stamp = Date.now();
+      const res = await fetch("data/history/index.json?t=" + stamp, { cache: "no-store" });
+      if (!res.ok) return fallback;
+      const index = await res.json();
+      const files = Array.isArray(index) ? index : index.snapshots || [];
+      const snaps = [];
+      for (let i = 0; i < files.length; i++) {
+        const name = String(files[i] || "");
+        if (!/^[\w.-]+\.json$/.test(name)) continue;
+        const file = await fetch("data/history/" + name + "?t=" + stamp, { cache: "no-store" });
+        if (!file.ok) continue;
+        snaps.push(await file.json());
+      }
+      return snaps.length ? snaps : fallback;
+    } catch (err) {
+      console.error(err);
+      return fallback;
+    }
+  }
+
   async function main() {
     setupInfo();
     setupSearch();
@@ -1340,8 +2176,14 @@
     state.lut = lut;
     indexWorld(world);
     state.claims = normalizeClaims(claims);
+    state.historySnapshots = await loadHistory();
+    installTimeline();
+    goToHistory(Math.max(0, state.historySnapshots.length - 1), { force: true, silent: true });
     state.map.on("click", onMapClick);
-    applyClaims();
+    if (state.concealedKey == null) {
+      state.concealedKey = "";
+      applyClaims();
+    }
     applyInfra(infra);
     window.addEventListener("hashchange", function () {
       openHash(true);

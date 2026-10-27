@@ -23,7 +23,7 @@
   <aside id="info">
     <button type="button" id="info-toggle" aria-expanded="true">How to pick</button>
     <div class="info-body">
-      <p>How to pick: find a nation, click it, and DM Blake its name. Nation names are placeholders: you can rename yours and choose a real-world or custom culture. The western lands are unexplored.</p>
+      <p>How to pick: find a nation, click it, and DM Blake its name. Nation names are placeholders: you can rename yours and choose a real-world or custom culture. The western lands are unexplored. The bar along the bottom moves through the history of the map.</p>
     </div>
   </aside>
   <div id="depth-legend" hidden>
@@ -31,10 +31,19 @@
     <span><i class="swatch mid"></i>Mid</span>
     <span><i class="swatch deep"></i>Deep</span>
   </div>
+  <div id="timeline">
+    <button type="button" id="timeline-prev" aria-label="Earlier">‹</button>
+    <div class="timeline-main">
+      <div id="timeline-label">Start (Cycle 0)</div>
+      <input id="timeline-range" type="range" min="0" max="0" value="0" aria-label="Map history" aria-valuetext="Start (Cycle 0)">
+    </div>
+    <button type="button" id="timeline-next" aria-label="Later">›</button>
+  </div>
   <p id="status" class="status" role="status" hidden></p>
   <noscript><p class="noscript">New Beginnings needs JavaScript to show the map.</p></noscript>
   <script src="vendor/leaflet/leaflet.js"></script>
   <script src="js/config.js"></script>
+  <script src="js/history.js"></script>
   <script src="js/map.js"></script>
 </body>
 </html>
