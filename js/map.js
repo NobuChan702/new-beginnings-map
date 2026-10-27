@@ -836,6 +836,10 @@
     }
   }
 
+  function nationAliases(nation) {
+    return [nation.short_name, nation.name].concat(nation.former_names || []);
+  }
+
   function findNation(token) {
     let raw = token;
     try {
@@ -849,7 +853,9 @@
     const query = raw.toLowerCase();
     return (
       state.nations.find(function (nation) {
-        return nation.short_name.toLowerCase() === query || nation.name.toLowerCase() === query;
+        return nationAliases(nation).some(function (name) {
+          return String(name).toLowerCase() === query;
+        });
       }) || null
     );
   }
@@ -956,19 +962,26 @@
         const prov = state.provinces.get(id);
         if (provinceIsPublic(id, prov)) items.push({ kind: "province", id: id, prov: prov });
       }
+      const pinned = [];
       const starts = [];
       const rest = [];
       state.nations.forEach(function (nation) {
         const name = nation.short_name.toLowerCase();
-        const full = nation.name.toLowerCase();
+        const aliases = nationAliases(nation).map(function (alias) {
+          return String(alias).toLowerCase();
+        });
         const id = String(nation.id);
         if (id === query) return;
-        if (!(name.includes(query) || full.includes(query))) return;
+        if (!aliases.some(function (alias) { return alias.includes(query); })) return;
         const entry = { kind: "nation", nation: nation };
-        if (name.startsWith(query)) starts.push(entry);
+        const exactFormer = (nation.former_names || []).some(function (alias) {
+          return String(alias).toLowerCase() === query;
+        });
+        if (exactFormer || name === query) pinned.push(entry);
+        else if (name.startsWith(query) || aliases.some(function (alias) { return alias.startsWith(query); })) starts.push(entry);
         else rest.push(entry);
       });
-      render(items.concat(starts, rest).slice(0, 8));
+      render(items.concat(pinned, starts, rest).slice(0, 8));
     });
 
     input.addEventListener("keydown", function (event) {

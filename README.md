@@ -62,6 +62,8 @@ Leave `source/` untracked. Push to `main` (or open a pull request). GitHub Actio
 
 The header box finds a nation by name. Type a province id, such as `1459`, to fly to that province and open its popup (`Province 1459`). Only provinces on the published side of the map resolve. A hidden id produces no result.
 
+A nation may list old names in `former_names`. Search and a `#nation=` link still find those, and the map shows the current `short_name`. Holy Empire of Sanbreque (nation 23) is still found by Haltor.
+
 Layers → Province IDs draws those same ids on the map once you are zoomed in. The zoom cutoff is `provinceLabelMinZoom` in `js/config.js`.
 
 ## Claims

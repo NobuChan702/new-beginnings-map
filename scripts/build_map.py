@@ -504,21 +504,23 @@ def build_world(paths: dict[str, Path], ids: np.ndarray, allowed: set[int], boxe
             cy = (miny + maxy) / 2
         tier = str(nation.get("type") or nation.get("tier") or "")
         name = str(nation["name"])
-        published_nations.append(
-            {
-                "id": nid,
-                "name": name,
-                "short_name": short_name(name),
-                "tier": tier,
-                "color": str(nation.get("color") or "#E6E6EA"),
-                "capital_province": capital,
-                "capital_xy": [round(cx, 1), round(cy, 1)],
-                "bbox": [int(minx), int(miny), int(maxx), int(maxy)],
-                "province_count": len(kept),
-                "area_km2": as_num(area),
-                "provinces": kept,
-            }
-        )
+        entry = {
+            "id": nid,
+            "name": name,
+            "short_name": short_name(name),
+            "tier": tier,
+            "color": str(nation.get("color") or "#E6E6EA"),
+            "capital_province": capital,
+            "capital_xy": [round(cx, 1), round(cy, 1)],
+            "bbox": [int(minx), int(miny), int(maxx), int(maxy)],
+            "province_count": len(kept),
+            "area_km2": as_num(area),
+            "provinces": kept,
+        }
+        former = nation.get("former_names") or nation.get("aliases")
+        if former:
+            entry["former_names"] = [str(item) for item in former if str(item).strip()]
+        published_nations.append(entry)
 
     nation_of = {}
     for nation in published_nations:
