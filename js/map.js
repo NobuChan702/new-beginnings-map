@@ -25,6 +25,7 @@
     nationsById: new Map(),
     provinces: new Map(),
     claims: new Map(),
+    capitalNames: new Map(),
     mode: "auto",
     overlays: { borders: true, claims: true, occupied: true, markers: true, infra: true, trade: true, ids: false },
     labelLayer: null,
@@ -745,6 +746,28 @@
     return state.claims.get(String(nation.id)) || null;
   }
 
+  function loadCapitalNames(text) {
+    const names = new Map();
+    String(text || "")
+      .split(/\r?\n/)
+      .forEach(function (line, index) {
+        if (!index || !line) return;
+        const parts = line.split(",");
+        if (parts.length < 4 || parts[3].trim().toLowerCase() !== "capital") return;
+        const province = Number(parts[1]);
+        const name = parts[2].trim();
+        if (!isFinite(province) || !name) return;
+        names.set(province, name);
+      });
+    return names;
+  }
+
+  function capitalPlaceName(nation) {
+    if (!nation) return "";
+    const named = state.capitalNames && state.capitalNames.get(nation.capital_province);
+    return named || nation.short_name;
+  }
+
   function nationLabel(nation) {
     if (!nation) return "";
     const claim = claimOf(nation);
@@ -755,6 +778,9 @@
   function nationHtml(nation, provinceId) {
     const prov = state.provinces.get(provinceId) || state.provinces.get(nation.capital_province);
     const claim = claimOf(nation);
+    const named = capitalPlaceName(nation);
+    const distinct = named && named.toLowerCase() !== nation.short_name.toLowerCase();
+    const capitalLine = (distinct ? esc(named) + " · " : "") + "Province " + nation.capital_province;
     return (
       '<div class="nb-pop"><h2><i style="background:' +
       esc(safeColor(nation.color)) +
@@ -766,8 +792,8 @@
       nation.province_count +
       " provinces · " +
       fmtArea(nation.area_km2) +
-      '</p><p class="meta">Capital: Province ' +
-      nation.capital_province +
+      '</p><p class="meta">Capital: ' +
+      capitalLine +
       "</p>" +
 (claim ? '<div class="claim">Claimed by ' + esc(claim.player) + "</div>" : "") +
       colonyLine(provinceId) +
@@ -942,7 +968,7 @@
   }
 
   function nationAliases(nation) {
-    const names = [nation.short_name, nation.name].concat(nation.former_names || []);
+    const names = [nation.short_name, nation.name, capitalPlaceName(nation)].concat(nation.former_names || []);
     const claim = claimOf(nation);
     if (claim) names.push(claim.short, claim.player, nationLabel(nation));
     return names;
@@ -1019,7 +1045,9 @@ tier.textContent = provinceSearchLabel(entry.id, entry.prov);
           tier.textContent = workTypeLabel(entry.work.type);
           button.appendChild(tier);
         } else {
-          button.textContent = nationLabel(entry.nation);
+          const capital = capitalPlaceName(entry.nation);
+          const distinct = capital && capital.toLowerCase() !== entry.nation.short_name.toLowerCase();
+          button.textContent = distinct ? capital + " · " + nationLabel(entry.nation) : nationLabel(entry.nation);
           const tier = document.createElement("span");
           tier.className = "tier";
           tier.textContent = labelTier(entry.nation.tier);
@@ -1618,7 +1646,7 @@ const claim = claimOf(nation);
         places[id] = {
           id: id,
           type: "capital",
-          name: nation.short_name,
+          name: capitalPlaceName(nation),
           nation: nation.id,
           province: nation.capital_province,
           x: nation.capital_xy[0],
@@ -3240,7 +3268,7 @@ const claim = claimOf(nation);
       .catch(function () {
         return null;
       });
-    const [world, claims, infra, trade, lut] = await Promise.all([
+    const [world, claims, infra, trade, settlements, lut] = await Promise.all([
       fetch("data/world.json").then(function (res) {
         if (!res.ok) throw new Error("world");
         return res.json();
@@ -3266,11 +3294,19 @@ const claim = claimOf(nation);
         .catch(function () {
           return { routes: [] };
         }),
+      fetch("data/settlements.csv?t=" + stamp, { cache: "no-store" })
+        .then(function (res) {
+          return res.ok ? res.text() : "";
+        })
+        .catch(function () {
+          return "";
+        }),
       loadLookup(meta),
     ]);
     state.lut = lut;
     indexWorld(world);
     state.claims = normalizeClaims(claims);
+    state.capitalNames = loadCapitalNames(settlements);
     state.historySnapshots = await loadHistory();
     installTimeline();
     goToHistory(Math.max(0, state.historySnapshots.length - 1), { force: true, silent: true });
