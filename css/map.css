@@ -533,6 +533,8 @@ body.has-timeline #depth-legend {
   overflow: visible;
   filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.55));
 }
+.nb-infra-scaffold { opacity: 0.62; }
+.nb-infra-scaffold svg { filter: none; }
 
 .nb-event { background: transparent; border: 0; }
 .nb-event span {

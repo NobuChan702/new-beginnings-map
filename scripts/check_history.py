@@ -4,6 +4,7 @@
 A trade route in the catalog or a snapshot has to be public. Anything else fails the build.
 A sector controller has to be a nation already on the published map, or blank for unclaimed.
 A village has to sit inside its sector, and every sector needs a settlement.
+A fort has to name a published nation and a sector that already has a settlement.
 """
 
 import csv
@@ -356,6 +357,61 @@ def check_settlements(provinces, nations, places, width, height):
             fail(f"village {sector_id} is not inside its sector")
 
 
+def check_buildings(provinces, nations):
+    path = ROOT / "data" / "buildings.csv"
+    if not path.is_file():
+        fail("missing data/buildings.csv")
+    sectors = load(ROOT / "data" / "sectors.geojson")
+    sector_ids = set()
+    for feature in sectors.get("features") or []:
+        sid = (feature.get("properties") or {}).get("id")
+        if isinstance(sid, str):
+            sector_ids.add(sid)
+    settled = set()
+    with (ROOT / "data" / "settlements.csv").open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            settled.add(row.get("sector_id"))
+    by_name = {nation["short_name"]: nation for nation in nations.values()}
+    with path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.reader(handle))
+    if not rows or rows[0] != ["nation", "province", "sector_id", "building", "cycle_built", "status"]:
+        fail("buildings.csv: header must be nation,province,sector_id,building,cycle_built,status")
+    for index, row in enumerate(rows[1:], start=2):
+        if not row or (len(row) == 1 and row[0].strip() == ""):
+            continue
+        if len(row) != 6:
+            fail(f"buildings.csv:{index}: expected 6 columns")
+        nation_name, province_text, sector_id, building, cycle_text, status = (part.strip() for part in row)
+        nation = by_name.get(nation_name)
+        if nation is None:
+            fail(f"buildings.csv:{index}: nation {nation_name} is not on the published map")
+        box = nation.get("bbox") or [0, 0, 0, 0]
+        xy = nation.get("capital_xy") or [0, 0]
+        if box[0] < WEST or xy[0] < WEST:
+            fail(f"buildings.csv:{index}: nation {nation_name} is west of the fog line")
+        if not province_text.isdigit():
+            fail(f"buildings.csv:{index}: province must be an integer")
+        pid = int(province_text)
+        prov = provinces.get(pid)
+        if prov is None:
+            fail(f"buildings.csv:{index}: province {pid} is not on the published map")
+        prov_box = prov.get("bbox") or [0, 0, 0, 0]
+        prov_xy = prov.get("xy") or [0, 0]
+        if prov_box[0] < WEST or prov_xy[0] < WEST:
+            fail(f"buildings.csv:{index}: province {pid} is west of the fog line")
+        prefix, _, letter = sector_id.rpartition("-")
+        if prefix != str(pid) or letter not in ("A", "B", "C") or sector_id not in sector_ids:
+            fail(f"buildings.csv:{index}: {sector_id} is not a sector of province {pid}")
+        if sector_id not in settled:
+            fail(f"buildings.csv:{index}: sector {sector_id} has no settlement")
+        if building != "fort":
+            fail(f"buildings.csv:{index}: building must be fort")
+        if not cycle_text.isdigit():
+            fail(f"buildings.csv:{index}: cycle_built must be a whole number")
+        if status not in ("done", "building"):
+            fail(f"buildings.csv:{index}: status must be done or building")
+
+
 def check_trade_block(block, where, nations, width, height):
     if block is None:
         return
@@ -455,6 +511,7 @@ def main():
     check_trade_list(trade.get("routes"), "trade_routes.json", nations, width, height)
     check_sectors(nations, width, height, province_id)
     check_settlements(provinces, nations, catalog.get("places") or [], width, height)
+    check_buildings(provinces, nations)
 
     for name in files:
         if not isinstance(name, str) or "/" in name or "\\" in name or name.startswith("."):

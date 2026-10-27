@@ -26,6 +26,8 @@
     provinces: new Map(),
     claims: new Map(),
     capitalNames: new Map(),
+    settlementRows: null,
+    buildings: null,
     mode: "auto",
     overlays: { borders: true, claims: true, occupied: true, markers: true, infra: true, trade: true, sectors: true, ids: false },
     labelLayer: null,
@@ -776,6 +778,59 @@
         names.set(province, name);
       });
     return names;
+  }
+
+  function loadSettlementRows(text) {
+    const rows = [];
+    String(text || "")
+      .split(/\r?\n/)
+      .forEach(function (line, index) {
+        if (!index || !line) return;
+        const parts = line.split(",");
+        if (parts.length < 6) return;
+        const province = Number(parts[1]);
+        const name = parts[2].trim();
+        const type = parts[3].trim().toLowerCase();
+        const sector = parts[5].trim();
+        if (!isFinite(province) || !name || !sector) return;
+        rows.push({ province: province, name: name, type: type, sector: sector });
+      });
+    return rows;
+  }
+
+  function loadBuildings(text) {
+    const rows = [];
+    String(text || "")
+      .split(/\r?\n/)
+      .forEach(function (line, index) {
+        if (!index || !line.trim()) return;
+        const parts = line.split(",");
+        if (parts.length < 6) return;
+        const nation = parts[0].trim();
+        const province = Number(parts[1]);
+        const sector = parts[2].trim();
+        const building = parts[3].trim().toLowerCase();
+        const cycle = Number(parts[4]);
+        const status = parts[5].trim().toLowerCase();
+        if (!nation || !isFinite(province) || !sector || building !== "fort") return;
+        rows.push({
+          nation: nation,
+          province: province,
+          sector: sector,
+          building: building,
+          cycle: isFinite(cycle) ? cycle : 0,
+          status: status === "building" ? "building" : "done",
+        });
+      });
+    return rows;
+  }
+
+  function nationByName(name) {
+    const want = String(name || "");
+    for (let i = 0; i < state.nations.length; i++) {
+      if (state.nations[i].short_name === want) return state.nations[i];
+    }
+    return null;
   }
 
   function capitalPlaceName(nation) {
@@ -1707,6 +1762,129 @@ const claim = claimOf(nation);
     return state.infraCatalog;
   }
 
+  function buildingVisible(row) {
+    const cycle = Number(row.cycle);
+    if (!isFinite(cycle)) return false;
+    const view = state.historyView && state.historyView.cycle != null ? Number(state.historyView.cycle) : 0;
+    return cycle <= view;
+  }
+
+  function sectorAnchors() {
+    const sig = String(state.infraStamp || 0);
+    if (state.sectorAnchors && state.sectorAnchorSig === sig) return state.sectorAnchors;
+    const anchors = new Map();
+    const rank = { capital: 0, city: 1, town: 2, village: 3 };
+    const places = collectInfra().places;
+    const byKey = new Map();
+    Object.keys(places).forEach(function (id) {
+      const place = places[id];
+      if (!place || place.x == null || place.y == null) return;
+      byKey.set(place.type + ":" + place.province + ":" + place.name, place);
+    });
+    (state.settlementRows || []).forEach(function (row) {
+      let x = null;
+      let y = null;
+      if (row.type === "capital") {
+        for (let i = 0; i < state.nations.length; i++) {
+          const nation = state.nations[i];
+          if (nation.capital_province !== row.province || !nation.capital_xy) continue;
+          x = nation.capital_xy[0];
+          y = nation.capital_xy[1];
+          break;
+        }
+      } else {
+        const place = byKey.get(row.type + ":" + row.province + ":" + row.name);
+        if (place) {
+          x = place.x;
+          y = place.y;
+        }
+      }
+      if (x == null || y == null) return;
+      const score = rank[row.type] == null ? 9 : rank[row.type];
+      const prev = anchors.get(row.sector);
+      if (!prev || score < prev.rank) anchors.set(row.sector, { x: x, y: y, rank: score, province: row.province });
+    });
+    state.sectorAnchors = anchors;
+    state.sectorAnchorSig = sig;
+    return anchors;
+  }
+
+  function fortSvg(scaffold) {
+    const ink = "#0B1A4A";
+    const paper = "#E6E6EA";
+    const tan = "#c4a574";
+    const common = 'viewBox="0 0 20 20" aria-hidden="true"';
+    if (scaffold) {
+      return (
+        '<svg ' +
+        common +
+        ' width="12" height="12"><path fill="none" stroke="' +
+        tan +
+        '" stroke-width="1.5" stroke-dasharray="2 1.4" d="M6 5h1.6V2.4H9.2V5h1.6V2.4h1.6V5h1.6V2.4H16v12.2H6Z"/><path fill="none" stroke="' +
+        ink +
+        '" stroke-width="1.1" stroke-dasharray="1.4 1.3" d="M8.4 17.2v-3.4h3.2v3.4"/></svg>'
+      );
+    }
+    return (
+      '<svg ' +
+      common +
+      ' width="12" height="12"><path fill="' +
+      paper +
+      '" stroke="' +
+      ink +
+      '" stroke-width="1.3" d="M5.2 6.2h2V3h2v3.2h2V3h2v3.2h2V3h2v3.2h1.6V17H5.2Z"/><path fill="' +
+      tan +
+      '" stroke="' +
+      ink +
+      '" stroke-width="1" d="M8.6 17v-3.6h2.8V17"/></svg>'
+    );
+  }
+
+  function fortHtml(row) {
+    const nation = nationByName(row.nation);
+    const nationText = nation ? nationLabel(nation) : row.nation;
+    return (
+      '<div class="nb-pop"><h2>Fort</h2><p class="meta">' +
+      esc(nationText) +
+      '</p><p class="meta">' +
+      esc(row.sector) +
+      "</p></div>"
+    );
+  }
+
+  function addSectorForts(group, grown, zoom) {
+    if (zoom < 6) return;
+    const anchors = sectorAnchors();
+    const used = {};
+    (state.buildings || []).forEach(function (row) {
+      if (!buildingVisible(row)) return;
+      const anchor = anchors.get(row.sector);
+      if (!anchor) return;
+      if (isConcealed(row.province) || isConcealed(anchor.province)) return;
+      if (pointConcealed(anchor.x, anchor.y)) return;
+      if (!grown.contains(L.latLng(anchor.y, anchor.x))) return;
+      const slot = used[row.sector] || 0;
+      used[row.sector] = slot + 1;
+      const scaffold = row.status === "building";
+      const marker = L.marker([anchor.y, anchor.x], {
+        icon: L.divIcon({
+          className: "nb-infra nb-infra-tower" + (scaffold ? " nb-infra-scaffold" : ""),
+          html: fortSvg(scaffold),
+          iconSize: [12, 12],
+          iconAnchor: [-10 - slot * 14, 12],
+        }),
+        title: "Fort",
+        zIndexOffset: 480,
+        keyboard: true,
+      });
+      marker.on("click", function (event) {
+        L.DomEvent.stopPropagation(event);
+        openPopup(event.latlng, fortHtml(row));
+      });
+      marker.addTo(group);
+    });
+  }
+
   function renderInfra() {
     const map = state.map;
     if (!map) return;
@@ -1801,6 +1979,7 @@ const claim = claimOf(nation);
       });
       marker.addTo(group);
     });
+    addSectorForts(group, grown, zoom);
     state.infraLayer = group;
     syncInfraVisibility();
   }
@@ -3657,7 +3836,7 @@ const claim = claimOf(nation);
       .catch(function () {
         return null;
       });
-    const [world, claims, infra, trade, settlements, sectors, sectorControl, lut] = await Promise.all([
+    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, lut] = await Promise.all([
       fetch("data/world.json").then(function (res) {
         if (!res.ok) throw new Error("world");
         return res.json();
@@ -3704,12 +3883,21 @@ const claim = claimOf(nation);
         .catch(function () {
           return "";
         }),
+      fetch("data/buildings.csv?t=" + stamp, { cache: "no-store" })
+        .then(function (res) {
+          return res.ok ? res.text() : "";
+        })
+        .catch(function () {
+          return "";
+        }),
       loadLookup(meta),
     ]);
     state.lut = lut;
     indexWorld(world);
     state.claims = normalizeClaims(claims);
     state.capitalNames = loadCapitalNames(settlements);
+    state.settlementRows = loadSettlementRows(settlements);
+    state.buildings = loadBuildings(buildings);
     state.sectorFeatures = (sectors && sectors.features) || [];
     state.sectorRows = loadSectorControl(sectorControl);
     state.historySnapshots = await loadHistory();
