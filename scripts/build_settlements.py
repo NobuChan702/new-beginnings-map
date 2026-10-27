@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCALE = 4
 WEST = 3592
 # A capital the settlements catalog names for itself, instead of the nation name.
-CAPITAL_NAMES = {21: "Verillia", 25: "Constantinople"}
+CAPITAL_NAMES = {21: "Verillia", 25: "Constantinople", 30: "Batrade"}
 VOWELS = set("aeiouy")
 ONSETS = {
     "qu", "sh", "th", "ph", "ch", "br", "cr", "dr", "fr", "gr", "kr", "pr", "tr",
