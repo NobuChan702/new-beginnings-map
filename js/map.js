@@ -671,14 +671,26 @@
     );
   }
 
+  function claimOf(nation) {
+    if (!nation) return null;
+    return state.claims.get(String(nation.id)) || null;
+  }
+
+  function nationLabel(nation) {
+    if (!nation) return "";
+    const claim = claimOf(nation);
+    if (!claim) return nation.short_name;
+    return nation.short_name + " (" + claim.short + ")";
+  }
+
   function nationHtml(nation, provinceId) {
     const prov = state.provinces.get(provinceId) || state.provinces.get(nation.capital_province);
-    const who = state.claims.get(String(nation.id));
+    const claim = claimOf(nation);
     return (
       '<div class="nb-pop"><h2><i style="background:' +
       esc(safeColor(nation.color)) +
       '"></i>' +
-      esc(nation.short_name) +
+      esc(nationLabel(nation)) +
       '</h2><p class="tier">' +
       esc(labelTier(nation.tier)) +
       '</p><p class="meta">' +
@@ -688,7 +700,7 @@
       '</p><p class="meta">Capital: Province ' +
       nation.capital_province +
       "</p>" +
-      (who ? '<div class="claim">Claimed by ' + esc(who) + "</div>" : "") +
+      (claim ? '<div class="claim">Claimed by ' + esc(claim.player) + "</div>" : "") +
       (prov
         ? '<hr><p class="meta">Province ' +
           (state.provinces.has(provinceId) ? provinceId : nation.capital_province) +
@@ -837,7 +849,10 @@
   }
 
   function nationAliases(nation) {
-    return [nation.short_name, nation.name].concat(nation.former_names || []);
+    const names = [nation.short_name, nation.name].concat(nation.former_names || []);
+    const claim = claimOf(nation);
+    if (claim) names.push(claim.short, claim.player, nationLabel(nation));
+    return names;
   }
 
   function findNation(token) {
@@ -870,7 +885,7 @@
     const nation = nationFromHash();
     if (!nation) return;
     const input = document.getElementById("nation-search");
-    input.value = nation.short_name;
+    input.value = nationLabel(nation);
     selectNation(nation, { fly: fly !== false, popup: true, hash: false });
   }
 
@@ -903,10 +918,10 @@
           const tier = document.createElement("span");
           tier.className = "tier";
           const nation = entry.prov.nation_id && state.nationsById.get(entry.prov.nation_id);
-          tier.textContent = nation ? nation.short_name : "Unclaimed";
+          tier.textContent = nation ? nationLabel(nation) : "Unclaimed";
           button.appendChild(tier);
         } else {
-          button.textContent = entry.nation.short_name;
+          button.textContent = nationLabel(entry.nation);
           const tier = document.createElement("span");
           tier.className = "tier";
           tier.textContent = labelTier(entry.nation.tier);
@@ -945,7 +960,7 @@
         selectProvince(entry.id, { fly: true, popup: true });
         return;
       }
-      input.value = entry.nation.short_name;
+      input.value = nationLabel(entry.nation);
       selectNation(entry.nation, { fly: true, popup: true, provinceId: entry.nation.capital_province });
     }
 
@@ -1067,15 +1082,28 @@
     });
   }
 
+  function playerShort(value) {
+    const text = String(value || "").trim();
+    const stripped = text.replace(/\s*\([^)]*\)\s*$/, "").trim();
+    return stripped || text;
+  }
+
   function normalizeClaims(raw) {
     const out = new Map();
     if (!raw || typeof raw !== "object") return out;
     Object.keys(raw).forEach(function (key) {
       const value = raw[key];
-      if (typeof value !== "string") return;
-      const name = value.trim();
-      if (!name) return;
-      out.set(String(key), name);
+      let player = "";
+      let shortName = "";
+      if (typeof value === "string") {
+        player = value.trim();
+      } else if (value && typeof value === "object") {
+        player = String(value.player || value.name || "").trim();
+        shortName = String(value.short || "").trim();
+      }
+      if (!player) return;
+      if (!shortName) shortName = playerShort(player);
+      out.set(String(key), { player: player, short: shortName });
     });
     return out;
   }
@@ -1086,21 +1114,23 @@
     }
     state.claimMarkers = L.layerGroup();
     state.nations.forEach(function (nation) {
-      const who = state.claims.get(String(nation.id));
-      if (!who) return;
+      const claim = claimOf(nation);
+      if (!claim) return;
       const xy = nationPoint(nation);
+      const label = nationLabel(nation);
+      const width = Math.max(48, Math.ceil(label.length * 7.4) + 18);
       const marker = L.marker([xy[1], xy[0]], {
         icon: L.divIcon({
           className: "claim-marker",
-          html: "<span>Taken</span>",
-          iconSize: [48, 16],
-          iconAnchor: [24, 8],
+          html: "<span>" + esc(label) + "</span>",
+          iconSize: [width, 18],
+          iconAnchor: [Math.round(width / 2), 9],
         }),
         keyboard: true,
-        title: "Claimed by " + who,
+        title: "Claimed by " + claim.player,
         zIndexOffset: 400,
       });
-      marker.bindTooltip("Claimed by " + who, { direction: "top", className: "nb-tip" });
+      marker.bindTooltip("Claimed by " + claim.player, { direction: "top", className: "nb-tip" });
       marker.on("click", function (event) {
         L.DomEvent.stopPropagation(event);
         selectNation(nation, { fly: false, popup: true, latlng: event.latlng, provinceId: nation.capital_province });
