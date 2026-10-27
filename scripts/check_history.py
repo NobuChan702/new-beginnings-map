@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Refuse history, infrastructure, trade, or sector data that publishes the hidden west.
+"""Refuse history, infrastructure, trade, sector, or settlement data that publishes the hidden west.
 
 A trade route in the catalog or a snapshot has to be public. Anything else fails the build.
 A sector controller has to be a nation already on the published map, or blank for unclaimed.
+A village has to sit inside its sector, and every sector needs a settlement.
 """
 
 import csv
 import json
+import math
 import sys
 from pathlib import Path
 
@@ -62,6 +64,7 @@ PLACE_TYPES = {
     "capital",
     "city",
     "town",
+    "village",
     "fort",
     "port",
     "shipyard",
@@ -222,6 +225,137 @@ def check_sectors(nations, width, height, province_id):
         fail(f"sector_control.csv: missing {missing[0]}")
 
 
+def point_in_ring(x, y, ring):
+    inside = False
+    previous = len(ring) - 1
+    for index, point in enumerate(ring):
+        xi, yi = point[0], point[1]
+        xj, yj = ring[previous][0], ring[previous][1]
+        if (yi > y) != (yj > y):
+            if x < (xj - xi) * (y - yi) / (yj - yi) + xi:
+                inside = not inside
+        previous = index
+    return inside
+
+
+def ring_distance(x, y, ring):
+    best = None
+    for index in range(len(ring) - 1):
+        ax, ay = ring[index][0], ring[index][1]
+        bx, by = ring[index + 1][0], ring[index + 1][1]
+        dx, dy = bx - ax, by - ay
+        span = dx * dx + dy * dy
+        if span == 0:
+            dist = math.hypot(x - ax, y - ay)
+        else:
+            along = max(0.0, min(1.0, ((x - ax) * dx + (y - ay) * dy) / span))
+            dist = math.hypot(x - (ax + along * dx), y - (ay + along * dy))
+        if best is None or dist < best:
+            best = dist
+    return 0 if best is None else best
+
+
+def interior_gap(geom, x, y):
+    kind = geom.get("type")
+    coords = geom.get("coordinates") or []
+    polygons = [coords] if kind == "Polygon" else coords if kind == "MultiPolygon" else []
+    best = None
+    for rings in polygons:
+        if not rings or not point_in_ring(x, y, rings[0]):
+            continue
+        if any(point_in_ring(x, y, hole) for hole in rings[1:]):
+            continue
+        gap = min(ring_distance(x, y, ring) for ring in rings)
+        if best is None or gap > best:
+            best = gap
+    return best
+
+
+def check_settlements(provinces, nations, places, width, height):
+    path = ROOT / "data" / "settlements.csv"
+    if not path.is_file():
+        fail("missing data/settlements.csv")
+    sectors = load(ROOT / "data" / "sectors.geojson")
+    geoms = {}
+    for feature in sectors.get("features") or []:
+        props = feature.get("properties") or {}
+        geoms[props.get("id")] = feature.get("geometry") or {}
+    by_name = {nation["short_name"]: nation for nation in nations.values()}
+    owner_name = {}
+    for pid, prov in provinces.items():
+        owner = prov.get("nation_id")
+        owner_name[pid] = "Unclaimed" if owner is None else nations[int(owner)]["short_name"]
+    with path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.reader(handle))
+    if not rows or rows[0] != ["nation", "province", "name", "type", "port", "sector_id"]:
+        fail("settlements.csv: header must be nation,province,name,type,port,sector_id")
+    held = {}
+    villages = {}
+    for index, row in enumerate(rows[1:], start=2):
+        if not row or (len(row) == 1 and row[0].strip() == ""):
+            continue
+        if len(row) != 6:
+            fail(f"settlements.csv:{index}: expected 6 columns")
+        nation_name, province_text, name, kind, port, sector_id = (part.strip() for part in row)
+        if not province_text.isdigit():
+            fail(f"settlements.csv:{index}: province must be an integer")
+        pid = int(province_text)
+        if pid not in provinces:
+            fail(f"settlements.csv:{index}: province {pid} is not on the published map")
+        box = provinces[pid].get("bbox") or [0, 0, 0, 0]
+        xy = provinces[pid].get("xy") or [0, 0]
+        if box[0] < WEST or xy[0] < WEST:
+            fail(f"settlements.csv:{index}: province {pid} is west of the fog line")
+        if kind not in ("capital", "city", "town", "village"):
+            fail(f"settlements.csv:{index}: type {kind} is not a settlement")
+        if port not in ("yes", "no"):
+            fail(f"settlements.csv:{index}: port must be yes or no")
+        if not name:
+            fail(f"settlements.csv:{index}: name is missing")
+        if nation_name != owner_name[pid]:
+            fail(f"settlements.csv:{index}: {nation_name} does not own province {pid}")
+        if nation_name != "Unclaimed":
+            nation = by_name.get(nation_name)
+            if nation is None:
+                fail(f"settlements.csv:{index}: nation {nation_name} is not on the published map")
+            nation_box = nation.get("bbox") or [0, 0, 0, 0]
+            nation_xy = nation.get("capital_xy") or [0, 0]
+            if nation_box[0] < WEST or nation_xy[0] < WEST:
+                fail(f"settlements.csv:{index}: nation {nation_name} is west of the fog line")
+        prefix, _, letter = sector_id.rpartition("-")
+        if prefix != str(pid) or letter not in ("A", "B", "C") or sector_id not in geoms:
+            fail(f"settlements.csv:{index}: {sector_id} is not a sector of province {pid}")
+        if kind in ("capital", "city") and letter != "A":
+            fail(f"settlements.csv:{index}: the major city belongs in sector {pid}-A")
+        held.setdefault(sector_id, set()).add(kind)
+        if kind == "village":
+            if sector_id in villages:
+                fail(f"settlements.csv:{index}: two villages in {sector_id}")
+            villages[sector_id] = name
+    missing = [sid for sid in geoms if sid not in held]
+    if missing:
+        fail(f"settlements.csv: sector {missing[0]} has no settlement")
+    for sector_id, kinds in held.items():
+        if "village" in kinds and kinds != {"village"}:
+            fail(f"settlements.csv: {sector_id} has a village beside another settlement")
+    places_by_id = {}
+    for place in places:
+        if place.get("type") != "village":
+            continue
+        places_by_id[str(place.get("id"))] = place
+    if set(places_by_id) != {"village-" + sid for sid in villages}:
+        fail("infrastructure.json villages do not match settlements.csv")
+    for sector_id, name in villages.items():
+        place = places_by_id["village-" + sector_id]
+        if place.get("name") != name or place.get("province") != int(sector_id.split("-", 1)[0]):
+            fail(f"infrastructure.json village {sector_id} does not match its settlement")
+        x, y = place.get("x"), place.get("y")
+        check_point(x, y, f"village {sector_id}", width, height)
+        gap = interior_gap(geoms[sector_id], x, y)
+        if gap is None or gap < 0.2:
+            fail(f"village {sector_id} is not inside its sector")
+
+
 def check_trade_block(block, where, nations, width, height):
     if block is None:
         return
@@ -320,6 +454,7 @@ def main():
         fail("data/trade_routes.json must be an object")
     check_trade_list(trade.get("routes"), "trade_routes.json", nations, width, height)
     check_sectors(nations, width, height, province_id)
+    check_settlements(provinces, nations, catalog.get("places") or [], width, height)
 
     for name in files:
         if not isinstance(name, str) or "/" in name or "\\" in name or name.startswith("."):

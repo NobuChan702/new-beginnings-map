@@ -425,6 +425,7 @@
       renderInfra();
       renderTrade();
       renderSectors();
+      renderVillages();
     });
     map.fitBounds(state.imageBounds, {
       paddingTopLeft: [12, headerOffset() + 8],
@@ -488,6 +489,7 @@
             syncInfraVisibility();
             syncTradeVisibility();
             renderSectors();
+            renderVillages();
             refreshProvinceLabels();
           });
         });
@@ -1400,6 +1402,7 @@ const claim = claimOf(nation);
     if (kind === "capital") return "Capital";
     if (kind === "city") return "City";
     if (kind === "town") return "Town";
+    if (kind === "village") return "Village";
     if (kind === "road") return "Road";
     if (kind === "port") return "Port";
     if (kind === "shipyard") return "Shipyard";
@@ -1424,6 +1427,7 @@ const claim = claimOf(nation);
     if (type === "capital") return 4;
     if (type === "city") return 5;
     if (type === "fort" || type === "shipyard") return 5;
+    if (type === "village") return 7;
     return 6;
   }
 
@@ -1458,6 +1462,9 @@ const claim = claimOf(nation);
     }
     if (type === "town") {
       return '<svg ' + common + ' width="14" height="14"><path fill="' + paper + '" stroke="' + ink + '" stroke-width="1.1" d="M3 9.2 10 3.4 17 9.2V17H3Z"/><path fill="' + tan + '" stroke="' + ink + '" stroke-width="1" d="M8 17v-4h4v4"/></svg>';
+    }
+    if (type === "village") {
+      return '<svg ' + common + ' width="10" height="10"><path fill="' + paper + '" stroke="' + ink + '" stroke-width="1.6" d="M3.2 11.4 10 5.2 16.8 11.4V16.6H3.2Z"/></svg>';
     }
     if (type === "fort") {
       return '<svg ' + common + ' width="16" height="16"><path fill="' + paper + '" stroke="' + red + '" stroke-width="1.2" d="M3 7h2V4h2v3h2V4h2v3h2V4h2v3h2v10H3Z"/></svg>';
@@ -1772,6 +1779,7 @@ const claim = claimOf(nation);
     }
     Object.keys(items.places).forEach(function (id) {
       const place = items.places[id];
+      if (place.type === "village") return;
       if (zoom < infraMinZoom(place.type)) return;
       const xy = placePoint(place);
       if (!xy || !grown.contains(L.latLng(xy[1], xy[0]))) return;
@@ -1797,6 +1805,57 @@ const claim = claimOf(nation);
     syncInfraVisibility();
   }
 
+  function villageHtml(entry) {
+    const name = entry.name || "Village";
+    const nation = infraNationText(entry) || "Unclaimed";
+    return '<div class="nb-pop"><h2>' + esc(name) + '</h2><p class="tier">Village</p><p class="meta">' + esc(nation) + "</p></div>";
+  }
+
+  function renderVillages() {
+    const map = state.map;
+    if (!map) return;
+    if (!state.overlays.sectors || map.getZoom() < 7) {
+      dropLayer(state.villageLayer);
+      state.villageLayer = null;
+      state.villagePad = null;
+      return;
+    }
+    const view = map.getBounds();
+    const sig = String(state.historyIndex || 0) + ":" + String(state.infraStamp || 0);
+    const pad = state.villagePad;
+    if (pad && pad.sig === sig && state.villageLayer && pad.bounds.contains(view)) return;
+    dropLayer(state.villageLayer);
+    const grown = view.pad(0.45);
+    const group = L.layerGroup();
+    const items = collectInfra();
+    Object.keys(items.places).forEach(function (id) {
+      const place = items.places[id];
+      if (place.type !== "village") return;
+      const xy = placePoint(place);
+      if (!xy || !grown.contains(L.latLng(xy[1], xy[0]))) return;
+      const size = 10;
+      const marker = L.marker([xy[1], xy[0]], {
+        icon: L.divIcon({
+          className: "nb-infra nb-infra-village",
+          html: infraSvg("village"),
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+        }),
+        title: place.name || "Village",
+        zIndexOffset: 120,
+        keyboard: true,
+      });
+      marker.on("click", function (event) {
+        L.DomEvent.stopPropagation(event);
+        openPopup(event.latlng, villageHtml(place));
+      });
+      marker.addTo(group);
+    });
+    state.villageLayer = group;
+    state.villagePad = { sig: sig, bounds: grown, empty: !group.getLayers().length };
+    if (!state.villagePad.empty) group.addTo(map);
+  }
+
   function applyInfra(collection) {
     if (collection) state.infraRaw = collection;
     state.infraStamp = (state.infraStamp || 0) + 1;
@@ -1805,6 +1864,7 @@ const claim = claimOf(nation);
     state.tradeGeom = null;
     state.tradePad = null;
     renderInfra();
+    renderVillages();
   }
 
   function tradeEndpoint(value) {
