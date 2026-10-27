@@ -527,6 +527,13 @@ body.has-timeline #depth-legend {
   font-variant-numeric: tabular-nums;
 }
 
+.nb-infra { background: transparent; border: 0; }
+.nb-infra svg {
+  display: block;
+  overflow: visible;
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.55));
+}
+
 .nb-event { background: transparent; border: 0; }
 .nb-event span {
   display: block;

@@ -47,6 +47,7 @@ jobs:
           test -f _site/data/lookup.png
           test -f _site/data/claims.json
           test -f _site/data/infrastructure.geojson
+          test -f _site/data/infrastructure.json
           test -f _site/data/history/index.json
           test -f _site/data/history/cycle-0.json
           test -f _site/js/history.js
