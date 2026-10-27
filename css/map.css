@@ -455,15 +455,17 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 
-.claim-marker { background: transparent; border: 0; }
+.claim-marker { background: transparent; border: 0; overflow: visible; }
 .claim-marker span {
   display: block;
   background: var(--red);
   color: var(--silver);
-  font-size: 10px;
+  font-size: 11px;
   line-height: 16px;
+  padding: 0 5px;
   text-align: center;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.5);
 }
 

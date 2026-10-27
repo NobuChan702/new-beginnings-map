@@ -68,15 +68,16 @@ Layers → Province IDs draws those same ids on the map once you are zoomed in. 
 
 ## Claims
 
-Edit `data/claims.json`. Keys are nation ids as strings. Values are player names. `{}` means nothing is taken.
+Edit `data/claims.json`. Keys are nation ids as strings. `{}` means nothing is taken. `player` is the full name, shown as “Claimed by …” in the popup. `short` is the name in brackets after the nation on the map label, in the popup title, and in search. If `short` is left off, the page uses `player`, dropping a trailing parenthesis such as `(Grand Albion)`. A plain string still works and is treated as `player`.
 
 ```json
 {
-  "8": "Avery"
+  "25": { "player": "Tom (Grand Albion)", "short": "Tom" },
+  "23": { "player": "Sofia", "short": "Sofia" }
 }
 ```
 
-A taken nation gets a red hatch, a Taken marker at its capital, and “Claimed by Avery” in the popup. Commit and push that file. A rebuild is not required.
+A taken nation is labeled like `Haldortel (Tom)` at its capital and in search. An unclaimed nation stays plain. The nation also gets a red hatch. Commit and push that file. A rebuild is not required.
 
 ## Infrastructure
 
