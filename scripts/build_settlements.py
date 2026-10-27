@@ -31,6 +31,8 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[1]
 SCALE = 4
 WEST = 3592
+# A capital the settlements catalog names for itself, instead of the nation name.
+CAPITAL_NAMES = {21: "Verillia"}
 VOWELS = set("aeiouy")
 ONSETS = {
     "qu", "sh", "th", "ph", "ch", "br", "cr", "dr", "fr", "gr", "kr", "pr", "tr",
@@ -648,11 +650,15 @@ def main() -> None:
         used: set[str] = set()
         blocked = {stem_of(nation["short_name"]).lower(), "".join(ch for ch in nation["short_name"].lower() if ch.isalpha())}
         cap_pid = int(nation["capital_province"])
+        capital_name = CAPITAL_NAMES.get(nid, nation["short_name"])
+        if nid in CAPITAL_NAMES:
+            used.add(capital_name.lower())
+            blocked.add(capital_name.lower())
         for pid in by_nation[nid]:
             prov = provinces[pid]
             capital = None
             if pid == cap_pid:
-                capital = {"xy": nation["capital_xy"], "name": nation["short_name"]}
+                capital = {"xy": nation["capital_xy"], "name": capital_name}
             place_pair(pid, prov, nation["short_name"], nid, used, blocked, capital)
 
     free_used: set[str] = set()
