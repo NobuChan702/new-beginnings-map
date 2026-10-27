@@ -7,6 +7,8 @@
 //   occupations and markers are replaced when a snapshot includes the key,
 //     and kept when the key is left out
 //   fog.provinces stay hidden until a later reveal lists them
+//   infrastructure.places and infrastructure.roads accumulate by id
+//     infrastructure.remove drops an id from that date on
 // Geometry with any point west of the fog line is dropped, not clipped.
 (function (root) {
   "use strict";
@@ -135,6 +137,111 @@
     return "done";
   }
 
+  var INFRA_TYPES = {
+    capital: 1,
+    city: 1,
+    town: 1,
+    fort: 1,
+    port: 1,
+    shipyard: 1,
+    market: 1,
+    farm: 1,
+    mine: 1,
+    lumber: 1,
+  };
+
+  function infraType(value) {
+    var text = String(value || "").toLowerCase().replace(/[\s-]+/g, "_");
+    if (text === "lumber_camp" || text === "lumbercamp") return "lumber";
+    if (text === "harbour") return "port";
+    return text;
+  }
+
+  function pointOk(x, y, west) {
+    return x != null && y != null && x >= west && y >= 0;
+  }
+
+  function inheritDate(row, cycle, round) {
+    var hasCycle = row.cycle != null && row.cycle !== "";
+    var hasRound = row.round != null && row.round !== "";
+    return {
+      cycle: hasCycle ? num(row.cycle) : cycle,
+      round: hasRound ? num(row.round) : hasCycle ? null : round,
+    };
+  }
+
+  function absorbInfra(snap, places, roads, removed, west) {
+    var block = snap.infrastructure;
+    if (!block) return;
+    var cycle = num(snap.cycle);
+    if (cycle == null) cycle = 0;
+    var round = snap.round == null || snap.round === "" ? null : num(snap.round);
+    (block.remove || []).forEach(function (id) {
+      if (id == null || id === "") return;
+      var key = String(id);
+      delete places[key];
+      delete roads[key];
+      removed[key] = true;
+    });
+    (block.places || []).forEach(function (row) {
+      if (!row) return;
+      var type = infraType(row.type || row.kind);
+      if (!INFRA_TYPES[type]) return;
+      var x = num(row.x);
+      var y = num(row.y);
+      var hasPoint = (row.x != null && row.x !== "") || (row.y != null && row.y !== "");
+      if (hasPoint && !pointOk(x, y, west)) return;
+      var province = row.province == null || row.province === "" ? null : num(row.province);
+      if (province == null && !pointOk(x, y, west)) return;
+      var dates = inheritDate(row, cycle, round);
+      var id = row.id != null && row.id !== "" ? String(row.id) : type + "-" + (province != null ? province : x + "x" + y);
+      delete removed[id];
+      places[id] = {
+        id: id,
+        type: type,
+        name: row.name ? String(row.name) : "",
+        province: province,
+        x: pointOk(x, y, west) ? x : null,
+        y: pointOk(x, y, west) ? y : null,
+        cycle: dates.cycle,
+        round: dates.round,
+      };
+    });
+    (block.roads || []).forEach(function (row) {
+      if (!row) return;
+      var provinces = [];
+      (row.provinces || []).forEach(function (id) {
+        var n = num(id);
+        if (n != null) provinces.push(n);
+      });
+      var points = [];
+      var badPoint = false;
+      (row.points || row.coordinates || []).forEach(function (pt) {
+        if (!pt || pt.length < 2) {
+          badPoint = true;
+          return;
+        }
+        var px = num(pt[0]);
+        var py = num(pt[1]);
+        if (!pointOk(px, py, west)) badPoint = true;
+        else points.push([px, py]);
+      });
+      if (badPoint) return;
+      if (provinces.length < 2 && points.length < 2) return;
+      var dates = inheritDate(row, cycle, round);
+      var id = row.id != null && row.id !== "" ? String(row.id) : "road-" + (provinces.join("-") || points.length);
+      delete removed[id];
+      roads[id] = {
+        id: id,
+        name: row.name ? String(row.name) : "",
+        provinces: provinces,
+        points: points,
+        cycle: dates.cycle,
+        round: dates.round,
+      };
+    });
+  }
+
   function copyWorkFields(prev, work) {
     if (work.name) prev.name = String(work.name);
     if (work.type) prev.type = workType(work.type);
@@ -158,6 +265,9 @@
     var works = {};
     var markers = [];
     var war = null;
+    var infraPlaces = {};
+    var infraRoads = {};
+    var infraRemoved = {};
 
     for (var i = 0; i <= end; i++) {
       var snap = list[i] || {};
@@ -290,6 +400,8 @@
           stage: stage === "colony" ? "colony" : "outpost",
         };
       });
+
+      absorbInfra(snap, infraPlaces, infraRoads, infraRemoved, west);
     }
 
     var concealedSeas = [];
@@ -323,6 +435,15 @@
       concealedSeas: concealedSeas,
       works: workList,
       markers: markers,
+      infrastructure: {
+        places: Object.keys(infraPlaces).map(function (key) {
+          return infraPlaces[key];
+        }),
+        roads: Object.keys(infraRoads).map(function (key) {
+          return infraRoads[key];
+        }),
+        removed: Object.keys(infraRemoved),
+      },
     };
   }
 

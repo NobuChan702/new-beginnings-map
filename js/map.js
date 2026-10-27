@@ -36,6 +36,7 @@
     claimUrl: null,
     claimMarkers: null,
     infraLayer: null,
+    infraKey: null,
     flatLayer: null,
     flatRenderer: null,
     flatBorderOn: null,
@@ -278,6 +279,7 @@
       restyleFlatForHistory();
     }
     refreshHistoryZoom();
+    renderInfra();
     document.getElementById("depth-legend").hidden = state.mode !== "depth" || flat > 0.98;
   }
 
@@ -365,6 +367,9 @@
     historyPane.style.zIndex = "380";
     historyPane.style.pointerEvents = "none";
     state.historyRenderer = L.svg({ pane: "history", padding: 0.75 });
+    map.createPane("infra");
+    const infraPane = map.getPane("infra");
+    infraPane.style.zIndex = "390";
     map.createPane("fog");
     const fogPane = map.getPane("fog");
     fogPane.style.zIndex = "480";
@@ -418,7 +423,7 @@
           '<label><input type="checkbox" data-overlay="claims" checked> Claimed nations</label>' +
           '<label><input type="checkbox" data-overlay="occupied" checked> Occupied territory</label>' +
           '<label><input type="checkbox" data-overlay="markers" checked> Battles &amp; armies</label>' +
-          '<label><input type="checkbox" data-overlay="infra" checked> Roads and places</label>' +
+          '<label><input type="checkbox" data-overlay="infra" checked> Infrastructure</label>' +
           '<label><input type="checkbox" data-overlay="ids"> Province IDs</label>' +
           "</div>";
         L.DomEvent.disableClickPropagation(el);
@@ -1320,12 +1325,207 @@ const claim = claimOf(nation);
   }
 
   function kindLabel(kind) {
+    if (kind === "capital") return "Capital";
+    if (kind === "city") return "City";
+    if (kind === "town") return "Town";
     if (kind === "road") return "Road";
     if (kind === "port") return "Port";
+    if (kind === "shipyard") return "Shipyard";
     if (kind === "fort") return "Fort";
+    if (kind === "market") return "Market";
+    if (kind === "farm") return "Farm";
+    if (kind === "mine") return "Mine";
+    if (kind === "lumber" || kind === "lumber_camp") return "Lumber camp";
     if (kind === "trade_route") return "Trade route";
     if (kind === "supply_route") return "Supply route";
     return kind ? String(kind) : "Place";
+  }
+
+  function infraTypeOf(value) {
+    const text = String(value || "").toLowerCase().replace(/[\s-]+/g, "_");
+    if (text === "lumber_camp" || text === "lumbercamp") return "lumber";
+    if (text === "harbour") return "port";
+    return text;
+  }
+
+  function infraMinZoom(type) {
+    if (type === "capital" || type === "city") return 4;
+    if (type === "town" || type === "fort" || type === "port" || type === "shipyard") return 5;
+    return 6;
+  }
+
+  function infraDateVisible(entry) {
+    if (!entry) return false;
+    const hasCycle = entry.cycle != null && entry.cycle !== "";
+    const hasRound = entry.round != null && entry.round !== "";
+    if (!hasCycle && !hasRound) return true;
+    const view = state.historyView || { cycle: 0, round: null };
+    const cycle = hasCycle ? Number(entry.cycle) : 0;
+    if (!isFinite(cycle)) return true;
+    if (view.cycle > cycle) return true;
+    if (view.cycle < cycle) return false;
+    if (!hasRound) return true;
+    const round = Number(entry.round);
+    if (!isFinite(round)) return true;
+    const current = view.round == null ? 0 : view.round;
+    return current >= round;
+  }
+
+  function infraSvg(type) {
+    const ink = "#0B1A4A";
+    const paper = "#E6E6EA";
+    const tan = "#c4a574";
+    const red = "#BC0501";
+    const common = 'viewBox="0 0 20 20" aria-hidden="true"';
+    if (type === "capital") {
+      return '<svg ' + common + ' width="18" height="18"><path fill="' + paper + '" stroke="' + ink + '" stroke-width="1" d="M10 1.3 12.5 7.1 18.7 7.6 13.7 11.6 15.2 17.8 10 14.5 4.8 17.8 6.3 11.6 1.3 7.6 7.5 7.1Z"/></svg>';
+    }
+    if (type === "city") {
+      return '<svg ' + common + ' width="16" height="16"><circle cx="10" cy="10" r="8" fill="' + paper + '" stroke="' + ink + '" stroke-width="1.2"/><path fill="' + ink + '" d="M10 4.2 11.2 7.4 14.6 7.6 11.9 9.7 12.7 13 10 11.2 7.3 13 8.1 9.7 5.4 7.6 8.8 7.4Z"/></svg>';
+    }
+    if (type === "town") {
+      return '<svg ' + common + ' width="14" height="14"><path fill="' + paper + '" stroke="' + ink + '" stroke-width="1.1" d="M3 9.2 10 3.4 17 9.2V17H3Z"/><path fill="' + tan + '" stroke="' + ink + '" stroke-width="1" d="M8 17v-4h4v4"/></svg>';
+    }
+    if (type === "fort") {
+      return '<svg ' + common + ' width="16" height="16"><path fill="' + paper + '" stroke="' + red + '" stroke-width="1.2" d="M3 7h2V4h2v3h2V4h2v3h2V4h2v3h2v10H3Z"/></svg>';
+    }
+    if (type === "port") {
+      return '<svg ' + common + ' width="16" height="16"><circle cx="10" cy="10" r="8.2" fill="' + ink + '" stroke="' + paper + '" stroke-width="1"/><circle cx="10" cy="5.2" r="1.5" fill="none" stroke="' + paper + '" stroke-width="1.2"/><path fill="none" stroke="' + paper + '" stroke-width="1.3" stroke-linecap="round" d="M10 6.8v7.2M6.8 11.6c1.3 1.8 5.1 1.8 6.4 0M5 10.2h10"/></svg>';
+    }
+    if (type === "shipyard") {
+      return '<svg ' + common + ' width="16" height="16"><path fill="' + tan + '" stroke="' + ink + '" stroke-width="1.1" d="M3 13 10 5l7 8Z"/><path fill="none" stroke="' + ink + '" stroke-width="1.1" d="M2 16h16M10 5v11"/></svg>';
+    }
+    if (type === "market") {
+      return '<svg ' + common + ' width="14" height="14"><path fill="' + red + '" d="M3 8 10 3l7 5H3Z"/><path fill="' + tan + '" stroke="' + ink + '" stroke-width="1" d="M4 8h12v8H4Z"/></svg>';
+    }
+    if (type === "farm") {
+      return '<svg ' + common + ' width="14" height="14"><path fill="none" stroke="' + tan + '" stroke-width="1.4" stroke-linecap="round" d="M6 17V8M10 17V6M14 17V9"/><path fill="' + tan + '" d="M6 8c-2-1-2.5-3.5-1-5 2 1 2.2 3.2 1 5Zm4-2c-2-1-2.5-3.5-1-5 2 1 2.2 3.2 1 5Zm4 3c-2-1-2.5-3.5-1-5 2 1 2.2 3.2 1 5Z"/></svg>';
+    }
+    if (type === "mine") {
+      return '<svg ' + common + ' width="14" height="14"><path fill="none" stroke="' + paper + '" stroke-width="1.6" stroke-linecap="round" d="M4 16 13 5M13 5l3 1M13 5l-1 3"/><path fill="' + tan + '" stroke="' + ink + '" stroke-width="1" d="M3 12h6l2 5H5Z"/></svg>';
+    }
+    return '<svg ' + common + ' width="14" height="14"><path fill="' + tan + '" stroke="' + ink + '" stroke-width="1" d="M10 3 16 12H4Z"/><path fill="' + ink + '" d="M9 12h2v5H9Z"/></svg>';
+  }
+
+  function infraHtml(entry) {
+    const type = entry.type || "road";
+    const name = entry.name || kindLabel(type);
+    const province = entry.province ? '<p class="meta">Province ' + entry.province + "</p>" : "";
+    return (
+      '<div class="nb-pop"><h2>' +
+      esc(name) +
+      '</h2><p class="tier">' +
+      esc(kindLabel(type)) +
+      "</p>" +
+      province +
+      "</div>"
+    );
+  }
+
+  function pointConcealed(x, y) {
+    const meta = state.meta;
+    if (!meta || x == null || y == null) return true;
+    if (x < meta.hidden_west_of || y < 0 || x > meta.width || y > meta.height) return true;
+    if (concealedSeaAt(x, y)) return true;
+    const id = provinceAt(x, y);
+    return !!(id && isConcealed(id));
+  }
+
+  function segmentConcealed(a, b) {
+    const steps = Math.max(1, Math.ceil(Math.hypot(b[0] - a[0], b[1] - a[1]) / 48));
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      if (pointConcealed(a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)) return true;
+    }
+    return false;
+  }
+
+  function catalogPlace(row) {
+    if (!row) return null;
+    const type = infraTypeOf(row.type || row.kind);
+    if (!type || type === "road") return null;
+    const province = row.province == null || row.province === "" ? null : Number(row.province);
+    const x = row.x == null || row.x === "" ? null : Number(row.x);
+    const y = row.y == null || row.y === "" ? null : Number(row.y);
+    const id = row.id != null && row.id !== "" ? String(row.id) : type + "-" + (province != null ? province : x + "x" + y);
+    return {
+      id: id,
+      type: type,
+      name: row.name ? String(row.name) : "",
+      province: isFinite(province) ? province : null,
+      x: isFinite(x) ? x : null,
+      y: isFinite(y) ? y : null,
+      cycle: row.cycle,
+      round: row.round,
+    };
+  }
+
+  function catalogRoad(row) {
+    if (!row) return null;
+    const provinces = [];
+    (row.provinces || []).forEach(function (id) {
+      const n = Number(id);
+      if (isFinite(n)) provinces.push(n);
+    });
+    const points = [];
+    (row.points || row.coordinates || []).forEach(function (pt) {
+      if (!pt || pt.length < 2) return;
+      const x = Number(pt[0]);
+      const y = Number(pt[1]);
+      if (isFinite(x) && isFinite(y)) points.push([x, y]);
+    });
+    if (provinces.length < 2 && points.length < 2) return null;
+    const id = row.id != null && row.id !== "" ? String(row.id) : "road-" + (provinces.join("-") || points.length);
+    return {
+      id: id,
+      name: row.name ? String(row.name) : "",
+      provinces: provinces,
+      points: points,
+      cycle: row.cycle,
+      round: row.round,
+    };
+  }
+
+  function placePoint(place) {
+    const meta = state.meta;
+    if (place.province != null) {
+      const prov = state.provinces.get(place.province);
+      if (!provinceIsPublic(place.province, prov) || isConcealed(place.province)) return null;
+    }
+    let x = place.x;
+    let y = place.y;
+    if (x == null || y == null) {
+      const prov = place.province != null ? state.provinces.get(place.province) : null;
+      if (!prov || !prov.xy) return null;
+      x = prov.xy[0];
+      y = prov.xy[1];
+    }
+    if (!meta || x < meta.hidden_west_of || y < 0 || x > meta.width || y > meta.height) return null;
+    if (pointConcealed(x, y)) return null;
+    return [x, y];
+  }
+
+  function roadPoints(road) {
+    const stops = [];
+    if (road.provinces && road.provinces.length >= 2) {
+      for (let i = 0; i < road.provinces.length; i++) {
+        const id = road.provinces[i];
+        const prov = state.provinces.get(id);
+        if (!provinceIsPublic(id, prov) || !prov.xy || isConcealed(id)) return null;
+        stops.push([prov.xy[0], prov.xy[1]]);
+      }
+    } else if (road.points && road.points.length >= 2) {
+      road.points.forEach(function (pt) {
+        stops.push(pt);
+      });
+    } else {
+      return null;
+    }
+    for (let i = 0; i < stops.length; i++) {
+      if (pointConcealed(stops[i][0], stops[i][1])) return null;
+      if (i > 0 && segmentConcealed(stops[i - 1], stops[i])) return null;
+    }
+    return stops;
   }
 
   function applyFlat(collection) {
@@ -1352,46 +1552,119 @@ const claim = claimOf(nation);
     applyMode();
   }
 
+  function collectInfra() {
+    const raw = state.infraRaw && !state.infraRaw.type ? state.infraRaw : { capitals: true, places: [], roads: [] };
+    const showCapitals = raw.capitals !== false;
+    const removed = {};
+    const fromHistory = (state.historyView && state.historyView.infrastructure) || { places: [], roads: [], removed: [] };
+    (fromHistory.removed || []).forEach(function (id) {
+      removed[String(id)] = true;
+    });
+    const places = {};
+    const roads = {};
+    if (showCapitals) {
+      state.nations.forEach(function (nation) {
+        const id = "capital-" + nation.id;
+        if (removed[id] || !nation.capital_xy || nation.capital_xy.length < 2) return;
+        places[id] = {
+          id: id,
+          type: "capital",
+          name: nationLabel(nation),
+          province: nation.capital_province,
+          x: nation.capital_xy[0],
+          y: nation.capital_xy[1],
+          cycle: 0,
+        };
+      });
+    }
+    (raw.places || []).forEach(function (row) {
+      const place = catalogPlace(row);
+      if (!place || removed[place.id] || !infraDateVisible(place)) return;
+      places[place.id] = place;
+    });
+    (raw.roads || []).forEach(function (row) {
+      const road = catalogRoad(row);
+      if (!road || removed[road.id] || !infraDateVisible(road)) return;
+      roads[road.id] = road;
+    });
+    (fromHistory.places || []).forEach(function (place) {
+      if (!place || removed[place.id] || !infraDateVisible(place)) return;
+      places[place.id] = place;
+    });
+    (fromHistory.roads || []).forEach(function (road) {
+      if (!road || removed[road.id] || !infraDateVisible(road)) return;
+      roads[road.id] = road;
+    });
+    return { places: places, roads: roads };
+  }
+
+  function renderInfra() {
+    const map = state.map;
+    if (!map) return;
+    const zoom = map.getZoom();
+    const band = zoom < 4 ? 0 : zoom < 5 ? 4 : zoom < 6 ? 5 : 6;
+    const key = band + "|" + String(state.historyIndex);
+    if (key === state.infraKey && state.infraLayer) return;
+    state.infraKey = key;
+    if (state.infraLayer && map.hasLayer(state.infraLayer)) map.removeLayer(state.infraLayer);
+    const group = L.layerGroup();
+    const items = collectInfra();
+    Object.keys(items.roads).forEach(function (id) {
+      const road = items.roads[id];
+      if (zoom < infraMinZoom("road")) return;
+      const stops = roadPoints(road);
+      if (!stops) return;
+      const line = L.polyline(
+        stops.map(function (pt) {
+          return [pt[1], pt[0]];
+        }),
+        {
+          pane: "infra",
+          color: "#c4a574",
+          weight: 1.75,
+          opacity: 0.95,
+          dashArray: "7 5",
+          lineCap: "butt",
+          lineJoin: "round",
+        }
+      );
+      line.on("click", function (event) {
+        L.DomEvent.stopPropagation(event);
+        openPopup(event.latlng, infraHtml({ type: "road", name: road.name || "Road" }));
+      });
+      line.addTo(group);
+    });
+    Object.keys(items.places).forEach(function (id) {
+      const place = items.places[id];
+      if (zoom < infraMinZoom(place.type)) return;
+      const xy = placePoint(place);
+      if (!xy) return;
+      const size = place.type === "capital" ? 18 : place.type === "city" || place.type === "fort" || place.type === "port" || place.type === "shipyard" ? 16 : 14;
+      const marker = L.marker([xy[1], xy[0]], {
+        icon: L.divIcon({
+          className: "nb-infra nb-infra-" + place.type,
+          html: infraSvg(place.type),
+          iconSize: [size, size],
+          iconAnchor: place.type === "capital" ? [size / 2, 0] : [size / 2, size / 2],
+        }),
+        title: place.name || kindLabel(place.type),
+        zIndexOffset: place.type === "capital" ? 260 : 180,
+        keyboard: true,
+      });
+      marker.on("click", function (event) {
+        L.DomEvent.stopPropagation(event);
+        openPopup(event.latlng, infraHtml(place));
+      });
+      marker.addTo(group);
+    });
+    state.infraLayer = group;
+    syncInfraVisibility();
+  }
+
   function applyInfra(collection) {
     if (collection) state.infraRaw = collection;
-    const raw = state.infraRaw && state.infraRaw.type === "FeatureCollection" ? state.infraRaw : { type: "FeatureCollection", features: [] };
-    const data = {
-      type: "FeatureCollection",
-      features: (raw.features || []).filter(function (feature) {
-        return infraVisible(feature && feature.properties);
-      }),
-    };
-    if (state.infraLayer && state.map) state.map.removeLayer(state.infraLayer);
-    state.infraLayer = L.geoJSON(data, {
-      renderer: L.svg({ padding: 0.5 }),
-      smoothFactor: 0,
-      style: function (feature) {
-        const kind = feature.properties && feature.properties.kind;
-        if (kind === "trade_route") return { color: "#E6E6EA", weight: 2.5, opacity: 0.95, dashArray: "8 6", lineCap: "butt" };
-        if (kind === "supply_route") return { color: "#BC0501", weight: 2.5, opacity: 0.95, dashArray: "2 7", lineCap: "butt" };
-        if (kind === "fort") return { color: "#BC0501", weight: 2, fillColor: "#0B1A4A", fillOpacity: 1 };
-        return { color: "#E6E6EA", weight: 2.5, opacity: 0.95, lineJoin: "round", lineCap: "round" };
-      },
-      pointToLayer: function (feature, latlng) {
-        const kind = feature.properties && feature.properties.kind;
-        return L.circleMarker(latlng, {
-          radius: kind === "fort" ? 7 : 6,
-          weight: 2,
-          color: kind === "fort" ? "#BC0501" : "#E6E6EA",
-          fillColor: "#0B1A4A",
-          fillOpacity: 1,
-        });
-      },
-      onEachFeature: function (feature, layer) {
-        const props = feature.properties || {};
-        const name = props.name || kindLabel(props.kind);
-        layer.bindPopup(
-          '<div class="nb-pop"><h2>' + esc(name) + '</h2><p class="meta">' + esc(kindLabel(props.kind)) + "</p></div>",
-          { className: "nb-popup", maxWidth: 280 }
-        );
-      },
-    });
-    syncInfraVisibility();
+    state.infraKey = null;
+    renderInfra();
   }
 
   function loadLookup(meta) {
@@ -2038,23 +2311,6 @@ const claim = claimOf(nation);
     openPopup(L.latLng(shown.centroid[1], shown.centroid[0]), workHtml(shown));
   }
 
-  function infraVisible(props) {
-    if (!props) return true;
-    const hasCycle = props.cycle != null && props.cycle !== "";
-    const hasRound = props.round != null && props.round !== "";
-    if (!hasCycle && !hasRound) return true;
-    const view = state.historyView || { cycle: 0, round: null };
-    const cycle = hasCycle ? Number(props.cycle) : 0;
-    if (!isFinite(cycle)) return true;
-    if (view.cycle > cycle) return true;
-    if (view.cycle < cycle) return false;
-    if (!hasRound) return true;
-    const round = Number(props.round);
-    if (!isFinite(round)) return true;
-    const current = view.round == null ? 0 : view.round;
-    return current >= round;
-  }
-
   function goToHistory(index, options) {
     options = options || {};
     const snaps = state.historySnapshots || [];
@@ -2164,12 +2420,12 @@ const claim = claimOf(nation);
         .catch(function () {
           return {};
         }),
-      fetch("data/infrastructure.geojson?t=" + stamp, { cache: "no-store" })
+      fetch("data/infrastructure.json?t=" + stamp, { cache: "no-store" })
         .then(function (res) {
-          return res.ok ? res.json() : { type: "FeatureCollection", features: [] };
+          return res.ok ? res.json() : { capitals: true, places: [], roads: [] };
         })
         .catch(function () {
-          return { type: "FeatureCollection", features: [] };
+          return { capitals: true, places: [], roads: [] };
         }),
       loadLookup(meta),
     ]);

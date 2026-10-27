@@ -53,6 +53,80 @@ def check_rings(value, where, width, height):
                 fail(f"{where}: point {(x, y)} is outside the map")
 
 
+PLACE_TYPES = {
+    "capital",
+    "city",
+    "town",
+    "fort",
+    "port",
+    "shipyard",
+    "market",
+    "farm",
+    "mine",
+    "lumber",
+    "lumber_camp",
+}
+
+
+def optional_int(value, where):
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        fail(f"{where}: cycle and round must be whole numbers")
+    return value
+
+
+def check_point(x, y, where, width, height):
+    if isinstance(x, bool) or isinstance(y, bool) or not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+        fail(f"{where}: point is not a number")
+    if x < WEST:
+        fail(f"{where}: x={x} is west of {WEST}")
+    if x > width or y < 0 or y > height:
+        fail(f"{where}: point {(x, y)} is outside the map")
+
+
+def check_infra_block(block, where, width, height, province_id):
+    if block is None:
+        return
+    if not isinstance(block, dict):
+        fail(f"{where}: infrastructure must be an object")
+    for row in block.get("places") or []:
+        if not isinstance(row, dict):
+            fail(f"{where}: place must be an object")
+        kind = str(row.get("type") or row.get("kind") or "").lower().replace(" ", "_").replace("-", "_")
+        if kind not in PLACE_TYPES:
+            fail(f"{where}: unknown place type {kind!r}")
+        optional_int(row.get("cycle"), f"{where} {kind} cycle")
+        optional_int(row.get("round"), f"{where} {kind} round")
+        has_xy = row.get("x") is not None or row.get("y") is not None
+        if row.get("province") is not None:
+            province_id(row.get("province"), f"{where} {kind}")
+        elif not has_xy:
+            fail(f"{where}: {kind} needs a province or a point")
+        if has_xy:
+            check_point(row.get("x"), row.get("y"), f"{where} {kind}", width, height)
+    for row in block.get("roads") or []:
+        if not isinstance(row, dict):
+            fail(f"{where}: road must be an object")
+        optional_int(row.get("cycle"), f"{where} road cycle")
+        optional_int(row.get("round"), f"{where} road round")
+        provinces = row.get("provinces") or []
+        points = row.get("points") or row.get("coordinates") or []
+        if not isinstance(provinces, list) or not isinstance(points, list):
+            fail(f"{where}: road provinces and points must be lists")
+        for pid in provinces:
+            province_id(pid, f"{where} road")
+        for pt in points:
+            if not isinstance(pt, list) or len(pt) < 2:
+                fail(f"{where}: road point is incomplete")
+            check_point(pt[0], pt[1], f"{where} road", width, height)
+        if len(provinces) < 2 and len(points) < 2:
+            fail(f"{where}: a road needs two provinces or two points")
+    for item in block.get("remove") or []:
+        if item is None or item == "" or not isinstance(item, (str, int)) or isinstance(item, bool):
+            fail(f"{where}: remove ids must be strings or numbers")
+
+
 def main():
     meta = load(ROOT / "data" / "meta.json")
     global WEST
@@ -78,6 +152,16 @@ def main():
         xy = prov.get("xy") or [0, 0]
         if box[0] < WEST or xy[0] < WEST:
             fail(f"{where}: province {value} is west of the fog line")
+
+    catalog_path = ROOT / "data" / "infrastructure.json"
+    if not catalog_path.is_file():
+        fail("missing data/infrastructure.json")
+    catalog = load(catalog_path)
+    if not isinstance(catalog, dict):
+        fail("data/infrastructure.json must be an object")
+    if "capitals" in catalog and not isinstance(catalog["capitals"], bool):
+        fail("data/infrastructure.json capitals must be true or false")
+    check_infra_block(catalog, "infrastructure.json", width, height, province_id)
 
     for name in files:
         if not isinstance(name, str) or "/" in name or "\\" in name or name.startswith("."):
@@ -117,6 +201,8 @@ def main():
                 fail(f"{name} marker x={x} is west of the fog line")
             if isinstance(y, bool) or not isinstance(y, (int, float)) or y < 0 or y > height or x > width:
                 fail(f"{name} marker is outside the map")
+        if "infrastructure" in snap:
+            check_infra_block(snap.get("infrastructure"), f"{name} infrastructure", width, height, province_id)
     print(f"history secrecy ok ({len(files)} snapshots)")
 
 
