@@ -27,7 +27,7 @@
     claims: new Map(),
     capitalNames: new Map(),
     mode: "auto",
-    overlays: { borders: true, claims: true, occupied: true, markers: true, infra: true, trade: true, ids: false },
+    overlays: { borders: true, claims: true, occupied: true, markers: true, infra: true, trade: true, sectors: true, ids: false },
     labelLayer: null,
     map: null,
     layers: {},
@@ -58,6 +58,8 @@
     tradeRaw: null,
     tradeLayer: null,
     tradeRenderer: null,
+    sectorFeatures: null,
+    sectorRows: null,
     historyStyled: null,
     markLayer: null,
     marksRenderer: null,
@@ -388,6 +390,15 @@
     const tradePane = map.getPane("trade");
     tradePane.style.zIndex = "405";
     state.tradeRenderer = L.svg({ pane: "trade", padding: 0.5 });
+    map.createPane("sector");
+    const sectorPane = map.getPane("sector");
+    sectorPane.style.zIndex = "358";
+    state.sectorRenderer = L.svg({ pane: "sector", padding: 0.5 });
+    map.createPane("sectorline");
+    const sectorLinePane = map.getPane("sectorline");
+    sectorLinePane.style.zIndex = "386";
+    sectorLinePane.style.pointerEvents = "none";
+    state.sectorLineRenderer = L.svg({ pane: "sectorline", padding: 0.5 });
     map.createPane("fog");
     const fogPane = map.getPane("fog");
     fogPane.style.zIndex = "480";
@@ -413,6 +424,7 @@
     map.on("moveend zoomend", function () {
       renderInfra();
       renderTrade();
+      renderSectors();
     });
     map.fitBounds(state.imageBounds, {
       paddingTopLeft: [12, headerOffset() + 8],
@@ -444,6 +456,7 @@
           '<label><input type="checkbox" data-overlay="borders" checked> Province borders</label>' +
           '<label><input type="checkbox" data-overlay="claims" checked> Claimed nations</label>' +
           '<label><input type="checkbox" data-overlay="occupied" checked> Occupied territory</label>' +
+          '<label><input type="checkbox" data-overlay="sectors" checked> Sectors</label>' +
           '<label><input type="checkbox" data-overlay="markers" checked> Battles &amp; armies</label>' +
           '<label><input type="checkbox" data-overlay="infra" checked> Infrastructure</label>' +
           '<label><input type="checkbox" data-overlay="trade" checked> Trade routes</label>' +
@@ -474,6 +487,7 @@
             syncHistoryOverlays();
             syncInfraVisibility();
             syncTradeVisibility();
+            renderSectors();
             refreshProvinceLabels();
           });
         });
@@ -1623,6 +1637,7 @@ const claim = claimOf(nation);
     });
     rebuildMarks();
     renderHistory();
+    renderSectors();
     restyleFlatForHistory();
     applyMode();
   }
@@ -2780,8 +2795,8 @@ const claim = claimOf(nation);
     return "nb-occ-" + String(ownerHex).slice(1).toLowerCase() + "-" + String(occupierHex).slice(1).toLowerCase();
   }
 
-  function installOccPatterns(pairs) {
-    const svg = document.querySelector(".leaflet-history-pane svg");
+  function installOccPatterns(pairs, svg) {
+    svg = svg || document.querySelector(".leaflet-history-pane svg");
     if (!svg) return;
     const ns = "http://www.w3.org/2000/svg";
     let defs = svg.querySelector("defs");
@@ -2843,6 +2858,238 @@ const claim = claimOf(nation);
     if (concealedSeaAt(marker.x, marker.y)) return true;
     const id = state.lut ? provinceAt(marker.x, marker.y) : 0;
     return !!(id && isConcealed(id));
+  }
+
+  function loadSectorControl(text) {
+    const rows = new Map();
+    String(text || "")
+      .split(/\r?\n/)
+      .forEach(function (line, index) {
+        if (!index || !line) return;
+        const parts = line.split(",");
+        const id = (parts[0] || "").trim();
+        if (!id || id === "sector_id") return;
+        const raw = parts.length > 1 ? parts[1].trim() : "";
+        const cycle = Number(parts[2]);
+        const controller = raw === "" ? null : Number(raw);
+        if (!rows.has(id)) rows.set(id, []);
+        rows.get(id).push({ controller: Number.isFinite(controller) ? controller : null, cycle: Number.isFinite(cycle) ? cycle : 0 });
+      });
+    return rows;
+  }
+
+  function activeController(id, owner) {
+    const list = (state.sectorRows && state.sectorRows.get(id)) || [];
+    const cycle = state.historyView && state.historyView.cycle != null ? Number(state.historyView.cycle) : 0;
+    let chosen = null;
+    list.forEach(function (row) {
+      if (row.cycle > cycle) return;
+      if (!chosen || row.cycle >= chosen.cycle) chosen = row;
+    });
+    if (!chosen) return owner == null ? null : owner;
+    return chosen.controller;
+  }
+
+  function sectorSummary() {
+    const sig = String(state.historyIndex || 0) + ":" + String(state.sectorStamp || 0);
+    if (state.sectorSummary && state.sectorSummarySig === sig) return state.sectorSummary;
+    const byId = new Map();
+    const byProvince = new Map();
+    (state.sectorFeatures || []).forEach(function (feature) {
+      const pid = Number(feature.properties.province);
+      const prov = state.provinces.get(pid);
+      if (!provinceIsPublic(pid, prov) || isConcealed(pid)) return;
+      const owner = legalOwnerId(pid, prov);
+      const controller = activeController(feature.properties.id, owner);
+      byId.set(feature.properties.id, { owner: owner, controller: controller, occupied: controller !== owner });
+      let group = byProvince.get(pid);
+      if (!group) {
+        group = { owner: owner, counts: new Map() };
+        byProvince.set(pid, group);
+      }
+      const key = controller == null ? "none" : String(controller);
+      group.counts.set(key, (group.counts.get(key) || 0) + 1);
+    });
+    state.sectorSummary = { byId: byId, byProvince: byProvince };
+    state.sectorSummarySig = sig;
+    return state.sectorSummary;
+  }
+
+  function sectorOutside(box, bounds) {
+    return box[2] < bounds.getWest() || box[0] > bounds.getEast() || box[3] < bounds.getSouth() || box[1] > bounds.getNorth();
+  }
+
+  function sectorStyle(feature) {
+    const props = feature.properties || {};
+    if (props.role === "edge") {
+      return {
+        color: "#2a241c",
+        weight: 1,
+        opacity: 0.42,
+        fill: false,
+        interactive: false,
+      };
+    }
+    if (props.occupied) {
+      const style = occStyle(feature);
+      style.interactive = props.scope !== "province";
+      return style;
+    }
+    const flat = flatAmount(state.map ? state.map.getZoom() : 6);
+    return {
+      stroke: false,
+      fill: true,
+      fillColor: props.controller == null ? "#E6E6EA" : nationColor(props.controller),
+      fillOpacity: flat > 0.85 ? 0 : 0.58,
+      interactive: true,
+    };
+  }
+
+  function sectorHtml(props) {
+    const ownerNation = props.owner != null && state.nationsById.get(props.owner);
+    const ctrlNation = props.controller != null && state.nationsById.get(props.controller);
+    const ownerText = ownerNation ? nationLabel(ownerNation) : "Unclaimed";
+    const ctrlText = props.controller == null ? "Unclaimed" : ctrlNation ? nationLabel(ctrlNation) : "nation " + props.controller;
+    return (
+      '<div class="nb-pop"><h2>' +
+      esc(props.id) +
+      '</h2><p class="tier">Sector</p><p class="meta">Controlled by ' +
+      esc(ctrlText) +
+      '</p><p class="meta">Owned by ' +
+      esc(ownerText) +
+      "</p>" +
+      (props.occupied ? '<p class="claim">Occupied</p>' : "") +
+      "</div>"
+    );
+  }
+
+  function onSectorClick(feature, layer) {
+    if (!feature || !feature.properties || feature.properties.scope === "province" || feature.properties.role === "edge") return;
+    layer.on("click", function (event) {
+      L.DomEvent.stopPropagation(event);
+      openPopup(event.latlng, sectorHtml(feature.properties));
+    });
+  }
+
+  function renderSectors() {
+    const map = state.map;
+    if (!map) return;
+    if (!state.overlays.sectors || !state.sectorFeatures) {
+      dropLayer(state.sectorFillLayer);
+      dropLayer(state.sectorLineLayer);
+      state.sectorFillLayer = null;
+      state.sectorLineLayer = null;
+      state.sectorPad = null;
+      return;
+    }
+    const zoom = map.getZoom();
+    const parts = zoom >= 6;
+    const view = map.getBounds();
+    const flatBand = flatAmount(zoom) > 0.85 ? "s" : "t";
+    const sig =
+      (parts ? "p" : "w") +
+      ":" +
+      flatBand +
+      ":" +
+      (state.flatById ? "f" : "n") +
+      ":" +
+      String(state.historyIndex || 0) +
+      ":" +
+      String(state.sectorStamp || 0);
+    const pad = state.sectorPad;
+    if (pad && pad.sig === sig && pad.bounds.contains(view) && (state.sectorFillLayer || state.sectorLineLayer || pad.empty)) return;
+    const summary = sectorSummary();
+    const grown = view.pad(0.45);
+    const fills = [];
+    const lines = [];
+    const pairs = [];
+    if (parts) {
+      state.sectorFeatures.forEach(function (feature) {
+        const box = feature.properties.bbox;
+        if (!box || sectorOutside(box, grown)) return;
+        const info = summary.byId.get(feature.properties.id);
+        if (!info) return;
+        fills.push({
+          type: "Feature",
+          properties: {
+            id: feature.properties.id,
+            province: feature.properties.province,
+            owner: info.owner,
+            occupier: info.controller,
+            controller: info.controller,
+            occupied: info.occupied,
+          },
+          geometry: feature.geometry,
+        });
+        lines.push({
+          type: "Feature",
+          properties: { role: "edge", id: feature.properties.id },
+          geometry: feature.geometry,
+        });
+        if (info.occupied) pairs.push({ owner: nationColor(info.owner), occupier: nationColor(info.controller) });
+      });
+    } else {
+      summary.byProvince.forEach(function (group, pid) {
+        const keys = Array.from(group.counts.keys());
+        const ownerKey = group.owner == null ? "none" : String(group.owner);
+        if (keys.length === 1 && keys[0] === ownerKey) return;
+        let occupier = null;
+        let best = -1;
+        keys.forEach(function (key) {
+          if (key === ownerKey) return;
+          const count = group.counts.get(key);
+          if (count > best) {
+            best = count;
+            occupier = key === "none" ? null : Number(key);
+          }
+        });
+        const feature = provinceFeature(pid, {
+          scope: "province",
+          id: pid,
+          owner: group.owner,
+          occupier: occupier,
+          occupied: true,
+        });
+        if (!feature) return;
+        fills.push(feature);
+        pairs.push({ owner: nationColor(group.owner), occupier: nationColor(occupier) });
+      });
+    }
+    dropLayer(state.sectorFillLayer);
+    dropLayer(state.sectorLineLayer);
+    state.sectorFillLayer = null;
+    state.sectorLineLayer = null;
+    state.sectorPad = { sig: sig, bounds: grown, empty: !fills.length && !lines.length };
+    if (fills.length) {
+      state.sectorFillLayer = L.geoJSON(
+        { type: "FeatureCollection", features: fills },
+        {
+          pane: "sector",
+          renderer: state.sectorRenderer,
+          smoothFactor: 0,
+          style: sectorStyle,
+          onEachFeature: onSectorClick,
+        }
+      );
+      state.sectorFillLayer.addTo(map);
+      if (pairs.length) {
+        installOccPatterns(pairs, document.querySelector(".leaflet-sector-pane svg"));
+        state.sectorFillLayer.setStyle(sectorStyle);
+      }
+    }
+    if (lines.length) {
+      state.sectorLineLayer = L.geoJSON(
+        { type: "FeatureCollection", features: lines },
+        {
+          pane: "sectorline",
+          renderer: state.sectorLineRenderer,
+          smoothFactor: 0,
+          interactive: false,
+          style: sectorStyle,
+        }
+      );
+      state.sectorLineLayer.addTo(map);
+    }
   }
 
   function renderHistory() {
@@ -3193,6 +3440,7 @@ const claim = claimOf(nation);
     if (prev) prev.disabled = next <= 0;
     if (nextButton) nextButton.disabled = next >= max;
     renderHistory();
+    renderSectors();
     restyleFlatForHistory();
     if (state.infraRaw) applyInfra();
     if (state.tradeRaw) renderTrade();
@@ -3268,7 +3516,7 @@ const claim = claimOf(nation);
       .catch(function () {
         return null;
       });
-    const [world, claims, infra, trade, settlements, lut] = await Promise.all([
+    const [world, claims, infra, trade, settlements, sectors, sectorControl, lut] = await Promise.all([
       fetch("data/world.json").then(function (res) {
         if (!res.ok) throw new Error("world");
         return res.json();
@@ -3301,12 +3549,28 @@ const claim = claimOf(nation);
         .catch(function () {
           return "";
         }),
+      fetch("data/sectors.geojson")
+        .then(function (res) {
+          return res.ok ? res.json() : { features: [] };
+        })
+        .catch(function () {
+          return { features: [] };
+        }),
+      fetch("data/sector_control.csv?t=" + stamp, { cache: "no-store" })
+        .then(function (res) {
+          return res.ok ? res.text() : "";
+        })
+        .catch(function () {
+          return "";
+        }),
       loadLookup(meta),
     ]);
     state.lut = lut;
     indexWorld(world);
     state.claims = normalizeClaims(claims);
     state.capitalNames = loadCapitalNames(settlements);
+    state.sectorFeatures = (sectors && sectors.features) || [];
+    state.sectorRows = loadSectorControl(sectorControl);
     state.historySnapshots = await loadHistory();
     installTimeline();
     goToHistory(Math.max(0, state.historySnapshots.length - 1), { force: true, silent: true });

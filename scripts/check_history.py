@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Refuse history, infrastructure, or trade data that publishes the hidden west.
+"""Refuse history, infrastructure, trade, or sector data that publishes the hidden west.
 
 A trade route in the catalog or a snapshot has to be public. Anything else fails the build.
+A sector controller has to be a nation already on the published map, or blank for unclaimed.
 """
 
+import csv
 import json
 import sys
 from pathlib import Path
@@ -135,6 +137,91 @@ def check_trade_list(routes, where, nations, width, height):
             check_point(pt[0], pt[1], spot, width, height)
 
 
+def check_sectors(nations, width, height, province_id):
+    geo_path = ROOT / "data" / "sectors.geojson"
+    csv_path = ROOT / "data" / "sector_control.csv"
+    if not geo_path.is_file():
+        fail("missing data/sectors.geojson")
+    if not csv_path.is_file():
+        fail("missing data/sector_control.csv")
+    collection = load(geo_path)
+    if not isinstance(collection, dict) or collection.get("type") != "FeatureCollection":
+        fail("data/sectors.geojson must be a FeatureCollection")
+    features = collection.get("features")
+    if not isinstance(features, list) or not features:
+        fail("data/sectors.geojson has no sectors")
+    seen = {}
+    for feature in features:
+        if not isinstance(feature, dict) or feature.get("type") != "Feature":
+            fail("sectors.geojson: every entry must be a Feature")
+        props = feature.get("properties") or {}
+        sid = props.get("id")
+        if not isinstance(sid, str) or "-" not in sid:
+            fail(f"sectors.geojson: bad sector id {sid!r}")
+        prefix, letter = sid.rsplit("-", 1)
+        if letter not in ("A", "B", "C") or not prefix.isdigit():
+            fail(f"sectors.geojson: sector id {sid} must look like 562-A")
+        pid = int(prefix)
+        if props.get("province") != pid:
+            fail(f"sectors.geojson: {sid} province does not match its id")
+        province_id(pid, f"sectors.geojson {sid}")
+        if props.get("role") not in ("city", "town", "interior"):
+            fail(f"sectors.geojson: {sid} role must be city, town, or interior")
+        box = props.get("bbox")
+        if not isinstance(box, list) or len(box) != 4:
+            fail(f"sectors.geojson: {sid} bbox is missing")
+        check_point(box[0], box[1], f"sectors.geojson {sid} bbox", width, height)
+        check_point(box[2], box[3], f"sectors.geojson {sid} bbox", width, height)
+        if box[0] > box[2] or box[1] > box[3]:
+            fail(f"sectors.geojson: {sid} bbox is reversed")
+        geom = feature.get("geometry") or {}
+        kind = geom.get("type")
+        coords = geom.get("coordinates")
+        if kind == "Polygon":
+            check_rings(coords, f"sectors.geojson {sid}", width, height)
+        elif kind == "MultiPolygon":
+            if not isinstance(coords, list) or not coords:
+                fail(f"sectors.geojson: {sid} geometry is empty")
+            for poly in coords:
+                check_rings(poly, f"sectors.geojson {sid}", width, height)
+        else:
+            fail(f"sectors.geojson: {sid} geometry must be a polygon")
+        if sid in seen:
+            fail(f"sectors.geojson: duplicate sector id {sid}")
+        seen[sid] = pid
+    covered = set()
+    with csv_path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.reader(handle))
+    if not rows or rows[0] != ["sector_id", "controller", "cycle"]:
+        fail("sector_control.csv: header must be sector_id,controller,cycle")
+    for index, row in enumerate(rows[1:], start=2):
+        if not row or (len(row) == 1 and row[0].strip() == ""):
+            continue
+        if len(row) != 3:
+            fail(f"sector_control.csv:{index}: expected 3 columns")
+        sid, raw, cycle_text = (part.strip() for part in row)
+        if sid not in seen:
+            fail(f"sector_control.csv:{index}: {sid} is not in sectors.geojson")
+        covered.add(sid)
+        if raw != "":
+            if not raw.isdigit():
+                fail(f"sector_control.csv:{index}: controller {raw} is not a published nation")
+            nation_id = int(raw)
+            nation = nations.get(nation_id)
+            if nation is None:
+                fail(f"sector_control.csv:{index}: controller {nation_id} is not on the published map")
+            box = nation.get("bbox") or [0, 0, 0, 0]
+            xy = nation.get("capital_xy") or [0, 0]
+            if box[0] < WEST or xy[0] < WEST:
+                fail(f"sector_control.csv:{index}: controller {nation_id} is west of the fog line")
+            province_id(seen[sid], f"sector_control.csv {sid}")
+        if not cycle_text.isdigit():
+            fail(f"sector_control.csv:{index}: cycle must be a whole number")
+    missing = [sid for sid in seen if sid not in covered]
+    if missing:
+        fail(f"sector_control.csv: missing {missing[0]}")
+
+
 def check_trade_block(block, where, nations, width, height):
     if block is None:
         return
@@ -232,6 +319,7 @@ def main():
     if not isinstance(trade, dict):
         fail("data/trade_routes.json must be an object")
     check_trade_list(trade.get("routes"), "trade_routes.json", nations, width, height)
+    check_sectors(nations, width, height, province_id)
 
     for name in files:
         if not isinstance(name, str) or "/" in name or "\\" in name or name.startswith("."):
