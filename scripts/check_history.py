@@ -5,6 +5,7 @@ A trade route in the catalog or a snapshot has to be public. Anything else fails
 A sector controller has to be a nation already on the published map, or blank for unclaimed.
 A village has to sit inside its sector, and every sector needs a settlement.
 A fort has to name a published nation and a sector that already has a settlement.
+An alliance row has to name a published nation, and each nation can be in one bloc.
 """
 
 import csv
@@ -412,6 +413,38 @@ def check_buildings(provinces, nations):
             fail(f"buildings.csv:{index}: status must be done or building")
 
 
+def check_alliances(nations):
+    path = ROOT / "data" / "alliances.csv"
+    if not path.is_file():
+        fail("missing data/alliances.csv")
+    by_name = {nation["short_name"]: nation for nation in nations.values()}
+    with path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.reader(handle))
+    if not rows or rows[0] != ["bloc", "nation", "role"]:
+        fail("alliances.csv: header must be bloc,nation,role")
+    seen = set()
+    for index, row in enumerate(rows[1:], start=2):
+        if not row or (len(row) == 1 and row[0].strip() == ""):
+            continue
+        if len(row) != 3:
+            fail(f"alliances.csv:{index}: expected 3 columns")
+        bloc, nation_name, role = (part.strip() for part in row)
+        if not bloc:
+            fail(f"alliances.csv:{index}: bloc is missing")
+        nation = by_name.get(nation_name)
+        if nation is None:
+            fail(f"alliances.csv:{index}: nation {nation_name} is not on the published map")
+        box = nation.get("bbox") or [0, 0, 0, 0]
+        xy = nation.get("capital_xy") or [0, 0]
+        if box[0] < WEST or xy[0] < WEST:
+            fail(f"alliances.csv:{index}: nation {nation_name} is west of the fog line")
+        if role not in ("leader", "ally", "vassal"):
+            fail(f"alliances.csv:{index}: role must be leader, ally, or vassal")
+        if nation_name in seen:
+            fail(f"alliances.csv:{index}: {nation_name} is already in a bloc")
+        seen.add(nation_name)
+
+
 def check_trade_block(block, where, nations, width, height):
     if block is None:
         return
@@ -512,6 +545,7 @@ def main():
     check_sectors(nations, width, height, province_id)
     check_settlements(provinces, nations, catalog.get("places") or [], width, height)
     check_buildings(provinces, nations)
+    check_alliances(nations)
 
     for name in files:
         if not isinstance(name, str) or "/" in name or "\\" in name or name.startswith("."):

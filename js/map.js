@@ -28,8 +28,9 @@
     capitalNames: new Map(),
     settlementRows: null,
     buildings: null,
+    alliances: null,
     mode: "auto",
-    overlays: { borders: true, claims: true, occupied: true, markers: true, infra: true, trade: true, sectors: true, ids: false },
+    overlays: { borders: true, claims: true, occupied: true, markers: true, infra: true, trade: true, sectors: true, alliances: false, ids: false },
     labelLayer: null,
     map: null,
     layers: {},
@@ -254,10 +255,10 @@
       setOn(depth, false);
       showPhoto(outlines, borders ? CFG.outlineOpacity * photo : 0);
     } else if (state.mode === "terrain") {
-      showPhoto(terrain, photo);
+      showPhoto(terrain, 1);
       setOn(political, false);
       setOn(depth, false);
-      showPhoto(outlines, borders ? CFG.outlineOpacity * photo : 0);
+      showPhoto(outlines, borders ? CFG.outlineOpacity : 0);
     } else if (state.mode === "depth") {
       showPhoto(depth, photo);
       setOn(political, false);
@@ -273,9 +274,10 @@
     stackRasters();
     if (state.claimLayer && map.hasLayer(state.claimLayer)) state.claimLayer.setOpacity(photo);
     if (state.highlightLayer && map.hasLayer(state.highlightLayer)) state.highlightLayer.setOpacity(photo);
+    const flatOn = state.mode !== "terrain" && flat > 0.02;
     const pane = map.getPane("flat");
-    if (pane) pane.style.opacity = flat > 0.02 ? String(flat) : "0";
-    setOn(state.flatLayer, flat > 0.02);
+    if (pane) pane.style.opacity = flatOn ? String(flat) : "0";
+    setOn(state.flatLayer, flatOn);
     const marks = map.getPane("marks");
     if (marks) marks.style.opacity = flat > 0.02 ? String(flat) : "0";
     setOn(state.markLayer, state.overlays.claims && flat > 0.02);
@@ -406,6 +408,11 @@
     fogPane.style.zIndex = "480";
     fogPane.style.pointerEvents = "none";
     state.fogRenderer = L.svg({ pane: "fog", padding: 0.5 });
+    map.createPane("alliance");
+    const alliancePane = map.getPane("alliance");
+    alliancePane.style.zIndex = "352";
+    alliancePane.style.pointerEvents = "none";
+    state.allianceRenderer = L.svg({ pane: "alliance", padding: 0.5 });
     map.createPane("marks");
     const marksPane = map.getPane("marks");
     marksPane.style.zIndex = "360";
@@ -428,6 +435,7 @@
       renderTrade();
       renderSectors();
       renderVillages();
+      renderAlliances();
     });
     map.fitBounds(state.imageBounds, {
       paddingTopLeft: [12, headerOffset() + 8],
@@ -460,6 +468,7 @@
           '<label><input type="checkbox" data-overlay="claims" checked> Claimed nations</label>' +
           '<label><input type="checkbox" data-overlay="occupied" checked> Occupied territory</label>' +
           '<label><input type="checkbox" data-overlay="sectors" checked> Sectors</label>' +
+          '<label><input type="checkbox" data-overlay="alliances"> Alliances</label>' +
           '<label><input type="checkbox" data-overlay="markers" checked> Battles &amp; armies</label>' +
           '<label><input type="checkbox" data-overlay="infra" checked> Infrastructure</label>' +
           '<label><input type="checkbox" data-overlay="trade" checked> Trade routes</label>' +
@@ -492,6 +501,7 @@
             syncTradeVisibility();
             renderSectors();
             renderVillages();
+            renderAlliances();
             refreshProvinceLabels();
           });
         });
@@ -825,6 +835,48 @@
     return rows;
   }
 
+  function loadAlliances(text) {
+    const rows = [];
+    String(text || "")
+      .split(/\r?\n/)
+      .forEach(function (line, index) {
+        if (!index || !line.trim()) return;
+        const parts = line.split(",");
+        if (parts.length < 3) return;
+        const bloc = parts[0].trim();
+        const nation = parts[1].trim();
+        const role = parts[2].trim().toLowerCase();
+        if (!bloc || !nation) return;
+        if (role !== "leader" && role !== "ally" && role !== "vassal") return;
+        rows.push({ bloc: bloc, nation: nation, role: role });
+      });
+    return rows;
+  }
+
+  const ALLIANCE_COLORS = ["#2f6fbe", "#c45c26", "#1f8a70", "#8a4baf", "#b08900", "#a33b55", "#3d6b9a", "#6b7c3a", "#9a5b3c", "#3f6f8a"];
+
+  function allianceColor(bloc) {
+    let hash = 0;
+    const text = String(bloc || "");
+    for (let i = 0; i < text.length; i++) hash = (hash * 33 + text.charCodeAt(i)) >>> 0;
+    return ALLIANCE_COLORS[hash % ALLIANCE_COLORS.length];
+  }
+
+  function allianceOf(nation) {
+    if (!nation || !state.alliances) return null;
+    for (let i = 0; i < state.alliances.length; i++) {
+      if (state.alliances[i].nation === nation.short_name) return state.alliances[i];
+    }
+    return null;
+  }
+
+  function allianceLine(nation) {
+    const row = allianceOf(nation);
+    if (!row) return "";
+    const role = row.role === "leader" ? "Leader" : row.role === "vassal" ? "Vassal" : "Ally";
+    return '<p class="meta">' + esc(row.bloc) + " · " + role + "</p>";
+  }
+
   function nationByName(name) {
     const want = String(name || "");
     for (let i = 0; i < state.nations.length; i++) {
@@ -859,7 +911,9 @@
       esc(nationLabel(nation)) +
       '</h2><p class="tier">' +
       esc(labelTier(nation.tier)) +
-      '</p><p class="meta">' +
+      "</p>" +
+      allianceLine(nation) +
+      '<p class="meta">' +
       nation.province_count +
       " provinces · " +
       fmtArea(nation.area_km2) +
@@ -1707,6 +1761,7 @@ const claim = claimOf(nation);
     rebuildMarks();
     renderHistory();
     renderSectors();
+    renderAlliances();
     restyleFlatForHistory();
     applyMode();
   }
@@ -3213,6 +3268,86 @@ const claim = claimOf(nation);
     return null;
   }
 
+  function allianceMembers() {
+    const members = new Map();
+    const colors = {};
+    (state.alliances || []).forEach(function (row) {
+      const nation = nationByName(row.nation);
+      if (!nation) return;
+      if (!colors[row.bloc]) colors[row.bloc] = allianceColor(row.bloc);
+      members.set(nation.id, { bloc: row.bloc, role: row.role, color: colors[row.bloc] });
+    });
+    return members;
+  }
+
+  function renderAlliances() {
+    const map = state.map;
+    if (!map) return;
+    if (!state.overlays.alliances) {
+      dropLayer(state.allianceLayer);
+      state.allianceLayer = null;
+      state.alliancePad = null;
+      return;
+    }
+    const view = map.getBounds();
+    const sig =
+      String(state.historyIndex || 0) +
+      ":" +
+      (state.flatById ? "f" : "n") +
+      ":" +
+      (state.overlays.borders ? "b" : "o") +
+      ":" +
+      String((state.alliances || []).length);
+    const pad = state.alliancePad;
+    if (pad && pad.sig === sig && pad.bounds.contains(view) && (state.allianceLayer || pad.empty)) return;
+    dropLayer(state.allianceLayer);
+    const grown = view.pad(0.45);
+    const members = allianceMembers();
+    const features = [];
+    if (members.size && state.flatById) {
+      state.provinces.forEach(function (prov, id) {
+        if (!provinceIsPublic(id, prov) || isConcealed(id)) return;
+        if (prov.bbox && sectorOutside(prov.bbox, grown)) return;
+        const owner = legalOwnerId(id, prov);
+        const member = owner == null ? null : members.get(owner);
+        if (!member) return;
+        const feature = provinceFeature(id, { fill: member.color });
+        if (feature) features.push(feature);
+      });
+    }
+    const bounds = grown;
+    if (!features.length) {
+      state.allianceLayer = null;
+      state.alliancePad = { sig: sig, bounds: bounds, empty: true };
+      return;
+    }
+    const borders = state.overlays.borders;
+    state.allianceLayer = L.geoJSON(
+      { type: "FeatureCollection", features: features },
+      {
+        pane: "alliance",
+        renderer: state.allianceRenderer,
+        interactive: false,
+        smoothFactor: 0,
+        style: function (feature) {
+          return {
+            stroke: !!borders,
+            color: "#16140f",
+            weight: borders ? 1 : 0,
+            opacity: 0.95,
+            lineJoin: "round",
+            fill: true,
+            fillColor: feature.properties.fill,
+            fillOpacity: 1,
+            interactive: false,
+          };
+        },
+      }
+    );
+    state.allianceLayer.addTo(map);
+    state.alliancePad = { sig: sig, bounds: bounds, empty: false };
+  }
+
   function sectorOutside(box, bounds) {
     return box[2] < bounds.getWest() || box[0] > bounds.getEast() || box[3] < bounds.getSouth() || box[1] > bounds.getNorth();
   }
@@ -3761,6 +3896,7 @@ const claim = claimOf(nation);
     if (nextButton) nextButton.disabled = next >= max;
     renderHistory();
     renderSectors();
+    renderAlliances();
     restyleFlatForHistory();
     if (state.infraRaw) applyInfra();
     if (state.tradeRaw) renderTrade();
@@ -3836,7 +3972,7 @@ const claim = claimOf(nation);
       .catch(function () {
         return null;
       });
-    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, lut] = await Promise.all([
+    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, lut] = await Promise.all([
       fetch("data/world.json").then(function (res) {
         if (!res.ok) throw new Error("world");
         return res.json();
@@ -3890,6 +4026,13 @@ const claim = claimOf(nation);
         .catch(function () {
           return "";
         }),
+      fetch("data/alliances.csv?t=" + stamp, { cache: "no-store" })
+        .then(function (res) {
+          return res.ok ? res.text() : "";
+        })
+        .catch(function () {
+          return "";
+        }),
       loadLookup(meta),
     ]);
     state.lut = lut;
@@ -3898,6 +4041,7 @@ const claim = claimOf(nation);
     state.capitalNames = loadCapitalNames(settlements);
     state.settlementRows = loadSettlementRows(settlements);
     state.buildings = loadBuildings(buildings);
+    state.alliances = loadAlliances(alliances);
     state.sectorFeatures = (sectors && sectors.features) || [];
     state.sectorRows = loadSectorControl(sectorControl);
     state.historySnapshots = await loadHistory();

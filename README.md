@@ -62,7 +62,7 @@ Leave `source/` untracked. Push to `main` (or open a pull request). GitHub Actio
 
 The header box finds a nation by name. Type a province id, such as `1459`, to fly to that province and open its popup (`Province 1459`). Only provinces on the published side of the map resolve. A hidden id produces no result.
 
-A nation may list old names in `former_names`. Search and a `#nation=` link still find those, and the map shows the current `short_name`. Holy Empire of Sanbreque (nation 23) is still found by Haltor. Verillian Empire (nation 21) is still found by Selmira. Its capital is Verillia: that name is the capital row in `data/settlements.csv`, and the capital star, its popup, and search use it.
+A nation may list old names in `former_names`. Search and a `#nation=` link still find those, and the map shows the current `short_name`. Holy Empire of Sanbreque (nation 23) is still found by Haltor. Verillian Empire (nation 21) is still found by Selmira. Its capital is Verillia: that name is the capital row in `data/settlements.csv`, and the capital star, its popup, and search use it. Basileia Rhomania (nation 25) is still found by Haldortel. Its capital is Constantinople, the city formerly named Dortelhal, in province 499. Province 562 is a city named Haldortel again. Kingdom of Foxglade (nation 128) is still found by Galzan. Holy Order of Eternea (nation 75) is still found by Liitham. Atlantis (nation 154) is still found by Ulselryn.
 
 Layers → Province IDs draws those same ids on the map once you are zoomed in. The zoom cutoff is `provinceLabelMinZoom` in `js/config.js`.
 
@@ -77,7 +77,7 @@ Edit `data/claims.json`. Keys are nation ids as strings. `{}` means nothing is t
 }
 ```
 
-A taken nation is labeled like `Haldortel (Tom)` at its capital and in search. An unclaimed nation stays plain. The nation also gets a red hatch. Commit and push that file. A rebuild is not required.
+A taken nation is labeled like `Basileia Rhomania (Tom)` at its capital and in search. An unclaimed nation stays plain. The nation also gets a red hatch. Commit and push that file. A rebuild is not required. The fogged west is unchanged: these names are published nations, and the claim markers still drop out on a concealed province.
 
 ## Infrastructure
 
@@ -111,7 +111,7 @@ Forts that belong to a sector live in `data/buildings.csv`, not in the place lis
 
 ```csv
 nation,province,sector_id,building,cycle_built,status
-Haldortel,562,562-A,fort,1,done
+Basileia Rhomania,562,562-A,fort,1,done
 ```
 
 `nation` is the nation's short name, the same form as `data/settlements.csv`. `building` is `fort`. `province` and `sector_id` have to name a published sector that already has a settlement.
@@ -141,7 +141,7 @@ Land routes are thin gold lines. Sea routes are thin blue lines. Each has a soft
       "kind": "land",
       "status": "active",
       "goods": "Grain and wool",
-      "from": { "nation": 25, "settlement": "Haldortel" },
+      "from": { "nation": 25, "settlement": "Constantinople" },
       "to": { "nation": 26, "settlement": "Qua" },
       "cycle": 1
     }
@@ -174,6 +174,21 @@ Every sector has a settlement. Sector A keeps the province's major city, which i
 Villages are drawn only while Layers → Sectors is on, and only from zoom 7, so they do not crowd the towns at zoom 6. The marker is a smaller house. The popup shows the name, Village, and the nation, with the player's short name in brackets when that nation is claimed. A concealed province or a point west of x = 3592 is left off.
 
 Sector control does not change the province owner. Taking every sector still shows occupation, not a transfer. A transfer stays a history `transfers` entry. Concealed provinces, and anything west of x = 3592, are left off the layer.
+
+## Alliances
+
+Layers → Alliances colours each bloc in one shared colour. It is off until you turn it on. Occupation stripes, claimed-nation hatch, and the nation colours underneath stay as they are: the wash is an overlay, and turning it off removes only that wash.
+
+Membership is `data/alliances.csv`. The file ships with a header and no rows.
+
+```csv
+bloc,nation,role
+Northern Crown,Basileia Rhomania,leader
+Northern Crown,Atlantis,ally
+Fox Pact,Kingdom of Foxglade,vassal
+```
+
+`bloc` is the shared name. `nation` is the nation's current short name, the same form as `data/settlements.csv`. `role` is `leader`, `ally`, or `vassal`. Every nation in a bloc uses that bloc's colour, including vassals. A nation can be in only one bloc. The colour follows the province owner on the history slider. A concealed province, and anything west of x = 3592, is left off. The popup names the bloc and the role while the nation is listed.
 
 ## History
 
@@ -215,7 +230,7 @@ The bar at the bottom of the map is the timeline. Dates live in `data/history/`.
         "kind": "land",
         "status": "active",
         "goods": "Grain and wool",
-        "from": { "nation": 25, "settlement": "Haldortel" },
+        "from": { "nation": 25, "settlement": "Constantinople" },
         "to": { "nation": 26, "settlement": "Qua" }
       }
     ],
@@ -231,7 +246,7 @@ These fields accumulate as the slider moves forward:
 - `transfers` change who owns a province. `owner` is a nation id. `null` makes it unclaimed. Ownership stays until a later transfer. Occupation does not change the owner.
 - `reveals.provinces` and `reveals.seas` lift fog. Once revealed, a province or sea stays revealed.
 - `works` add man-made land. A later snapshot can update the same id. `"status": "removed"` takes it off the map.
-- `infrastructure.places` and `infrastructure.roads` add forts, ports, roads, and the other works from Infrastructure. An entry with no `cycle` starts on this snapshot's date. The same `id` in a later snapshot updates it. `infrastructure.remove` lists ids to take off the map from that date on, including a capital star (`capital-25` is Haldortel's).
+- `infrastructure.places` and `infrastructure.roads` add forts, ports, roads, and the other works from Infrastructure. An entry with no `cycle` starts on this snapshot's date. The same `id` in a later snapshot updates it. `infrastructure.remove` lists ids to take off the map from that date on, including a capital star (`capital-25` is Basileia Rhomania's).
 - `trade.routes` add routes for that date. The fields match Trade routes, and `"public": true` is required. An entry with no `cycle` starts on this snapshot's date. The same `id` in a later snapshot updates it. `trade.remove` lists ids to take off the map from that date on.
 - `seas` add a named sea zone. The rings are the zone. It stays fogged until `reveals.seas` lists its id.
 - `colonies` update one province at a time. A province you leave out keeps its previous stage.
@@ -256,7 +271,7 @@ Works are new land drawn on top of the sea. The painted tiles do not change. Use
 ```json
 {
   "id": 9001,
-  "name": "Haldortel Span",
+  "name": "Constantinople Span",
   "type": "land_bridge",
   "status": "building",
   "owner": 25,
@@ -268,7 +283,7 @@ The polygon is drawn at every zoom. Close up, it is the real outline. Zoomed out
 
 ### What must stay off the map
 
-Snapshot files, `data/infrastructure.json`, `data/trade_routes.json`, `data/sectors.geojson`, `data/sector_control.csv`, `data/settlements.csv`, and `data/buildings.csv` are public. Do not put a western province id, a western name, a western nation, or a coordinate with x < 3592 in them. The page drops geometry that crosses the fog line, and a click west of it only says that the western lands are unexplored. `python3 scripts/check_history.py` checks the history files, the infrastructure catalog, the trade routes, the sectors, the settlements, and the buildings before deploy. A trade route that is not `"public": true` fails that check. So does a sector whose controller is not a published nation, a sector with no settlement, a village that is not inside its sector, or a fort in a sector that has no settlement.
+Snapshot files, `data/infrastructure.json`, `data/trade_routes.json`, `data/sectors.geojson`, `data/sector_control.csv`, `data/settlements.csv`, `data/buildings.csv`, and `data/alliances.csv` are public. Do not put a western province id, a western name, a western nation, or a coordinate with x < 3592 in them. The page drops geometry that crosses the fog line, and a click west of it only says that the western lands are unexplored. `python3 scripts/check_history.py` checks the history files, the infrastructure catalog, the trade routes, the sectors, the settlements, the buildings, and the alliances before deploy. A trade route that is not `"public": true` fails that check. So does a sector whose controller is not a published nation, a sector with no settlement, a village that is not inside its sector, a fort in a sector that has no settlement, or an alliance nation that is not on the published map.
 
 ## Zoom
 
@@ -277,11 +292,11 @@ Thresholds live in `js/config.js`.
 - Below `politicalOpaqueUntil` the political map is solid.
 - By `politicalFadeEnd` it has faded to `politicalTintOpacity` over the terrain, and province borders have faded in. That fade finishes before native zoom, while the picture is still sharp.
 - Province id labels start at `provinceLabelMinZoom` and stay available through the closest zoom.
-- `overzoomLevels` is how many steps past native resolution the map allows. Native resolution is `native_zoom` in `data/meta.json` (6 for the current 12000×5600 sheet). The source art is 5.5 km per pixel, so the raster cannot get sharper than that. Zoom 7 through 9 does not magnify the painting. It crossfades, across `flatFadeStartOffset` to `flatFadeEndOffset` past native zoom, to a flat board: solid nation colors, crisp province and nation outlines, and a flat opaque fog over the hidden west. Infrastructure stays vector on top of that board: capitals from zoom 4, major cities from zoom 5, and towns, ports, and roads from zoom 6.
+- `overzoomLevels` is how many steps past native resolution the map allows. Native resolution is `native_zoom` in `data/meta.json` (6 for the current 12000×5600 sheet). The source art is 5.5 km per pixel, so the raster cannot get sharper than that. In Auto, Political, and Depth, zoom 7 through 9 crossfades, across `flatFadeStartOffset` to `flatFadeEndOffset` past native zoom, to a flat board: solid nation colors, crisp province and nation outlines, and a flat opaque fog over the hidden west. Terrain does not make that crossfade. The terrain painting stays on at every zoom, including the closest, still using the fogged terrain artwork. Infrastructure stays vector on top: capitals from zoom 4, major cities from zoom 5, and towns, ports, and roads from zoom 6.
 
 Reload the page after editing the numbers. A rebuild is not required unless the image size or the province borders change. Borders live in `data/flat.geojson`, which the build writes. Each shared border is simplified and smoothed once, so the two neighbors use the same line and the fill matches the outline. Do not draw the hidden west into that file; the fog feature is a plain rectangle.
 
-The view control can force Political, Terrain, or Depth while the photo is showing. Past native zoom every view becomes the same flat board.
+The view control can force Political, Terrain, or Depth. Past native zoom, Political and Depth become the same flat board as Auto. Terrain stays on the terrain painting.
 
 ## Minimap
 
