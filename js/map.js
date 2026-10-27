@@ -26,7 +26,7 @@
     provinces: new Map(),
     claims: new Map(),
     mode: "auto",
-    overlays: { borders: true, claims: true, occupied: true, markers: true, infra: true, ids: false },
+    overlays: { borders: true, claims: true, occupied: true, markers: true, infra: true, trade: true, ids: false },
     labelLayer: null,
     map: null,
     layers: {},
@@ -54,6 +54,9 @@
     fogLayer: null,
     battleLayer: null,
     infraRaw: null,
+    tradeRaw: null,
+    tradeLayer: null,
+    tradeRenderer: null,
     historyStyled: null,
     markLayer: null,
     marksRenderer: null,
@@ -300,6 +303,16 @@
     setOn(state.infraLayer, state.overlays.infra);
   }
 
+  function syncTradeVisibility() {
+    const map = state.map;
+    if (!map) return;
+    if (!state.overlays.trade) {
+      if (state.tradeLayer && map.hasLayer(state.tradeLayer)) map.removeLayer(state.tradeLayer);
+      return;
+    }
+    if (!state.tradeLayer || !map.hasLayer(state.tradeLayer)) renderTrade();
+  }
+
   function makeTileLayer(folder, errorTile) {
     const meta = state.meta;
     return L.tileLayer("tiles/" + folder + "/{z}/{x}/{y}.webp", {
@@ -370,6 +383,10 @@
     const infraPane = map.getPane("infra");
     infraPane.style.zIndex = "390";
     state.infraRenderer = L.canvas({ pane: "infra", padding: 0.35 });
+    map.createPane("trade");
+    const tradePane = map.getPane("trade");
+    tradePane.style.zIndex = "405";
+    state.tradeRenderer = L.svg({ pane: "trade", padding: 0.5 });
     map.createPane("fog");
     const fogPane = map.getPane("fog");
     fogPane.style.zIndex = "480";
@@ -394,6 +411,7 @@
     map.on("moveend zoomend", refreshProvinceLabels);
     map.on("moveend zoomend", function () {
       renderInfra();
+      renderTrade();
     });
     map.fitBounds(state.imageBounds, {
       paddingTopLeft: [12, headerOffset() + 8],
@@ -427,6 +445,7 @@
           '<label><input type="checkbox" data-overlay="occupied" checked> Occupied territory</label>' +
           '<label><input type="checkbox" data-overlay="markers" checked> Battles &amp; armies</label>' +
           '<label><input type="checkbox" data-overlay="infra" checked> Infrastructure</label>' +
+          '<label><input type="checkbox" data-overlay="trade" checked> Trade routes</label>' +
           '<label><input type="checkbox" data-overlay="ids"> Province IDs</label>' +
           "</div>";
         L.DomEvent.disableClickPropagation(el);
@@ -453,6 +472,7 @@
             syncClaimVisibility();
             syncHistoryOverlays();
             syncInfraVisibility();
+            syncTradeVisibility();
             refreshProvinceLabels();
           });
         });
@@ -1732,7 +1752,750 @@ const claim = claimOf(nation);
     state.infraStamp = (state.infraStamp || 0) + 1;
     state.infraPad = null;
     state.infraCatalog = null;
+    state.tradeGeom = null;
+    state.tradePad = null;
     renderInfra();
+  }
+
+  function tradeEndpoint(value) {
+    if (!value) return null;
+    const nation = Number(value.nation != null ? value.nation : value.nation_id);
+    const settlement = value.settlement != null ? value.settlement : value.name;
+    if (!isFinite(nation) || settlement == null || String(settlement).trim() === "") return null;
+    return { nation: nation, settlement: String(settlement) };
+  }
+
+  function catalogRoute(row) {
+    if (!row || row.public !== true) return null;
+    const kind = String(row.kind || "").toLowerCase();
+    const status = String(row.status || "").toLowerCase();
+    if (kind !== "land" && kind !== "sea") return null;
+    if (status !== "active" && status !== "disrupted") return null;
+    const from = tradeEndpoint(row.from);
+    const to = tradeEndpoint(row.to);
+    if (!from || !to) return null;
+    const goods = row.goods == null ? "" : String(row.goods);
+    if (!goods.trim()) return null;
+    const id = row.id != null && row.id !== "" ? String(row.id) : kind + "-" + from.nation + "-" + to.nation + "-" + from.settlement;
+    return {
+      id: id,
+      from: from,
+      to: to,
+      kind: kind,
+      goods: goods,
+      status: status,
+      public: true,
+      cycle: row.cycle,
+      round: row.round,
+    };
+  }
+
+  function collectTrade() {
+    const raw = state.tradeRaw || { routes: [] };
+    const fromHistory = (state.historyView && state.historyView.trade) || { routes: [], removed: [] };
+    const removed = {};
+    (fromHistory.removed || []).forEach(function (id) {
+      removed[String(id)] = true;
+    });
+    const routes = {};
+    (raw.routes || []).forEach(function (row) {
+      const route = catalogRoute(row);
+      if (!route || removed[route.id] || !infraDateVisible(route)) return;
+      routes[route.id] = route;
+    });
+    (fromHistory.routes || []).forEach(function (route) {
+      if (!route || route.public !== true || removed[route.id] || !infraDateVisible(route)) return;
+      routes[route.id] = route;
+    });
+    return routes;
+  }
+
+  function findSettlement(endpoint) {
+    const want = String(endpoint.settlement || "").trim().toLowerCase();
+    const nation = Number(endpoint.nation);
+    if (!want || !isFinite(nation)) return null;
+    const places = collectInfra().places;
+    let found = null;
+    Object.keys(places).forEach(function (id) {
+      const place = places[id];
+      if (Number(place.nation) !== nation) return;
+      if (String(place.name || "").trim().toLowerCase() !== want) return;
+      found = place;
+    });
+    return found;
+  }
+
+  function findPort(nationId) {
+    const places = collectInfra().places;
+    let found = null;
+    Object.keys(places).forEach(function (id) {
+      const place = places[id];
+      if (Number(place.nation) !== Number(nationId) || place.type !== "port") return;
+      found = place;
+    });
+    return found;
+  }
+
+  function resolveTradeEnd(endpoint, kind) {
+    if (!endpoint) return null;
+    let place = findSettlement(endpoint);
+    if (kind === "sea" && (!place || place.type !== "port")) place = findPort(endpoint.nation);
+    if (!place) return null;
+    const xy = placePoint(place);
+    return xy ? { place: place, xy: xy } : null;
+  }
+
+  function landCell(lx, ly) {
+    const meta = state.meta;
+    const lut = state.lut;
+    if (!meta || !lut) return false;
+    if (lx < 0 || ly < 0 || lx >= meta.lookup_width || ly >= meta.lookup_height) return false;
+    if (lx * meta.lookup_scale < meta.hidden_west_of) return false;
+    const id = lut[ly * meta.lookup_width + lx] || 0;
+    return !!(id && state.provinces.has(id) && !isConcealed(id));
+  }
+
+  function seaCell(lx, ly) {
+    const meta = state.meta;
+    const lut = state.lut;
+    if (!meta || !lut) return false;
+    if (lx < 0 || ly < 0 || lx >= meta.lookup_width || ly >= meta.lookup_height) return false;
+    if (lx * meta.lookup_scale < meta.hidden_west_of) return false;
+    if ((lut[ly * meta.lookup_width + lx] || 0) !== 0) return false;
+    const x = lx * meta.lookup_scale + meta.lookup_scale / 2;
+    const y = ly * meta.lookup_scale + meta.lookup_scale / 2;
+    if (y < 0 || x > meta.width || y > meta.height) return false;
+    return !concealedSeaAt(x, y);
+  }
+
+  function nearestCell(lx, ly, walk, radius) {
+    if (walk(lx, ly)) return [lx, ly];
+    for (let r = 1; r <= radius; r++) {
+      for (let dy = -r; dy <= r; dy++) {
+        for (let dx = -r; dx <= r; dx++) {
+          if (Math.max(Math.abs(dx), Math.abs(dy)) !== r) continue;
+          if (walk(lx + dx, ly + dy)) return [lx + dx, ly + dy];
+        }
+      }
+    }
+    return null;
+  }
+
+  function segmentSamples(a, b) {
+    const dist = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const steps = Math.max(1, Math.ceil(dist / 2));
+    const out = [];
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      out.push([a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t]);
+    }
+    return out;
+  }
+
+  function segmentOnSurface(a, b, walk) {
+    const scale = state.meta.lookup_scale;
+    const samples = segmentSamples(a, b);
+    for (let i = 0; i < samples.length; i++) {
+      if (!walk(Math.floor(samples[i][0] / scale), Math.floor(samples[i][1] / scale))) return false;
+    }
+    return true;
+  }
+
+  function surfaceKind(x, y) {
+    const scale = state.meta.lookup_scale;
+    const lx = Math.floor(x / scale);
+    const ly = Math.floor(y / scale);
+    if (pointConcealed(x, y)) return "hide";
+    if (seaCell(lx, ly)) return "sea";
+    if (landCell(lx, ly)) return "land";
+    return "bad";
+  }
+
+  function pathAllowed(points, mode) {
+    if (!points || points.length < 2 || !state.meta) return false;
+    for (let i = 1; i < points.length; i++) {
+      const flags = segmentSamples(points[i - 1], points[i]).map(function (pt) {
+        return surfaceKind(pt[0], pt[1]);
+      });
+      if (flags.some(function (flag) { return flag === "hide" || flag === "bad"; })) return false;
+      if (mode === "land") {
+        if (flags.some(function (flag) { return flag !== "land"; })) return false;
+        continue;
+      }
+      const first = i === 1;
+      const last = i === points.length - 1;
+      if (!first && !last) {
+        if (flags.some(function (flag) { return flag !== "sea"; })) return false;
+        continue;
+      }
+      if (first) {
+        const seaAt = flags.indexOf("sea");
+        if (seaAt < 0) return false;
+        if (flags.slice(0, seaAt).some(function (flag) { return flag !== "land"; })) return false;
+        if (flags.slice(seaAt).some(function (flag) { return flag !== "sea"; })) return false;
+      } else {
+        let lastSea = -1;
+        flags.forEach(function (flag, index) {
+          if (flag === "sea") lastSea = index;
+        });
+        if (lastSea < 0) return false;
+        if (flags.slice(0, lastSea + 1).some(function (flag) { return flag !== "sea"; })) return false;
+        if (flags.slice(lastSea + 1).some(function (flag) { return flag !== "land"; })) return false;
+      }
+    }
+    return true;
+  }
+
+  function perpDist(point, a, b) {
+    const dx = b[0] - a[0];
+    const dy = b[1] - a[1];
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-6) return Math.hypot(point[0] - a[0], point[1] - a[1]);
+    return Math.abs((point[0] - a[0]) * dy - (point[1] - a[1]) * dx) / len;
+  }
+
+  function simplifySurface(points, tolerance, walk) {
+    if (!points || points.length < 3) return points ? points.slice() : [];
+    const keep = new Uint8Array(points.length);
+    keep[0] = 1;
+    keep[points.length - 1] = 1;
+    const stack = [[0, points.length - 1]];
+    while (stack.length) {
+      const span = stack.pop();
+      const start = span[0];
+      const end = span[1];
+      let maxD = 0;
+      let index = -1;
+      for (let i = start + 1; i < end; i++) {
+        const dist = perpDist(points[i], points[start], points[end]);
+        if (dist > maxD) {
+          maxD = dist;
+          index = i;
+        }
+      }
+      const shortcut = maxD <= tolerance && segmentOnSurface(points[start], points[end], walk);
+      if (!shortcut && index !== -1) {
+        keep[index] = 1;
+        if (index - start > 1) stack.push([start, index]);
+        if (end - index > 1) stack.push([index, end]);
+      }
+    }
+    const out = [];
+    for (let i = 0; i < points.length; i++) if (keep[i]) out.push(points[i]);
+    return out;
+  }
+
+  function bfsCells(start, goal, walk, pad) {
+    const meta = state.meta;
+    const westCell = Math.ceil(meta.hidden_west_of / meta.lookup_scale);
+    const minX = Math.max(westCell, Math.min(start[0], goal[0]) - pad);
+    const maxX = Math.min(meta.lookup_width - 1, Math.max(start[0], goal[0]) + pad);
+    const minY = Math.max(0, Math.min(start[1], goal[1]) - pad);
+    const maxY = Math.min(meta.lookup_height - 1, Math.max(start[1], goal[1]) + pad);
+    if (start[0] < minX || goal[0] < minX || start[0] > maxX || goal[0] > maxX) return null;
+    if (start[1] < minY || goal[1] < minY || start[1] > maxY || goal[1] > maxY) return null;
+    const spanX = maxX - minX + 1;
+    const spanY = maxY - minY + 1;
+    const count = spanX * spanY;
+    if (count < 1 || count > 450000) return null;
+    const parent = new Int32Array(count);
+    parent.fill(-1);
+    function at(x, y) {
+      return (y - minY) * spanX + (x - minX);
+    }
+    const source = at(start[0], start[1]);
+    parent[source] = source;
+    const qx = new Int32Array(count);
+    const qy = new Int32Array(count);
+    let head = 0;
+    let tail = 0;
+    qx[tail] = start[0];
+    qy[tail] = start[1];
+    tail += 1;
+    const dirs = [
+      [1, 0],
+      [-1, 0],
+      [0, 1],
+      [0, -1],
+      [1, 1],
+      [1, -1],
+      [-1, 1],
+      [-1, -1],
+    ];
+    let found = false;
+    while (head < tail) {
+      const x = qx[head];
+      const y = qy[head];
+      head += 1;
+      if (x === goal[0] && y === goal[1]) {
+        found = true;
+        break;
+      }
+      for (let d = 0; d < dirs.length; d++) {
+        const nx = x + dirs[d][0];
+        const ny = y + dirs[d][1];
+        if (nx < minX || ny < minY || nx > maxX || ny > maxY) continue;
+        if (!walk(nx, ny)) continue;
+        if (dirs[d][0] && dirs[d][1] && (!walk(x + dirs[d][0], y) || !walk(x, y + dirs[d][1]))) continue;
+        const next = at(nx, ny);
+        if (parent[next] !== -1) continue;
+        parent[next] = at(x, y);
+        qx[tail] = nx;
+        qy[tail] = ny;
+        tail += 1;
+      }
+    }
+    if (!found) return null;
+    const cells = [];
+    let cur = at(goal[0], goal[1]);
+    let guard = 0;
+    while (guard < count) {
+      cells.push([minX + (cur % spanX), minY + Math.floor(cur / spanX)]);
+      if (cur === source) break;
+      cur = parent[cur];
+      if (cur < 0) return null;
+      guard += 1;
+    }
+    if (cur !== source) return null;
+    cells.reverse();
+    return cells;
+  }
+
+  function surfacePath(ax, ay, bx, by, mode) {
+    const meta = state.meta;
+    if (!meta || !state.lut) return null;
+    const scale = meta.lookup_scale;
+    const walk = mode === "sea" ? seaCell : landCell;
+    const radius = mode === "sea" ? 8 : 6;
+    const start = nearestCell(Math.floor(ax / scale), Math.floor(ay / scale), walk, radius);
+    const goal = nearestCell(Math.floor(bx / scale), Math.floor(by / scale), walk, radius);
+    if (!start || !goal) return null;
+    const sep = Math.hypot(goal[0] - start[0], goal[1] - start[1]);
+    let pad = Math.max(40, Math.ceil(sep));
+    let cells = null;
+    for (let attempt = 0; attempt < 3 && !cells; attempt++) {
+      cells = bfsCells(start, goal, walk, pad);
+      pad *= 2;
+    }
+    if (!cells || !cells.length) return null;
+    let points = cells.map(function (cell) {
+      return [cell[0] * scale + scale / 2, cell[1] * scale + scale / 2];
+    });
+    points = simplifySurface(points, 10, walk);
+    if (mode === "sea") points = [[ax, ay]].concat(points, [[bx, by]]);
+    else {
+      if (Math.hypot(points[0][0] - ax, points[0][1] - ay) > 0.5) {
+        if (!segmentOnSurface([ax, ay], points[0], walk)) return null;
+        points.unshift([ax, ay]);
+      }
+      const last = points[points.length - 1];
+      if (Math.hypot(last[0] - bx, last[1] - by) > 0.5) {
+        if (!segmentOnSurface(last, [bx, by], walk)) return null;
+        points.push([bx, by]);
+      }
+    }
+    return pathAllowed(points, mode) ? points : null;
+  }
+
+  function buildRoadGraph() {
+    const items = collectInfra();
+    const nodes = new Map();
+    function ensure(x, y) {
+      const key = Math.round(x) + "," + Math.round(y);
+      let node = nodes.get(key);
+      if (!node) {
+        node = { key: key, x: x, y: y, edges: [] };
+        nodes.set(key, node);
+      }
+      return node;
+    }
+    Object.keys(items.roads).forEach(function (id) {
+      const stops = roadPoints(items.roads[id]);
+      if (!stops || stops.length < 2) return;
+      const a = ensure(stops[0][0], stops[0][1]);
+      const b = ensure(stops[stops.length - 1][0], stops[stops.length - 1][1]);
+      if (a === b) return;
+      let length = 0;
+      for (let i = 1; i < stops.length; i++) {
+        length += Math.hypot(stops[i][0] - stops[i - 1][0], stops[i][1] - stops[i - 1][1]);
+      }
+      a.edges.push({ to: b, points: stops, length: length });
+      const reversed = stops.slice().reverse();
+      b.edges.push({ to: a, points: reversed, length: length });
+    });
+    const parent = new Map();
+    function find(key) {
+      let root = parent.get(key);
+      if (root == null) {
+        parent.set(key, key);
+        root = key;
+      }
+      if (root !== key) {
+        root = find(root);
+        parent.set(key, root);
+      }
+      return root;
+    }
+    function unite(a, b) {
+      const ra = find(a);
+      const rb = find(b);
+      if (ra !== rb) parent.set(ra, rb);
+    }
+    nodes.forEach(function (node) {
+      find(node.key);
+      node.edges.forEach(function (edge) {
+        unite(node.key, edge.to.key);
+      });
+    });
+    return { nodes: nodes, find: find };
+  }
+
+  function snapNode(nodes, x, y, maxDist) {
+    let best = null;
+    let bestD = maxDist;
+    nodes.forEach(function (node) {
+      const dist = Math.hypot(node.x - x, node.y - y);
+      if (dist <= bestD) {
+        best = node;
+        bestD = dist;
+      }
+    });
+    return best;
+  }
+
+  function dijkstra(start) {
+    const dist = new Map();
+    const prev = new Map();
+    dist.set(start.key, 0);
+    const heap = [];
+    function push(node, weight) {
+      heap.push({ node: node, d: weight });
+      let i = heap.length - 1;
+      while (i > 0) {
+        const parentIndex = (i - 1) >> 1;
+        if (heap[parentIndex].d <= heap[i].d) break;
+        const tmp = heap[parentIndex];
+        heap[parentIndex] = heap[i];
+        heap[i] = tmp;
+        i = parentIndex;
+      }
+    }
+    function pop() {
+      const top = heap[0];
+      const last = heap.pop();
+      if (heap.length && last) {
+        heap[0] = last;
+        let i = 0;
+        for (;;) {
+          const left = i * 2 + 1;
+          const right = left + 1;
+          let small = i;
+          if (left < heap.length && heap[left].d < heap[small].d) small = left;
+          if (right < heap.length && heap[right].d < heap[small].d) small = right;
+          if (small === i) break;
+          const tmp = heap[small];
+          heap[small] = heap[i];
+          heap[i] = tmp;
+          i = small;
+        }
+      }
+      return top;
+    }
+    push(start, 0);
+    while (heap.length) {
+      const cur = pop();
+      if (cur.d !== dist.get(cur.node.key)) continue;
+      cur.node.edges.forEach(function (edge) {
+        const next = cur.d + edge.length;
+        const old = dist.get(edge.to.key);
+        if (old == null || next < old) {
+          dist.set(edge.to.key, next);
+          prev.set(edge.to.key, { from: cur.node.key, points: edge.points });
+          push(edge.to, next);
+        }
+      });
+    }
+    return { dist: dist, prev: prev };
+  }
+
+  function roadPath(start, goal) {
+    if (!start || !goal) return null;
+    if (start.key === goal.key) return [[start.x, start.y]];
+    const found = dijkstra(start);
+    if (!found.prev.has(goal.key)) return null;
+    const parts = [];
+    let key = goal.key;
+    let guard = 0;
+    while (key !== start.key && guard < 100000) {
+      const step = found.prev.get(key);
+      if (!step) return null;
+      parts.push(step.points);
+      key = step.from;
+      guard += 1;
+    }
+    if (key !== start.key) return null;
+    parts.reverse();
+    const out = [];
+    parts.forEach(function (pts) {
+      for (let i = 0; i < pts.length; i++) {
+        if (i === 0 && out.length) continue;
+        out.push(pts[i]);
+      }
+    });
+    return out.length >= 2 ? out : null;
+  }
+
+  function concatPaths(parts) {
+    const out = [];
+    parts.forEach(function (pts) {
+      if (!pts) return;
+      for (let i = 0; i < pts.length; i++) {
+        if (out.length && Math.hypot(out[out.length - 1][0] - pts[i][0], out[out.length - 1][1] - pts[i][1]) < 0.5) continue;
+        out.push(pts[i]);
+      }
+    });
+    return out.length >= 2 ? out : null;
+  }
+
+  function routeHidden(points) {
+    for (let i = 0; i < points.length; i++) {
+      if (pointConcealed(points[i][0], points[i][1])) return true;
+      if (i > 0 && segmentConcealed(points[i - 1], points[i])) return true;
+    }
+    return false;
+  }
+
+  function anchorEnds(points, a, b) {
+    if (!points || points.length < 2) return points;
+    const out = points.slice();
+    if (Math.hypot(out[0][0] - a[0], out[0][1] - a[1]) > 1 && Math.hypot(out[0][0] - a[0], out[0][1] - a[1]) <= 36 && segmentOnSurface(a, out[0], landCell)) out.unshift(a);
+    const last = out[out.length - 1];
+    if (Math.hypot(last[0] - b[0], last[1] - b[1]) > 1 && Math.hypot(last[0] - b[0], last[1] - b[1]) <= 36 && segmentOnSurface(last, b, landCell)) out.push(b);
+    return out;
+  }
+
+  function borderStitch(graph, snapA, snapB, a, b) {
+    const rootA = graph.find(snapA.key);
+    const rootB = graph.find(snapB.key);
+    const listA = [];
+    const listB = [];
+    graph.nodes.forEach(function (node) {
+      const root = graph.find(node.key);
+      if (root === rootA) listA.push(node);
+      else if (root === rootB) listB.push(node);
+    });
+    if (!listA.length || !listB.length) return null;
+    const pairs = [];
+    function consider(na, nb) {
+      const gap = Math.hypot(na.x - nb.x, na.y - nb.y);
+      pairs.push({ a: na, b: nb, gap: gap });
+    }
+    if (listA.length * listB.length <= 20000) {
+      for (let i = 0; i < listA.length; i++) {
+        for (let j = 0; j < listB.length; j++) consider(listA[i], listB[j]);
+      }
+    } else {
+      function nearest(list, x, y, limit) {
+        return list
+          .slice()
+          .sort(function (p, q) {
+            return Math.hypot(p.x - x, p.y - y) - Math.hypot(q.x - x, q.y - y);
+          })
+          .slice(0, limit);
+      }
+      [
+        [nearest(listA, b[0], b[1], 16), nearest(listB, b[0], b[1], 16)],
+        [nearest(listA, a[0], a[1], 16), nearest(listB, a[0], a[1], 16)],
+      ].forEach(function (pair) {
+        pair[0].forEach(function (na) {
+          pair[1].forEach(function (nb) {
+            consider(na, nb);
+          });
+        });
+      });
+    }
+    pairs.sort(function (p, q) {
+      return p.gap - q.gap;
+    });
+    const seen = {};
+    const picked = [];
+    const minGap = pairs.length ? pairs[0].gap : 0;
+    for (let i = 0; i < pairs.length && picked.length < 8; i++) {
+      if (pairs[i].gap > minGap * 1.35 + 16) break;
+      const key = pairs[i].a.key + ">" + pairs[i].b.key;
+      if (seen[key]) continue;
+      seen[key] = true;
+      picked.push(pairs[i]);
+    }
+    const distA = dijkstra(snapA).dist;
+    const distB = dijkstra(snapB).dist;
+    let best = null;
+    for (let i = 0; i < picked.length; i++) {
+      const hop = surfacePath(picked[i].a.x, picked[i].a.y, picked[i].b.x, picked[i].b.y, "land");
+      if (!hop) continue;
+      let hopLen = 0;
+      for (let k = 1; k < hop.length; k++) hopLen += Math.hypot(hop[k][0] - hop[k - 1][0], hop[k][1] - hop[k - 1][1]);
+      const alongA = distA.get(picked[i].a.key);
+      const alongB = distB.get(picked[i].b.key);
+      if (alongA == null || alongB == null) continue;
+      const score = alongA + hopLen + alongB;
+      if (!best || score < best.score) best = { pair: picked[i], hop: hop, score: score };
+    }
+    if (!best) return null;
+    const left = roadPath(snapA, best.pair.a);
+    const right = roadPath(best.pair.b, snapB);
+    if (!left || !right) return null;
+    return concatPaths([left, best.hop, right]);
+  }
+
+  function landRoutePoints(a, b, graph) {
+    const snapA = graph ? snapNode(graph.nodes, a[0], a[1], 32) : null;
+    const snapB = graph ? snapNode(graph.nodes, b[0], b[1], 32) : null;
+    if (snapA && snapB) {
+      let along = null;
+      if (graph.find(snapA.key) === graph.find(snapB.key)) along = roadPath(snapA, snapB);
+      else along = borderStitch(graph, snapA, snapB, a, b);
+      if (along) {
+        const anchored = anchorEnds(along, a, b);
+        if (anchored && !routeHidden(anchored)) return anchored;
+      }
+    }
+    return surfacePath(a[0], a[1], b[0], b[1], "land");
+  }
+
+  function tradeGeometry() {
+    const sig = String(state.infraStamp || 0) + ":" + String(state.historyIndex || 0) + ":" + String(state.tradeStamp || 0);
+    if (state.tradeGeom && state.tradeGeomSig === sig) return state.tradeGeom;
+    const routes = collectTrade();
+    const ids = Object.keys(routes);
+    const lines = [];
+    if (ids.length && state.lut) {
+      let graph = null;
+      ids.forEach(function (id) {
+        const route = routes[id];
+        const from = resolveTradeEnd(route.from, route.kind);
+        const to = resolveTradeEnd(route.to, route.kind);
+        if (!from || !to) return;
+        let points = null;
+        if (route.kind === "sea") points = surfacePath(from.xy[0], from.xy[1], to.xy[0], to.xy[1], "sea");
+        else {
+          if (!graph) graph = buildRoadGraph();
+          points = landRoutePoints(from.xy, to.xy, graph);
+        }
+        if (!points || points.length < 2) return;
+        lines.push({ route: route, points: points });
+      });
+    }
+    state.tradeGeom = lines;
+    state.tradeGeomSig = sig;
+    return lines;
+  }
+
+  function tradeStyle(route) {
+    if (route.status === "disrupted") return { core: "#BC0501", glow: "#f6c1be", dash: "7 6" };
+    if (route.kind === "sea") return { core: "#7ecbff", glow: "#d7f1ff", dash: null };
+    return { core: "#e2b340", glow: "#fff1c2", dash: null };
+  }
+
+  function tradeHtml(route) {
+    const fromNation = state.nationsById.get(Number(route.from.nation));
+    const toNation = state.nationsById.get(Number(route.to.nation));
+    const fromLabel = fromNation ? nationLabel(fromNation) : "Unclaimed";
+    const toLabel = toNation ? nationLabel(toNation) : "Unclaimed";
+    const title = route.from.settlement + " and " + route.to.settlement;
+    const kind = route.kind === "sea" ? "Sea route" : "Land route";
+    const status = route.status === "disrupted" ? "Disrupted" : "Active";
+    return (
+      '<div class="nb-pop"><h2>' +
+      esc(title) +
+      '</h2><p class="tier">' +
+      esc(kind) +
+      '</p><p class="meta">' +
+      esc(fromLabel) +
+      " and " +
+      esc(toLabel) +
+      '</p><p class="meta">' +
+      esc(route.goods) +
+      '</p><p class="meta">' +
+      esc(status) +
+      "</p></div>"
+    );
+  }
+
+  function tradeLatLngs(points) {
+    return points.map(function (pt) {
+      return [pt[1], pt[0]];
+    });
+  }
+
+  function renderTrade() {
+    const map = state.map;
+    if (!map) return;
+    if (!state.overlays.trade) {
+      if (state.tradeLayer && map.hasLayer(state.tradeLayer)) map.removeLayer(state.tradeLayer);
+      return;
+    }
+    const sig = String(state.infraStamp || 0) + ":" + String(state.historyIndex || 0) + ":" + String(state.tradeStamp || 0);
+    const view = map.getBounds();
+    const pad = state.tradePad;
+    if (pad && state.tradeLayer && map.hasLayer(state.tradeLayer) && pad.sig === sig && pad.bounds.contains(view)) return;
+    const grown = view.pad(0.45);
+    const lines = tradeGeometry();
+    state.tradePad = { sig: sig, bounds: grown };
+    if (state.tradeLayer && map.hasLayer(state.tradeLayer)) map.removeLayer(state.tradeLayer);
+    const group = L.layerGroup();
+    lines.forEach(function (line) {
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (let i = 0; i < line.points.length; i++) {
+        const x = line.points[i][0];
+        const y = line.points[i][1];
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+      if (maxX < grown.getWest() || minX > grown.getEast() || maxY < grown.getSouth() || minY > grown.getNorth()) return;
+      const style = tradeStyle(line.route);
+      const latlngs = tradeLatLngs(line.points);
+      const cls = "nb-trade nb-trade-" + line.route.kind + " nb-trade-" + line.route.status;
+      function stroke(extra) {
+        const options = {
+          pane: "trade",
+          renderer: state.tradeRenderer,
+          color: extra.color,
+          weight: extra.weight,
+          opacity: extra.opacity,
+          lineCap: "round",
+          lineJoin: "round",
+          smoothFactor: 0,
+          interactive: !!extra.interactive,
+          className: cls,
+        };
+        if (extra.dash) options.dashArray = extra.dash;
+        return L.polyline(latlngs, options);
+      }
+      stroke({ color: style.glow, weight: 7, opacity: 0.4, dash: style.dash, interactive: false }).addTo(group);
+      stroke({ color: style.core, weight: 2.25, opacity: 0.95, dash: style.dash, interactive: false }).addTo(group);
+      const hit = stroke({ color: style.core, weight: 14, opacity: 0.02, dash: null, interactive: true });
+      hit.on("click", function (event) {
+        L.DomEvent.stopPropagation(event);
+        openPopup(event.latlng, tradeHtml(line.route));
+      });
+      hit.addTo(group);
+    });
+    state.tradeLayer = group;
+    group.addTo(map);
+  }
+
+  function applyTrade(collection) {
+    if (collection) state.tradeRaw = collection;
+    state.tradeStamp = (state.tradeStamp || 0) + 1;
+    state.tradeGeom = null;
+    state.tradePad = null;
+    renderTrade();
   }
 
   function loadLookup(meta) {
@@ -2404,6 +3167,7 @@ const claim = claimOf(nation);
     renderHistory();
     restyleFlatForHistory();
     if (state.infraRaw) applyInfra();
+    if (state.tradeRaw) renderTrade();
     const concealedKey = Object.keys((state.historyView && state.historyView.concealedProvinces) || {})
       .sort()
       .join(",");
@@ -2476,7 +3240,7 @@ const claim = claimOf(nation);
       .catch(function () {
         return null;
       });
-    const [world, claims, infra, lut] = await Promise.all([
+    const [world, claims, infra, trade, lut] = await Promise.all([
       fetch("data/world.json").then(function (res) {
         if (!res.ok) throw new Error("world");
         return res.json();
@@ -2495,6 +3259,13 @@ const claim = claimOf(nation);
         .catch(function () {
           return { capitals: true, places: [], roads: [] };
         }),
+      fetch("data/trade_routes.json?t=" + stamp, { cache: "no-store" })
+        .then(function (res) {
+          return res.ok ? res.json() : { routes: [] };
+        })
+        .catch(function () {
+          return { routes: [] };
+        }),
       loadLookup(meta),
     ]);
     state.lut = lut;
@@ -2509,6 +3280,7 @@ const claim = claimOf(nation);
       applyClaims();
     }
     applyInfra(infra);
+    applyTrade(trade);
     window.addEventListener("hashchange", function () {
       openHash(true);
     });
