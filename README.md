@@ -81,9 +81,11 @@ A taken nation is labeled like `Haldortel (Tom)` at its capital and in search. A
 
 ## Infrastructure
 
-Edit `data/infrastructure.json`. The layer is Layers → Infrastructure, on by default. It is vector, so the icons and roads stay sharp past the raster. `"capitals": true` draws a star at every published nation capital, using the capital already stored on the nation. Leave `places` and `roads` empty until something is built.
+Edit `data/infrastructure.json`. The layer is Layers → Infrastructure, on by default. It is vector, so the icons and roads stay sharp past the raster. `"capitals": true` draws a star at every published nation capital, using the capital already stored on the nation.
 
-A place is a `city`, `town`, `fort`, `port`, `shipyard`, `market`, `farm`, `mine`, or `lumber` camp. Give it a `province` id and the marker sits on that province's center, or give it `x` and `y` in map pixels. A road is a polyline through province centers: list those ids in `provinces`, in order. `points` is the same line written out as coordinates when it does not follow province centers. A road needs two provinces or two points.
+Cycle 0 is already filled in. Every published province has a major city and a medium town. On a capital province the major city is the capital star, not a second marker. Each nation has roads between its own settlements, and each coastal nation has one port. Nothing crosses a border or the sea. Names and coordinates are stored in the file so they stay fixed. `python3 scripts/build_settlements.py` regenerates that catalog and writes `data/settlements.csv` (nation, province, name, type, and whether that settlement has the nation's port). Regenerating replaces the cycle-0 places and roads.
+
+A place is a `city`, `town`, `fort`, `port`, `shipyard`, `market`, `farm`, `mine`, or `lumber` camp. Give it a `province` id and the marker sits on that province's center, or give it `x` and `y` in map pixels. `nation` is the nation id. The popup shows the place name, its type, and that nation, with the player's short name in brackets when the nation is claimed. A road is a polyline through province centers: list those ids in `provinces`, in order. `points` is the same line written out as coordinates when it does not follow province centers. A road needs two provinces or two points. Cycle-0 roads are `points` that follow land.
 
 ```json
 {
@@ -99,11 +101,11 @@ A place is a `city`, `town`, `fort`, `port`, `shipyard`, `market`, `farm`, `mine
 
 `cycle` and `round` hold a feature until the history slider reaches that date. Leave both off and it is on the map from the start. A feature dated Cycle 1 appears for the whole of Cycle 1 and stays afterward. Add `round` when it should wait for that round inside the cycle. Cycle 0 treats a missing round as round 0, so a round 2 road is hidden on Start.
 
-What appears depends on zoom:
+What appears depends on zoom. Markers and roads outside the current view are not drawn, so the full catalog does not have to sit in the page at once.
 
-- Capitals and cities from zoom 4.
-- Towns, forts, ports, and shipyards from zoom 5.
-- Roads, markets, farms, mines, and lumber camps from zoom 6.
+- Capitals from zoom 4.
+- Major cities from zoom 5. Forts and shipyards, when a later cycle adds them, from zoom 5.
+- Towns, ports, roads, markets, farms, mines, and lumber camps from zoom 6.
 
 Roads are thin dashed tan lines. The other marks are small medieval icons in the map's navy, silver, and tan. Nothing in this layer is drawn in the fog: a concealed province, an unrevealed sea, or anything west of x = 3592 is left off, including a road that would only cross that ground. Commit and push after editing. A rebuild is not required.
 
@@ -196,7 +198,7 @@ Thresholds live in `js/config.js`.
 - Below `politicalOpaqueUntil` the political map is solid.
 - By `politicalFadeEnd` it has faded to `politicalTintOpacity` over the terrain, and province borders have faded in. That fade finishes before native zoom, while the picture is still sharp.
 - Province id labels start at `provinceLabelMinZoom` and stay available through the closest zoom.
-- `overzoomLevels` is how many steps past native resolution the map allows. Native resolution is `native_zoom` in `data/meta.json` (6 for the current 12000×5600 sheet). The source art is 5.5 km per pixel, so the raster cannot get sharper than that. Zoom 7 through 9 does not magnify the painting. It crossfades, across `flatFadeStartOffset` to `flatFadeEndOffset` past native zoom, to a flat board: solid nation colors, crisp province and nation outlines, and a flat opaque fog over the hidden west. Infrastructure stays vector on top of that board: capital stars and cities from zoom 4, forts and ports from zoom 5, and roads from zoom 6.
+- `overzoomLevels` is how many steps past native resolution the map allows. Native resolution is `native_zoom` in `data/meta.json` (6 for the current 12000×5600 sheet). The source art is 5.5 km per pixel, so the raster cannot get sharper than that. Zoom 7 through 9 does not magnify the painting. It crossfades, across `flatFadeStartOffset` to `flatFadeEndOffset` past native zoom, to a flat board: solid nation colors, crisp province and nation outlines, and a flat opaque fog over the hidden west. Infrastructure stays vector on top of that board: capitals from zoom 4, major cities from zoom 5, and towns, ports, and roads from zoom 6.
 
 Reload the page after editing the numbers. A rebuild is not required unless the image size or the province borders change. Borders live in `data/flat.geojson`, which the build writes. Each shared border is simplified and smoothed once, so the two neighbors use the same line and the fill matches the outline. Do not draw the hidden west into that file; the fog feature is a plain rectangle.
 

@@ -279,7 +279,6 @@
       restyleFlatForHistory();
     }
     refreshHistoryZoom();
-    renderInfra();
     document.getElementById("depth-legend").hidden = state.mode !== "depth" || flat > 0.98;
   }
 
@@ -370,6 +369,7 @@
     map.createPane("infra");
     const infraPane = map.getPane("infra");
     infraPane.style.zIndex = "390";
+    state.infraRenderer = L.canvas({ pane: "infra", padding: 0.35 });
     map.createPane("fog");
     const fogPane = map.getPane("fog");
     fogPane.style.zIndex = "480";
@@ -392,6 +392,9 @@
     state.labelLayer = L.layerGroup();
     map.on("zoom", applyMode);
     map.on("moveend zoomend", refreshProvinceLabels);
+    map.on("moveend zoomend", function () {
+      renderInfra();
+    });
     map.fitBounds(state.imageBounds, {
       paddingTopLeft: [12, headerOffset() + 8],
       paddingBottomRight: [12, 12],
@@ -1349,8 +1352,9 @@ const claim = claimOf(nation);
   }
 
   function infraMinZoom(type) {
-    if (type === "capital" || type === "city") return 4;
-    if (type === "town" || type === "fort" || type === "port" || type === "shipyard") return 5;
+    if (type === "capital") return 4;
+    if (type === "city") return 5;
+    if (type === "fort" || type === "shipyard") return 5;
     return 6;
   }
 
@@ -1407,9 +1411,19 @@ const claim = claimOf(nation);
     return '<svg ' + common + ' width="14" height="14"><path fill="' + tan + '" stroke="' + ink + '" stroke-width="1" d="M10 3 16 12H4Z"/><path fill="' + ink + '" d="M9 12h2v5H9Z"/></svg>';
   }
 
+  function infraNationText(entry) {
+    if (!entry || entry.nation == null || entry.nation === "") {
+      return entry && entry.type && entry.type !== "road" ? "Unclaimed" : "";
+    }
+    const nation = state.nationsById.get(Number(entry.nation));
+    return nation ? nationLabel(nation) : "";
+  }
+
   function infraHtml(entry) {
     const type = entry.type || "road";
     const name = entry.name || kindLabel(type);
+    const nation = infraNationText(entry);
+    const nationLine = nation ? '<p class="meta">' + esc(nation) + "</p>" : "";
     const province = entry.province ? '<p class="meta">Province ' + entry.province + "</p>" : "";
     return (
       '<div class="nb-pop"><h2>' +
@@ -1417,6 +1431,7 @@ const claim = claimOf(nation);
       '</h2><p class="tier">' +
       esc(kindLabel(type)) +
       "</p>" +
+      nationLine +
       province +
       "</div>"
     );
@@ -1448,11 +1463,17 @@ const claim = claimOf(nation);
     const x = row.x == null || row.x === "" ? null : Number(row.x);
     const y = row.y == null || row.y === "" ? null : Number(row.y);
     const id = row.id != null && row.id !== "" ? String(row.id) : type + "-" + (province != null ? province : x + "x" + y);
+    let nation = null;
+    if (row.nation != null && row.nation !== "") {
+      const parsed = Number(row.nation);
+      if (isFinite(parsed)) nation = parsed;
+    }
     return {
       id: id,
       type: type,
       name: row.name ? String(row.name) : "",
       province: isFinite(province) ? province : null,
+      nation: nation,
       x: isFinite(x) ? x : null,
       y: isFinite(y) ? y : null,
       cycle: row.cycle,
@@ -1476,9 +1497,15 @@ const claim = claimOf(nation);
     });
     if (provinces.length < 2 && points.length < 2) return null;
     const id = row.id != null && row.id !== "" ? String(row.id) : "road-" + (provinces.join("-") || points.length);
+    let nation = null;
+    if (row.nation != null && row.nation !== "") {
+      const parsed = Number(row.nation);
+      if (isFinite(parsed)) nation = parsed;
+    }
     return {
       id: id,
       name: row.name ? String(row.name) : "",
+      nation: nation,
       provinces: provinces,
       points: points,
       cycle: row.cycle,
@@ -1553,6 +1580,8 @@ const claim = claimOf(nation);
   }
 
   function collectInfra() {
+    const cacheKey = String(state.infraStamp || 0) + ":" + String(state.historyIndex || 0);
+    if (state.infraCatalog && state.infraCatalogKey === cacheKey) return state.infraCatalog;
     const raw = state.infraRaw && !state.infraRaw.type ? state.infraRaw : { capitals: true, places: [], roads: [] };
     const showCapitals = raw.capitals !== false;
     const removed = {};
@@ -1569,7 +1598,8 @@ const claim = claimOf(nation);
         places[id] = {
           id: id,
           type: "capital",
-          name: nationLabel(nation),
+          name: nation.short_name,
+          nation: nation.id,
           province: nation.capital_province,
           x: nation.capital_xy[0],
           y: nation.capital_xy[1],
@@ -1595,7 +1625,9 @@ const claim = claimOf(nation);
       if (!road || removed[road.id] || !infraDateVisible(road)) return;
       roads[road.id] = road;
     });
-    return { places: places, roads: roads };
+    state.infraCatalog = { places: places, roads: roads };
+    state.infraCatalogKey = cacheKey;
+    return state.infraCatalog;
   }
 
   function renderInfra() {
@@ -1603,42 +1635,76 @@ const claim = claimOf(nation);
     if (!map) return;
     const zoom = map.getZoom();
     const band = zoom < 4 ? 0 : zoom < 5 ? 4 : zoom < 6 ? 5 : 6;
-    const key = band + "|" + String(state.historyIndex);
-    if (key === state.infraKey && state.infraLayer) return;
-    state.infraKey = key;
+    const view = map.getBounds();
+    const pad = state.infraPad;
+    if (
+      pad &&
+      state.infraLayer &&
+      pad.band === band &&
+      pad.history === state.historyIndex &&
+      pad.stamp === state.infraStamp &&
+      pad.bounds.contains(view)
+    ) {
+      return;
+    }
+    const grown = view.pad(0.45);
+    state.infraPad = {
+      band: band,
+      history: state.historyIndex,
+      stamp: state.infraStamp || 0,
+      bounds: grown,
+    };
     if (state.infraLayer && map.hasLayer(state.infraLayer)) map.removeLayer(state.infraLayer);
     const group = L.layerGroup();
     const items = collectInfra();
-    Object.keys(items.roads).forEach(function (id) {
-      const road = items.roads[id];
-      if (zoom < infraMinZoom("road")) return;
-      const stops = roadPoints(road);
-      if (!stops) return;
-      const line = L.polyline(
-        stops.map(function (pt) {
-          return [pt[1], pt[0]];
-        }),
-        {
-          pane: "infra",
-          color: "#c4a574",
-          weight: 1.75,
-          opacity: 0.95,
-          dashArray: "7 5",
-          lineCap: "butt",
-          lineJoin: "round",
+    if (zoom >= infraMinZoom("road")) {
+      Object.keys(items.roads).forEach(function (id) {
+        const road = items.roads[id];
+        if (road.points && road.points.length >= 2) {
+          let minX = Infinity;
+          let minY = Infinity;
+          let maxX = -Infinity;
+          let maxY = -Infinity;
+          for (let i = 0; i < road.points.length; i++) {
+            const x = road.points[i][0];
+            const y = road.points[i][1];
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+          }
+          if (maxX < grown.getWest() || minX > grown.getEast() || maxY < grown.getSouth() || minY > grown.getNorth()) return;
         }
-      );
-      line.on("click", function (event) {
-        L.DomEvent.stopPropagation(event);
-        openPopup(event.latlng, infraHtml({ type: "road", name: road.name || "Road" }));
+        const stops = roadPoints(road);
+        if (!stops) return;
+        const line = L.polyline(
+          stops.map(function (pt) {
+            return [pt[1], pt[0]];
+          }),
+          {
+            pane: "infra",
+            renderer: state.infraRenderer,
+            color: "#c4a574",
+            weight: 1.75,
+            opacity: 0.95,
+            dashArray: "7 5",
+            lineCap: "butt",
+            lineJoin: "round",
+            interactive: true,
+          }
+        );
+        line.on("click", function (event) {
+          L.DomEvent.stopPropagation(event);
+          openPopup(event.latlng, infraHtml({ type: "road", name: road.name || "Road", nation: road.nation }));
+        });
+        line.addTo(group);
       });
-      line.addTo(group);
-    });
+    }
     Object.keys(items.places).forEach(function (id) {
       const place = items.places[id];
       if (zoom < infraMinZoom(place.type)) return;
       const xy = placePoint(place);
-      if (!xy) return;
+      if (!xy || !grown.contains(L.latLng(xy[1], xy[0]))) return;
       const size = place.type === "capital" ? 18 : place.type === "city" || place.type === "fort" || place.type === "port" || place.type === "shipyard" ? 16 : 14;
       const marker = L.marker([xy[1], xy[0]], {
         icon: L.divIcon({
@@ -1663,7 +1729,9 @@ const claim = claimOf(nation);
 
   function applyInfra(collection) {
     if (collection) state.infraRaw = collection;
-    state.infraKey = null;
+    state.infraStamp = (state.infraStamp || 0) + 1;
+    state.infraPad = null;
+    state.infraCatalog = null;
     renderInfra();
   }
 
