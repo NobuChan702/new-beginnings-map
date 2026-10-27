@@ -27,6 +27,9 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      - name: Check history secrecy
+        run: python3 scripts/check_history.py
+
       - name: Assemble site
         run: |
           mkdir -p _site
@@ -44,6 +47,9 @@ jobs:
           test -f _site/data/lookup.png
           test -f _site/data/claims.json
           test -f _site/data/infrastructure.geojson
+          test -f _site/data/history/index.json
+          test -f _site/data/history/cycle-0.json
+          test -f _site/js/history.js
           test -f _site/assets/overview.webp
           test -d _site/tiles/political
 

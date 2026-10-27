@@ -108,6 +108,86 @@ Edit `data/infrastructure.geojson`. Coordinates are image pixels, `[x, y]`, with
 
 The committed file starts empty. Commit and push after editing. A rebuild is not required. Players toggle the layer under Layers → Roads and places.
 
+Add `cycle` and, when you need it, `round` to a feature's properties to hold it until the history slider reaches that date. Leave both off and the feature is on the map from the start. A feature dated Cycle 1, Round 2 appears during that round and stays visible afterward.
+
+```json
+{ "kind": "road", "name": "Coast road", "cycle": 1, "round": 2 }
+```
+
+## History
+
+The bar at the bottom of the map is the timeline. Dates live in `data/history/`. `index.json` is the slider order, earliest first. The page opens on the last file.
+
+```json
+["cycle-0.json", "cycle-1.json"]
+```
+
+`cycle-0.json` is the published map as it stands today. It has no transfers, occupations, colonies, or works. Later files are one date each. Copy the pattern, add the file name to `index.json`, commit, and push. A tile rebuild is not required.
+
+```json
+{
+  "id": "cycle-1-round-2",
+  "cycle": 1,
+  "round": 2,
+  "label": "Cycle 1 · Round 2",
+  "war": "War of the Example",
+  "transfers": [{ "province": 1201, "owner": 25 }],
+  "occupations": [{ "province": 1202, "occupier": 25, "war": "War of the Example" }],
+  "colonies": [{ "province": 1236, "owner": 25, "stage": "outpost" }],
+  "reveals": { "provinces": [1147], "seas": ["test-reach"] },
+  "fog": { "provinces": [1148] },
+  "markers": [
+    { "kind": "battle", "x": 6500, "y": 2500, "name": "Battle of the Span", "text": "Fought on the bridge." }
+  ],
+  "works": [],
+  "seas": []
+}
+```
+
+`label` is the slider text. Without it the map writes `Cycle 1 · Round 2`, or `Start (Cycle 0)` for cycle 0.
+
+These fields accumulate as the slider moves forward:
+
+- `transfers` change who owns a province. `owner` is a nation id. `null` makes it unclaimed. Ownership stays until a later transfer. Occupation does not change the owner.
+- `reveals.provinces` and `reveals.seas` lift fog. Once revealed, a province or sea stays revealed.
+- `works` add man-made land. A later snapshot can update the same id. `"status": "removed"` takes it off the map.
+- `seas` add a named sea zone. The rings are the zone. It stays fogged until `reveals.seas` lists its id.
+- `colonies` update one province at a time. A province you leave out keeps its previous stage.
+
+These fields replace the active list when the snapshot includes the key, and stay as they were when the key is absent. Use `[]` to clear them.
+
+- `occupations` are provinces held in a war. The owner does not change. Players can hide the stripes with Layers → Occupied territory. The popup reads `Owned by X, occupied by Y (war: name)`.
+- `markers` are battles and armies. `kind` is `battle` or `army`. `x` and `y` are map pixels. `text` is the popup. Layers → Battles & armies toggles them.
+
+A colony `stage` is `outpost`, `colony`, `integrated`, or `abandoned`. An outpost is a light tint and a dotted outline in the colonizer's color. A colony is the same treatment, a little stronger. `integrated` becomes normal ownership and keeps that owner. `abandoned` removes the colony.
+
+`fog.provinces` hides published provinces until a later snapshot reveals them. Cycle 0 leaves this empty, so the eastern map the site already shows stays visible. A hidden province draws in the fog color. Clicking it says Unexplored, and search will not find it. Revealing an id lifts that fog from that date onward.
+
+The slider also filters infrastructure. See the `cycle` and `round` properties above.
+
+### Man-made land
+
+Works are new land drawn on top of the sea. The painted tiles do not change. Use province ids from 9000 up. `type` is `land_bridge` or `reclaimed`. `status` is `done` or `building` (`under construction` also works). `building` draws a dashed outline. `owner` is a nation id.
+
+`rings` is one polygon in map pixels, `[x, y]`, the same coordinates as infrastructure. The first ring is the outline. Further rings are holes. The shape has to sit entirely at x ≥ 3592. A point on the wrong side of that line drops the whole work.
+
+```json
+{
+  "id": 9001,
+  "name": "Haldortel Span",
+  "type": "land_bridge",
+  "status": "building",
+  "owner": 25,
+  "rings": [[[6472, 2368], [6488, 2368], [6488, 2648], [6472, 2648], [6472, 2368]]]
+}
+```
+
+The polygon is drawn at every zoom. Close up, it is the real outline. Zoomed out, a thin bridge keeps a stroke about 3.5 screen pixels wide so it does not disappear, and a very small work also gets a dot at its center. Search the id, for example `9001`. If that land does not exist on the current date, the slider moves to the date it was built and the map opens it. Province IDs, once you are zoomed in, labels these the same way as other provinces.
+
+### What must stay off the map
+
+Snapshot files are public. Do not put a western province id, a western name, or a coordinate with x < 3592 in them. The page drops geometry that crosses the fog line, and a click west of it only says that the western lands are unexplored. `python3 scripts/check_history.py` checks the files before deploy.
+
 ## Zoom
 
 Thresholds live in `js/config.js`.
