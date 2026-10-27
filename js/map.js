@@ -396,7 +396,7 @@
     state.sectorRenderer = L.svg({ pane: "sector", padding: 0.5 });
     map.createPane("sectorline");
     const sectorLinePane = map.getPane("sectorline");
-    sectorLinePane.style.zIndex = "386";
+    sectorLinePane.style.zIndex = "359";
     sectorLinePane.style.pointerEvents = "none";
     state.sectorLineRenderer = L.svg({ pane: "sectorline", padding: 0.5 });
     map.createPane("fog");
@@ -1218,6 +1218,13 @@ if (entry.kind === "work") {
       clearHighlight();
       setNationHash(null);
       openPopup(event.latlng, workHtml(work));
+      return;
+    }
+    const sector = sectorAt(x, y);
+    if (sector && sector.occupied) {
+      clearHighlight();
+      setNationHash(null);
+      openPopup(event.latlng, sectorHtml(sector));
       return;
     }
     if (!id) {
@@ -2915,17 +2922,78 @@ const claim = claimOf(nation);
     return state.sectorSummary;
   }
 
+  function pointInRing(x, y, ring) {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const yi = ring[i][1];
+      const yj = ring[j][1];
+      if (yi > y === yj > y) continue;
+      const xi = ring[i][0];
+      const xj = ring[j][0];
+      if (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi) inside = !inside;
+    }
+    return inside;
+  }
+
+  function pointInGeo(geom, x, y) {
+    if (!geom) return false;
+    const polys = geom.type === "Polygon" ? [geom.coordinates] : geom.type === "MultiPolygon" ? geom.coordinates : [];
+    for (let p = 0; p < polys.length; p++) {
+      const rings = polys[p];
+      if (!rings || !rings.length || !pointInRing(x, y, rings[0])) continue;
+      let hole = false;
+      for (let h = 1; h < rings.length; h++) {
+        if (pointInRing(x, y, rings[h])) {
+          hole = true;
+          break;
+        }
+      }
+      if (!hole) return true;
+    }
+    return false;
+  }
+
+  function sectorAt(x, y) {
+    if (!state.overlays.sectors || !state.map || state.map.getZoom() < 6) return null;
+    const summary = sectorSummary();
+    const features = state.sectorFeatures || [];
+    for (let i = 0; i < features.length; i++) {
+      const feature = features[i];
+      const box = feature.properties && feature.properties.bbox;
+      if (!box || x < box[0] || x > box[2] || y < box[1] || y > box[3]) continue;
+      if (!pointInGeo(feature.geometry, x, y)) continue;
+      const info = summary.byId.get(feature.properties.id);
+      if (!info) continue;
+      return {
+        id: feature.properties.id,
+        owner: info.owner,
+        controller: info.controller,
+        occupied: info.occupied,
+      };
+    }
+    return null;
+  }
+
   function sectorOutside(box, bounds) {
     return box[2] < bounds.getWest() || box[0] > bounds.getEast() || box[3] < bounds.getSouth() || box[1] > bounds.getNorth();
   }
 
   function sectorStyle(feature) {
     const props = feature.properties || {};
+    if (props.role === "halo") {
+      return {
+        color: "#f6f0e2",
+        weight: 3.2,
+        opacity: 0.75,
+        fill: false,
+        interactive: false,
+      };
+    }
     if (props.role === "edge") {
       return {
-        color: "#2a241c",
-        weight: 1,
-        opacity: 0.42,
+        color: "#1a120c",
+        weight: 1.35,
+        opacity: 0.95,
         fill: false,
         interactive: false,
       };
@@ -3002,6 +3070,8 @@ const claim = claimOf(nation);
     const grown = view.pad(0.45);
     const fills = [];
     const lines = [];
+    const halos = [];
+    const edges = [];
     const pairs = [];
     if (parts) {
       state.sectorFeatures.forEach(function (feature) {
@@ -3021,7 +3091,12 @@ const claim = claimOf(nation);
           },
           geometry: feature.geometry,
         });
-        lines.push({
+        halos.push({
+          type: "Feature",
+          properties: { role: "halo", id: feature.properties.id },
+          geometry: feature.geometry,
+        });
+        edges.push({
           type: "Feature",
           properties: { role: "edge", id: feature.properties.id },
           geometry: feature.geometry,
@@ -3055,6 +3130,12 @@ const claim = claimOf(nation);
         pairs.push({ owner: nationColor(group.owner), occupier: nationColor(occupier) });
       });
     }
+    halos.forEach(function (feature) {
+      lines.push(feature);
+    });
+    edges.forEach(function (feature) {
+      lines.push(feature);
+    });
     dropLayer(state.sectorFillLayer);
     dropLayer(state.sectorLineLayer);
     state.sectorFillLayer = null;
