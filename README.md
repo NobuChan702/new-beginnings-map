@@ -107,6 +107,15 @@ What appears depends on zoom. Markers and roads outside the current view are not
 - Major cities from zoom 5. Forts and shipyards, when a later cycle adds them, from zoom 5.
 - Towns, ports, roads, markets, farms, mines, and lumber camps from zoom 6.
 
+Forts that belong to a sector live in `data/buildings.csv`, not in the place list. The file ships with a header and no rows. A fort is drawn on this same Infrastructure layer from zoom 6, a small tower set just beside that sector's settlement so it does not cover the marker. It appears when the history slider reaches `cycle_built` and stays afterward. `status` is `done` or `building`. A fort that is still `building` is a faded scaffold instead of the finished tower. The popup reads Fort, the nation (with the player's short name in brackets when the nation is claimed), and the sector id. Concealed provinces and anything west of x = 3592 are left off.
+
+```csv
+nation,province,sector_id,building,cycle_built,status
+Haldortel,562,562-A,fort,1,done
+```
+
+`nation` is the nation's short name, the same form as `data/settlements.csv`. `building` is `fort`. `province` and `sector_id` have to name a published sector that already has a settlement.
+
 Roads are thin dashed tan lines. The other marks are small medieval icons in the map's navy, silver, and tan. Nothing in this layer is drawn in the fog: a concealed province, an unrevealed sea, or anything west of x = 3592 is left off, including a road that would only cross that ground. Commit and push after editing. A rebuild is not required.
 
 A snapshot can add works for its own date. See History. Those entries follow the same types, the same zoom, and the same fog rule.
@@ -259,7 +268,7 @@ The polygon is drawn at every zoom. Close up, it is the real outline. Zoomed out
 
 ### What must stay off the map
 
-Snapshot files, `data/infrastructure.json`, `data/trade_routes.json`, `data/sectors.geojson`, `data/sector_control.csv`, and `data/settlements.csv` are public. Do not put a western province id, a western name, a western nation, or a coordinate with x < 3592 in them. The page drops geometry that crosses the fog line, and a click west of it only says that the western lands are unexplored. `python3 scripts/check_history.py` checks the history files, the infrastructure catalog, the trade routes, the sectors, and the settlements before deploy. A trade route that is not `"public": true` fails that check. So does a sector whose controller is not a published nation, a sector with no settlement, or a village that is not inside its sector.
+Snapshot files, `data/infrastructure.json`, `data/trade_routes.json`, `data/sectors.geojson`, `data/sector_control.csv`, `data/settlements.csv`, and `data/buildings.csv` are public. Do not put a western province id, a western name, a western nation, or a coordinate with x < 3592 in them. The page drops geometry that crosses the fog line, and a click west of it only says that the western lands are unexplored. `python3 scripts/check_history.py` checks the history files, the infrastructure catalog, the trade routes, the sectors, the settlements, and the buildings before deploy. A trade route that is not `"public": true` fails that check. So does a sector whose controller is not a published nation, a sector with no settlement, a village that is not inside its sector, or a fort in a sector that has no settlement.
 
 ## Zoom
 

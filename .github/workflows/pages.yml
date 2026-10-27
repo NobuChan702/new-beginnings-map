@@ -52,6 +52,7 @@ jobs:
           test -f _site/data/history/cycle-0.json
           test -f _site/data/sectors.geojson
           test -f _site/data/sector_control.csv
+          test -f _site/data/buildings.csv
           test -f _site/js/history.js
           test -f _site/assets/overview.webp
           test -d _site/tiles/political
