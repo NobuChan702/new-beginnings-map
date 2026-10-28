@@ -377,6 +377,11 @@
     });
     state.map = map;
     window.nbMap = map;
+    map.createPane("rivers");
+    const riverPane = map.getPane("rivers");
+    riverPane.style.zIndex = "351";
+    riverPane.style.pointerEvents = "none";
+    state.riverRenderer = L.canvas({ pane: "rivers", padding: 0.25 });
     map.createPane("flat");
     const flatPane = map.getPane("flat");
     flatPane.style.zIndex = "350";
@@ -438,6 +443,7 @@
       renderSectors();
       renderVillages();
       renderAlliances();
+      renderRivers();
     });
     map.fitBounds(state.imageBounds, {
       paddingTopLeft: [12, headerOffset() + 8],
@@ -912,29 +918,29 @@
     return state.buildLedgerPromise;
   }
 
-  function levelWords(level) {
-    if (level === "village" || level === "town" || level === "city") return level;
-    return "open land";
+  function settlementWords(level) {
+    if (level === "city" || level === "town" || level === "village") return level;
+    if (level == null || level === "") return "";
+    return String(level);
   }
 
-  function openLandChoices(sector, canBuild) {
-    const can = {};
-    (canBuild || []).forEach(function (name) {
-      can[name] = true;
-    });
-    let allowed = sector.allowed;
-    if (allowed === "any") allowed = ["Farm", "Lumber Camp", "Mine"];
-    if (!Array.isArray(allowed)) return [];
-    return allowed.filter(function (name) {
-      return (name === "Farm" || name === "Lumber Camp" || name === "Mine") && can[name];
-    });
+  function limitNumbers(spec) {
+    let built = null;
+    let max = null;
+    if (spec && typeof spec === "object") {
+      if (spec.built != null && spec.built !== "" && isFinite(Number(spec.built))) built = Number(spec.built);
+      if (spec.max != null && spec.max !== "" && isFinite(Number(spec.max))) max = Number(spec.max);
+    } else if (spec != null && spec !== "" && isFinite(Number(spec))) {
+      max = Number(spec);
+    }
+    return { built: built, max: max };
   }
 
   function slotsMount(id) {
     const prov = state.provinces.get(id);
     if (!provinceIsPublic(id, prov) || isConcealed(id)) return "";
     scheduleBuildSlots(id);
-    return '<div class="nb-build" data-build="' + id + '">Loading build slots…</div>';
+    return '<div class="nb-build" data-build="' + id + '">Loading building limits…</div>';
   }
 
   function scheduleBuildSlots(id) {
@@ -955,41 +961,38 @@
         return;
       }
       if (!data) {
-        node.textContent = "Build slots could not be loaded.";
+        node.textContent = "Building limits could not be loaded.";
         return;
       }
       const row = data.provinces && data.provinces[String(id)];
-      if (!row || !row.sectors || !row.sectors.length) {
+      if (!row) {
         node.remove();
         return;
       }
-      const cycle = data.meta && data.meta.cycle != null ? data.meta.cycle : 0;
-      let html = "<ul>";
-      row.sectors.forEach(function (sector) {
-        const level = levelWords(sector.level);
-        let line =
-          esc(sector.sector) +
-          " · " +
-          esc(sector.name || "Settlement") +
-          " — " +
-          esc(level) +
-          " · " +
-          Number(sector.used || 0) +
-          "/" +
-          Number(sector.slots || 0) +
-          " slots used";
-        const buildings = sector.buildings || [];
-        if (buildings.length) line += " · " + esc(buildings.join(", "));
-        if (level === "open land") {
-          const choices = openLandChoices(sector, row.can_build);
-          line += choices.length ? " · " + esc(choices.join(" / ")) + " only" : " · no farm, lumber camp, or mine fits this land";
-        }
-        html += "<li>" + line + "</li>";
-      });
-      html += "</ul>";
-      const can = row.can_build || [];
-      html += "<p class=\"meta\">" + (can.length ? "Can still build: " + esc(can.join(", ")) : "Can still build: nothing") + "</p>";
-      html += '<p class="meta nb-asof">As of Cycle ' + esc(String(cycle)) + "</p>";
+      const largest = settlementWords(row.largest_settlement);
+      const limits = row.limits && typeof row.limits === "object" ? row.limits : null;
+      let html = "";
+      if (largest) html += '<p class="meta">Largest settlement: ' + esc(largest) + "</p>";
+      const types = limits ? Object.keys(limits) : [];
+      if (types.length) {
+        html += "<ul>";
+        types.forEach(function (type) {
+          const count = limitNumbers(limits[type]);
+          if (count.built == null && count.max == null) return;
+          let line = esc(String(type));
+          if (count.built != null && count.max != null) line += " " + count.built + "/" + count.max;
+          else if (count.max != null) line += " up to " + count.max;
+          else line += " " + count.built;
+          html += "<li>" + line + "</li>";
+        });
+        html += "</ul>";
+      }
+      if (!html) {
+        node.remove();
+        return;
+      }
+      const cycle = data.meta && data.meta.cycle != null ? data.meta.cycle : "";
+      if (cycle !== "") html += '<p class="meta nb-asof">As of Cycle ' + esc(String(cycle)) + "</p>";
       node.innerHTML = html;
     });
   }
@@ -3098,6 +3101,67 @@ const claim = claimOf(nation);
     group.addTo(map);
   }
 
+  function renderRivers() {
+    const map = state.map;
+    if (!map) return;
+    const features = (state.rivers && state.rivers.features) || [];
+    if (!features.length) {
+      dropLayer(state.riverLayer);
+      state.riverLayer = null;
+      state.riverPad = null;
+      return;
+    }
+    const view = map.getBounds();
+    const pad = state.riverPad;
+    if (pad && state.riverLayer && pad.bounds.contains(view)) return;
+    const grown = view.pad(0.35);
+    dropLayer(state.riverLayer);
+    const group = L.layerGroup();
+    features.forEach(function (feature) {
+      const coords = feature.geometry && feature.geometry.coordinates;
+      if (!coords || coords.length < 2) return;
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (let i = 0; i < coords.length; i++) {
+        const x = coords[i][0];
+        const y = coords[i][1];
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+      if (maxX < grown.getWest() || minX > grown.getEast() || maxY < grown.getSouth() || minY > grown.getNorth()) return;
+      const slices = coords.length > 8 ? 3 : 1;
+      const step = Math.ceil(coords.length / slices);
+      for (let slice = 0; slice < slices; slice++) {
+        const part = coords.slice(slice * step, Math.min(coords.length, (slice + 1) * step + 1));
+        if (part.length < 2) continue;
+        const along = slices === 1 ? 0.5 : slice / (slices - 1);
+        L.polyline(
+          part.map(function (pt) {
+            return [pt[1], pt[0]];
+          }),
+          {
+            pane: "rivers",
+            renderer: state.riverRenderer,
+            color: "#7eb4cc",
+            weight: 1.15 + along * 1.15,
+            opacity: 0.95,
+            lineCap: "round",
+            lineJoin: "round",
+            smoothFactor: 0,
+            interactive: false,
+          }
+        ).addTo(group);
+      }
+    });
+    state.riverLayer = group;
+    state.riverPad = { bounds: grown };
+    if (group.getLayers().length) group.addTo(map);
+  }
+
   function applyTrade(collection) {
     if (collection) state.tradeRaw = collection;
     state.tradeStamp = (state.tradeStamp || 0) + 1;
@@ -4237,7 +4301,7 @@ const claim = claimOf(nation);
       .catch(function () {
         return null;
       });
-    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, provinceNames, flags, lut] = await Promise.all([
+    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, provinceNames, flags, rivers, lut] = await Promise.all([
       fetch("data/world.json").then(function (res) {
         if (!res.ok) throw new Error("world");
         return res.json();
@@ -4312,6 +4376,13 @@ const claim = claimOf(nation);
         .catch(function () {
           return {};
         }),
+      fetch("data/rivers.geojson")
+        .then(function (res) {
+          return res.ok ? res.json() : { features: [] };
+        })
+        .catch(function () {
+          return { features: [] };
+        }),
       loadLookup(meta),
     ]);
     state.lut = lut;
@@ -4323,6 +4394,8 @@ const claim = claimOf(nation);
     state.alliances = loadAlliances(alliances);
     state.provinceNames = loadProvinceNames(provinceNames);
     state.flags = loadFlags(flags);
+    state.rivers = rivers && rivers.features ? rivers : { features: [] };
+    renderRivers();
     state.sectorFeatures = (sectors && sectors.features) || [];
     state.sectorRows = loadSectorControl(sectorControl);
     state.historySnapshots = await loadHistory();
