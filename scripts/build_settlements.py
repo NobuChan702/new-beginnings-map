@@ -34,7 +34,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCALE = 4
 WEST = 3592
 # A capital the settlements catalog names for itself, instead of the nation name.
-CAPITAL_NAMES = {21: "Verillia", 25: "Constantinople", 30: "Batrade"}
+CAPITAL_NAMES = {21: "Verillia", 25: "Constantinople", 30: "Batrade", 13: "Ethar", 156: "Khanbaliq"}
 
 
 def load_name_overrides() -> dict[str, str]:

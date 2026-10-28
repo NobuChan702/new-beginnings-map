@@ -255,6 +255,21 @@ h1 {
 .nb-build li { margin: 0 0 6px; line-height: 1.35; }
 .nb-build .nb-asof { opacity: 0.7; font-size: 0.75rem; }
 
+.nb-flag {
+  width: 36px;
+  height: 24px;
+  object-fit: cover;
+  border: 1px solid rgba(230, 230, 234, 0.55);
+  border-radius: 2px;
+  flex: 0 0 auto;
+  align-self: center;
+}
+.nb-subtitle {
+  margin: 2px 0 0;
+  font-style: italic;
+  opacity: 0.85;
+}
+
 .leaflet-tooltip.nb-tip {
   background: var(--navy);
   color: var(--silver);
