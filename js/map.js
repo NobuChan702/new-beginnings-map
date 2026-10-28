@@ -898,8 +898,103 @@
     return nation.short_name + " (" + claim.short + ")";
   }
 
+  function buildLedger() {
+    if (state.buildLedgerPromise) return state.buildLedgerPromise;
+    state.buildLedgerPromise = fetch("data/province_slots.json", { cache: "no-store" })
+      .then(function (res) {
+        return res.ok ? res.json() : null;
+      })
+      .catch(function () {
+        return null;
+      });
+    return state.buildLedgerPromise;
+  }
+
+  function levelWords(level) {
+    if (level === "village" || level === "town" || level === "city") return level;
+    return "open land";
+  }
+
+  function openLandChoices(sector, canBuild) {
+    const can = {};
+    (canBuild || []).forEach(function (name) {
+      can[name] = true;
+    });
+    let allowed = sector.allowed;
+    if (allowed === "any") allowed = ["Farm", "Lumber Camp", "Mine"];
+    if (!Array.isArray(allowed)) return [];
+    return allowed.filter(function (name) {
+      return (name === "Farm" || name === "Lumber Camp" || name === "Mine") && can[name];
+    });
+  }
+
+  function slotsMount(id) {
+    const prov = state.provinces.get(id);
+    if (!provinceIsPublic(id, prov) || isConcealed(id)) return "";
+    scheduleBuildSlots(id);
+    return '<div class="nb-build" data-build="' + id + '">Loading build slots…</div>';
+  }
+
+  function scheduleBuildSlots(id) {
+    const prov = state.provinces.get(id);
+    if (!provinceIsPublic(id, prov) || isConcealed(id)) return;
+    window.setTimeout(function () {
+      fillBuildSlots(id);
+    }, 0);
+  }
+
+  function fillBuildSlots(id) {
+    buildLedger().then(function (data) {
+      const node = document.querySelector('.nb-build[data-build="' + id + '"]');
+      if (!node) return;
+      const prov = state.provinces.get(id);
+      if (!provinceIsPublic(id, prov) || isConcealed(id)) {
+        node.remove();
+        return;
+      }
+      if (!data) {
+        node.textContent = "Build slots could not be loaded.";
+        return;
+      }
+      const row = data.provinces && data.provinces[String(id)];
+      if (!row || !row.sectors || !row.sectors.length) {
+        node.remove();
+        return;
+      }
+      const cycle = data.meta && data.meta.cycle != null ? data.meta.cycle : 0;
+      let html = "<ul>";
+      row.sectors.forEach(function (sector) {
+        const level = levelWords(sector.level);
+        let line =
+          esc(sector.sector) +
+          " · " +
+          esc(sector.name || "Settlement") +
+          " — " +
+          esc(level) +
+          " · " +
+          Number(sector.used || 0) +
+          "/" +
+          Number(sector.slots || 0) +
+          " slots used";
+        const buildings = sector.buildings || [];
+        if (buildings.length) line += " · " + esc(buildings.join(", "));
+        if (level === "open land") {
+          const choices = openLandChoices(sector, row.can_build);
+          line += choices.length ? " · " + esc(choices.join(" / ")) + " only" : " · no farm, lumber camp, or mine fits this land";
+        }
+        html += "<li>" + line + "</li>";
+      });
+      html += "</ul>";
+      const can = row.can_build || [];
+      html += "<p class=\"meta\">" + (can.length ? "Can still build: " + esc(can.join(", ")) : "Can still build: nothing") + "</p>";
+      html += '<p class="meta nb-asof">As of Cycle ' + esc(String(cycle)) + "</p>";
+      node.innerHTML = html;
+    });
+  }
+
   function nationHtml(nation, provinceId) {
-    const prov = state.provinces.get(provinceId) || state.provinces.get(nation.capital_province);
+    const shownId = state.provinces.has(provinceId) ? provinceId : nation.capital_province;
+    const prov = state.provinces.get(shownId);
     const claim = claimOf(nation);
     const named = capitalPlaceName(nation);
     const distinct = named && named.toLowerCase() !== nation.short_name.toLowerCase();
@@ -925,12 +1020,13 @@
       occupationSentence(provinceId) +
       (prov
         ? '<hr><p class="meta">Province ' +
-          (state.provinces.has(provinceId) ? provinceId : nation.capital_province) +
+          shownId +
           " · " +
           fmtArea(prov.area_km2) +
           "</p>" +
           provinceFields(prov)
         : "") +
+      slotsMount(shownId) +
       "</div>"
     );
   }
@@ -945,15 +1041,17 @@
       colonyLine(id) +
       occupationSentence(id) +
       provinceFields(prov) +
+      slotsMount(id) +
       "</div>"
     );
   }
 
   function openPopup(latlng, html) {
     const pad = headerOffset();
+    const maxWidth = Math.min(340, Math.max(220, window.innerWidth - 40));
     L.popup({
       className: "nb-popup",
-      maxWidth: 320,
+      maxWidth: maxWidth,
       autoPanPaddingTopLeft: L.point(16, pad + 12),
       autoPanPaddingBottomRight: L.point(16, 78),
     })
@@ -3401,6 +3499,7 @@ const claim = claimOf(nation);
       esc(ownerText) +
       "</p>" +
       (props.occupied ? '<p class="claim">Occupied</p>' : "") +
+      slotsMount(props.province || props.id) +
       "</div>"
     );
   }

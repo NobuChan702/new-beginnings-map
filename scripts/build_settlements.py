@@ -6,7 +6,9 @@ capital province's major city is the capital star already drawn from the
 nation record, so it is not given a second marker. Coastal cities sit on
 the coast; river provinces keep the city inland, near the province center.
 Names are derived from the nation's own syllables and written into the
-data so they stay fixed.
+data so they stay fixed. data/settlement_name_overrides.csv replaces a
+generated name when its sector id is listed there, so a rebuild keeps
+those names.
 
 Roads stay inside one nation. They are a minimum spanning tree of that
 nation's settlements on land, plus a few short extra links. A road never
@@ -33,6 +35,35 @@ SCALE = 4
 WEST = 3592
 # A capital the settlements catalog names for itself, instead of the nation name.
 CAPITAL_NAMES = {21: "Verillia", 25: "Constantinople", 30: "Batrade"}
+
+
+def load_name_overrides() -> dict[str, str]:
+    path = ROOT / "data" / "settlement_name_overrides.csv"
+    found: dict[str, str] = {}
+    if not path.is_file():
+        return found
+    with path.open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            sector_id = (row.get("sector_id") or "").strip()
+            name = (row.get("name") or "").strip()
+            if sector_id and name:
+                found[sector_id] = name
+    return found
+
+
+def apply_role_overrides(rows: list[dict], overrides: dict[str, str]) -> None:
+    """Rename capital/city rows as sector A and towns as sector B."""
+    for row in rows:
+        kind = row.get("kind")
+        if kind in ("capital", "city"):
+            sector_id = f"{row['pid']}-A"
+        elif kind == "town":
+            sector_id = f"{row['pid']}-B"
+        else:
+            continue
+        name = overrides.get(sector_id)
+        if name:
+            row["name"] = name
 VOWELS = set("aeiouy")
 ONSETS = {
     "qu", "sh", "th", "ph", "ch", "br", "cr", "dr", "fr", "gr", "kr", "pr", "tr",
@@ -665,6 +696,7 @@ def main() -> None:
     for pid in unclaimed:
         place_pair(pid, provinces[pid], "", None, free_used, set(), None)
 
+    apply_role_overrides(settlements, load_name_overrides())
     print(f"placed {len(settlements)} settlements", flush=True)
     # Ports. One per nation that actually touches the sea.
     host_key: dict[tuple[int, int], dict] = {}

@@ -6,6 +6,7 @@ A sector controller has to be a nation already on the published map, or blank fo
 A village has to sit inside its sector, and every sector needs a settlement.
 A fort has to name a published nation and a sector that already has a settlement.
 An alliance row has to name a published nation, and each nation can be in one bloc.
+Build slots may list only published provinces, and never a hidden ledger field.
 """
 
 import csv
@@ -445,6 +446,78 @@ def check_alliances(nations):
         seen.add(nation_name)
 
 
+def check_province_slots(provinces):
+    path = ROOT / "data" / "province_slots.json"
+    if not path.is_file():
+        fail("missing data/province_slots.json")
+    data = load(path)
+    if not isinstance(data, dict) or not isinstance(data.get("provinces"), dict):
+        fail("province_slots.json needs a provinces object")
+    forbidden = {
+        "army",
+        "armies",
+        "fleet",
+        "fleets",
+        "stockpile",
+        "stockpiles",
+        "threat",
+        "relation",
+        "relations",
+        "personality",
+        "npc",
+    }
+
+    def scan(value, where):
+        if isinstance(value, dict):
+            for key, item in value.items():
+                if str(key).lower() in forbidden:
+                    fail(f"{where}: {key} is not public map data")
+                scan(item, where)
+        elif isinstance(value, list):
+            for item in value:
+                scan(item, where)
+
+    scan(data, "province_slots.json")
+    for key, row in data["provinces"].items():
+        if isinstance(key, bool) or not str(key).isdigit():
+            fail(f"province_slots.json: {key} is not a province id")
+        pid = int(key)
+        prov = provinces.get(pid)
+        if prov is None:
+            fail(f"province_slots.json: province {pid} is not on the published map")
+        box = prov.get("bbox") or [0, 0, 0, 0]
+        xy = prov.get("xy") or [0, 0]
+        if box[0] < WEST or xy[0] < WEST:
+            fail(f"province_slots.json: province {pid} is west of the fog line")
+        for sector in (row or {}).get("sectors") or []:
+            name = str((sector or {}).get("name") or "")
+            if name.lower() == "terillia":
+                fail("province_slots.json: Terillia is reserved")
+    overrides = ROOT / "data" / "settlement_name_overrides.csv"
+    if not overrides.is_file():
+        fail("missing data/settlement_name_overrides.csv")
+    with overrides.open(encoding="utf-8", newline="") as handle:
+        reader = csv.DictReader(handle)
+        if reader.fieldnames != ["sector_id", "name"]:
+            fail("settlement_name_overrides.csv: header must be sector_id,name")
+        for index, item in enumerate(reader, start=2):
+            sector_id = (item.get("sector_id") or "").strip()
+            name = (item.get("name") or "").strip()
+            if name.lower() == "terillia":
+                fail("settlement_name_overrides.csv: Terillia is reserved")
+            prefix, _, letter = sector_id.rpartition("-")
+            if not prefix.isdigit() or letter not in ("A", "B", "C"):
+                fail(f"settlement_name_overrides.csv:{index}: {sector_id} is not a sector id")
+            pid = int(prefix)
+            prov = provinces.get(pid)
+            if prov is None:
+                fail(f"settlement_name_overrides.csv:{index}: province {pid} is not on the published map")
+            box = prov.get("bbox") or [0, 0, 0, 0]
+            xy = prov.get("xy") or [0, 0]
+            if box[0] < WEST or xy[0] < WEST:
+                fail(f"settlement_name_overrides.csv:{index}: province {pid} is west of the fog line")
+
+
 def check_trade_block(block, where, nations, width, height):
     if block is None:
         return
@@ -546,6 +619,7 @@ def main():
     check_settlements(provinces, nations, catalog.get("places") or [], width, height)
     check_buildings(provinces, nations)
     check_alliances(nations)
+    check_province_slots(provinces)
 
     for name in files:
         if not isinstance(name, str) or "/" in name or "\\" in name or name.startswith("."):

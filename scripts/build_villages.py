@@ -266,6 +266,35 @@ def main():
                 "sector_id": place["id"].replace("village-", "", 1),
             }
         )
+    overrides = names.load_name_overrides()
+    for row in rows:
+        renamed = overrides.get(row["sector_id"])
+        if renamed:
+            row["name"] = renamed
+    for place in villages:
+        sector_id = str(place.get("id", "")).replace("village-", "", 1)
+        renamed = overrides.get(sector_id)
+        if renamed:
+            place["name"] = renamed
+    named = {(int(row["province"]), row["type"]): row["name"] for row in rows}
+    for place in places:
+        kind = place.get("type")
+        pid = place.get("province")
+        if kind not in ("city", "town") or pid is None:
+            continue
+        renamed = named.get((int(pid), kind))
+        if renamed:
+            place["name"] = renamed
+    host_name = {}
+    for row in rows:
+        if row["type"] in ("capital", "city") and f"{int(row['province'])}-A" in overrides:
+            host_name[int(row["province"])] = row["name"]
+    for place in places:
+        if place.get("type") != "port" or place.get("province") is None:
+            continue
+        host = host_name.get(int(place["province"]))
+        if host:
+            place["name"] = "Port of " + host
     rows.sort(key=lambda item: (item["nation"], item["province"], TYPE_ORDER[item["type"]], item["name"]))
     with (ROOT / "data" / "settlements.csv").open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=["nation", "province", "name", "type", "port", "sector_id"])

@@ -250,6 +250,11 @@ h1 {
 .nb-pop dt { opacity: 0.68; }
 .nb-pop dd { margin: 0; }
 
+.nb-build { margin-top: 8px; }
+.nb-build ul { margin: 0; padding: 0; list-style: none; }
+.nb-build li { margin: 0 0 6px; line-height: 1.35; }
+.nb-build .nb-asof { opacity: 0.7; font-size: 0.75rem; }
+
 .leaflet-tooltip.nb-tip {
   background: var(--navy);
   color: var(--silver);
@@ -573,6 +578,9 @@ input:focus-visible,
 
 @media (max-width: 720px) {
   h1 { font-size: 1rem; white-space: normal; }
+  .leaflet-popup-content { min-width: 0; }
+  .nb-pop h2 { font-size: 1.05rem; }
+  .nb-pop dl { grid-template-columns: 5.5rem 1fr; }
   header { flex-wrap: wrap; gap: 8px; }
   .search { width: 100%; margin-left: 0; }
   .nb-mini-frame { width: min(280px, 72vw); }
