@@ -6,7 +6,8 @@ A sector controller has to be a nation already on the published map, or blank fo
 A village has to sit inside its sector, and every sector needs a settlement.
 A fort has to name a published nation and a sector that already has a settlement.
 An alliance row has to name a published nation, and each nation can be in one bloc.
-Build slots may list only published provinces, and never a hidden ledger field.
+Building limits may list only published provinces, and never a hidden ledger field.
+River curves stay on the published side of the fog line.
 """
 
 import csv
@@ -518,6 +519,28 @@ def check_province_slots(provinces):
                 fail(f"settlement_name_overrides.csv:{index}: province {pid} is west of the fog line")
 
 
+def check_rivers(width, height):
+    path = ROOT / "data" / "rivers.geojson"
+    if not path.is_file():
+        fail("missing data/rivers.geojson")
+    data = load(path)
+    features = data.get("features") if isinstance(data, dict) else None
+    if not isinstance(features, list):
+        fail("rivers.geojson needs a feature list")
+    for index, feature in enumerate(features):
+        coords = ((feature or {}).get("geometry") or {}).get("coordinates")
+        if not isinstance(coords, list) or len(coords) < 2:
+            fail(f"rivers.geojson:{index}: a river needs two points")
+        for point in coords:
+            if not isinstance(point, list) or len(point) < 2:
+                fail(f"rivers.geojson:{index}: bad point")
+            x, y = point[0], point[1]
+            if not isinstance(x, (int, float)) or isinstance(x, bool) or not isinstance(y, (int, float)) or isinstance(y, bool):
+                fail(f"rivers.geojson:{index}: bad point")
+            if x < WEST or x > width or y < 0 or y > height:
+                fail(f"rivers.geojson:{index}: a river leaves the published map")
+
+
 def check_province_names(provinces):
     path = ROOT / "data" / "province_names.csv"
     if not path.is_file():
@@ -669,6 +692,7 @@ def main():
     check_buildings(provinces, nations)
     check_alliances(nations)
     check_province_slots(provinces)
+    check_rivers(width, height)
     check_province_names(provinces)
     check_flags(nations)
 
