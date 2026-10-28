@@ -518,6 +518,55 @@ def check_province_slots(provinces):
                 fail(f"settlement_name_overrides.csv:{index}: province {pid} is west of the fog line")
 
 
+def check_province_names(provinces):
+    path = ROOT / "data" / "province_names.csv"
+    if not path.is_file():
+        fail("missing data/province_names.csv")
+    with path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.reader(handle))
+    if not rows or rows[0] != ["province", "name"]:
+        fail("province_names.csv: header must be province,name")
+    seen = set()
+    for index, row in enumerate(rows[1:], start=2):
+        if not row or (len(row) == 1 and row[0].strip() == ""):
+            continue
+        if len(row) != 2:
+            fail(f"province_names.csv:{index}: expected 2 columns")
+        province_text, name = (part.strip() for part in row)
+        if not province_text.isdigit():
+            fail(f"province_names.csv:{index}: province must be an integer")
+        pid = int(province_text)
+        if pid in seen:
+            fail(f"province_names.csv:{index}: province {pid} is listed twice")
+        seen.add(pid)
+        prov = provinces.get(pid)
+        if prov is None:
+            fail(f"province_names.csv:{index}: province {pid} is not on the published map")
+        box = prov.get("bbox") or [0, 0, 0, 0]
+        xy = prov.get("xy") or [0, 0]
+        if box[0] < WEST or xy[0] < WEST:
+            fail(f"province_names.csv:{index}: province {pid} is west of the fog line")
+        if not name or name.lower() == "terillia":
+            fail(f"province_names.csv:{index}: name is missing or reserved")
+
+
+def check_flags(nations):
+    path = ROOT / "data" / "flags.json"
+    if not path.is_file():
+        fail("missing data/flags.json")
+    data = load(path)
+    if not isinstance(data, dict):
+        fail("flags.json must be an object")
+    for key, rel in data.items():
+        if not str(key).isdigit() or int(key) not in nations:
+            fail(f"flags.json: {key} is not a published nation")
+        if not isinstance(rel, str) or not rel or ".." in rel or rel.startswith(("/", "\\")):
+            fail(f"flags.json: {key} has a bad path")
+        file = (ROOT / rel).resolve()
+        if ROOT not in file.parents or not file.is_file():
+            fail(f"flags.json: missing {rel}")
+
+
 def check_trade_block(block, where, nations, width, height):
     if block is None:
         return
@@ -620,6 +669,8 @@ def main():
     check_buildings(provinces, nations)
     check_alliances(nations)
     check_province_slots(provinces)
+    check_province_names(provinces)
+    check_flags(nations)
 
     for name in files:
         if not isinstance(name, str) or "/" in name or "\\" in name or name.startswith("."):

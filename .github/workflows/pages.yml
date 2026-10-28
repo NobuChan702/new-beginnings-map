@@ -56,6 +56,8 @@ jobs:
           test -f _site/data/alliances.csv
           test -f _site/data/province_slots.json
           test -f _site/data/settlement_name_overrides.csv
+          test -f _site/data/province_names.csv
+          test -f _site/data/flags.json
           test -f _site/js/history.js
           test -f _site/assets/overview.webp
           test -d _site/tiles/political

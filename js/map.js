@@ -29,6 +29,8 @@
     settlementRows: null,
     buildings: null,
     alliances: null,
+    provinceNames: new Map(),
+    flags: new Map(),
     mode: "auto",
     overlays: { borders: true, claims: true, occupied: true, markers: true, infra: true, trade: true, sectors: true, alliances: false, ids: false },
     labelLayer: null,
@@ -992,6 +994,54 @@
     });
   }
 
+  function loadProvinceNames(text) {
+    const names = new Map();
+    String(text || "")
+      .split(/\r?\n/)
+      .forEach(function (line, index) {
+        if (!index || !line.trim()) return;
+        const comma = line.indexOf(",");
+        if (comma < 1) return;
+        const id = Number(line.slice(0, comma).trim());
+        const name = line.slice(comma + 1).trim();
+        if (!isFinite(id) || !name) return;
+        names.set(id, name);
+      });
+    return names;
+  }
+
+  function loadFlags(data) {
+    const flags = new Map();
+    if (!data || typeof data !== "object") return flags;
+    Object.keys(data).forEach(function (key) {
+      const src = String(data[key] || "");
+      if (!src || src.indexOf("..") >= 0) return;
+      flags.set(String(key), src);
+    });
+    return flags;
+  }
+
+  function flagSrc(nation) {
+    if (!nation || !state.flags) return "";
+    return state.flags.get(String(nation.id)) || "";
+  }
+
+  function flagHtml(nation) {
+    const src = flagSrc(nation);
+    if (!src) return "";
+    return '<img class="nb-flag" alt="" width="36" height="24" loading="lazy" decoding="async" src="' + esc(src) + '">';
+  }
+
+  function subtitleHtml(nation) {
+    if (!nation || !nation.subtitle) return "";
+    return '<p class="nb-subtitle">' + esc(nation.subtitle) + "</p>";
+  }
+
+  function provinceTitle(id) {
+    const named = state.provinceNames && state.provinceNames.get(Number(id));
+    return named ? named + " (Province " + id + ")" : "Province " + id;
+  }
+
   function nationHtml(nation, provinceId) {
     const shownId = state.provinces.has(provinceId) ? provinceId : nation.capital_province;
     const prov = state.provinces.get(shownId);
@@ -1000,11 +1050,15 @@
     const distinct = named && named.toLowerCase() !== nation.short_name.toLowerCase();
     const capitalLine = (distinct ? esc(named) + " · " : "") + "Province " + nation.capital_province;
     return (
-      '<div class="nb-pop"><h2><i style="background:' +
+      '<div class="nb-pop"><h2>' +
+      flagHtml(nation) +
+      '<i style="background:' +
       esc(safeColor(nation.color)) +
       '"></i>' +
       esc(nationLabel(nation)) +
-      '</h2><p class="tier">' +
+      "</h2>" +
+      subtitleHtml(nation) +
+      '<p class="tier">' +
       esc(labelTier(nation.tier)) +
       "</p>" +
       allianceLine(nation) +
@@ -1019,8 +1073,8 @@
       colonyLine(provinceId) +
       occupationSentence(provinceId) +
       (prov
-        ? '<hr><p class="meta">Province ' +
-          shownId +
+        ? '<hr><p class="meta">' +
+          esc(provinceTitle(shownId)) +
           " · " +
           fmtArea(prov.area_km2) +
           "</p>" +
@@ -1033,8 +1087,8 @@
 
   function unclaimedHtml(id, prov) {
     return (
-      '<div class="nb-pop"><h2>Unclaimed</h2><p class="meta">Province ' +
-      id +
+      '<div class="nb-pop"><h2>Unclaimed</h2><p class="meta">' +
+      esc(provinceTitle(id)) +
       " · " +
       fmtArea(prov.area_km2) +
       "</p>" +
@@ -1256,7 +1310,7 @@
         const button = document.createElement("button");
         button.type = "button";
         if (entry.kind === "province") {
-          button.textContent = "Province " + entry.id;
+          button.textContent = entry.title ? entry.title + " (Province " + entry.id + ")" : "Province " + entry.id;
           const tier = document.createElement("span");
           tier.className = "tier";
 tier.textContent = provinceSearchLabel(entry.id, entry.prov);
@@ -1280,6 +1334,18 @@ tier.textContent = provinceSearchLabel(entry.id, entry.prov);
             taken.className = "taken";
             taken.textContent = "Taken";
             button.appendChild(taken);
+          }
+          const src = flagSrc(entry.nation);
+          if (src) {
+            const flag = document.createElement("img");
+            flag.className = "nb-flag";
+            flag.alt = "";
+            flag.width = 36;
+            flag.height = 24;
+            flag.loading = "lazy";
+            flag.decoding = "async";
+            flag.src = src;
+            button.insertBefore(flag, button.firstChild);
           }
         }
         if (index === 0) button.classList.add("is-active");
@@ -1305,7 +1371,7 @@ tier.textContent = provinceSearchLabel(entry.id, entry.prov);
     function choose(entry) {
       hide();
       if (entry.kind === "province") {
-        input.value = String(entry.id);
+        input.value = entry.title || String(entry.id);
         selectProvince(entry.id, { fly: true, popup: true });
         return;
       }
@@ -1355,6 +1421,18 @@ if (entry.kind === "work") {
         else if (name.startsWith(query) || aliases.some(function (alias) { return alias.startsWith(query); })) starts.push(entry);
         else rest.push(entry);
       });
+      if (state.provinceNames) {
+        state.provinceNames.forEach(function (name, id) {
+          const prov = state.provinces.get(id);
+          if (!provinceIsPublic(id, prov) || isConcealed(id)) return;
+          const lower = String(name).toLowerCase();
+          if (!lower.includes(query)) return;
+          const entry = { kind: "province", id: id, prov: prov, title: name };
+          if (lower === query) pinned.push(entry);
+          else if (lower.startsWith(query)) starts.push(entry);
+          else rest.push(entry);
+        });
+      }
       render(items.concat(pinned, starts, rest).slice(0, 8));
     });
 
@@ -4071,7 +4149,7 @@ const claim = claimOf(nation);
       .catch(function () {
         return null;
       });
-    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, lut] = await Promise.all([
+    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, provinceNames, flags, lut] = await Promise.all([
       fetch("data/world.json").then(function (res) {
         if (!res.ok) throw new Error("world");
         return res.json();
@@ -4132,6 +4210,20 @@ const claim = claimOf(nation);
         .catch(function () {
           return "";
         }),
+      fetch("data/province_names.csv?t=" + stamp, { cache: "no-store" })
+        .then(function (res) {
+          return res.ok ? res.text() : "";
+        })
+        .catch(function () {
+          return "";
+        }),
+      fetch("data/flags.json?t=" + stamp, { cache: "no-store" })
+        .then(function (res) {
+          return res.ok ? res.json() : {};
+        })
+        .catch(function () {
+          return {};
+        }),
       loadLookup(meta),
     ]);
     state.lut = lut;
@@ -4141,6 +4233,8 @@ const claim = claimOf(nation);
     state.settlementRows = loadSettlementRows(settlements);
     state.buildings = loadBuildings(buildings);
     state.alliances = loadAlliances(alliances);
+    state.provinceNames = loadProvinceNames(provinceNames);
+    state.flags = loadFlags(flags);
     state.sectorFeatures = (sectors && sectors.features) || [];
     state.sectorRows = loadSectorControl(sectorControl);
     state.historySnapshots = await loadHistory();
