@@ -322,9 +322,9 @@
     if (!state.tradeLayer || !map.hasLayer(state.tradeLayer)) renderTrade();
   }
 
-  function makeTileLayer(folder, errorTile) {
+  function makeTileLayer(folder, errorTile, pane) {
     const meta = state.meta;
-    return L.tileLayer("tiles/" + folder + "/{z}/{x}/{y}.webp", {
+    const options = {
       tileSize: meta.tile_size,
       noWrap: true,
       minZoom: CFG.minZoom,
@@ -335,7 +335,9 @@
       errorTileUrl: errorTile,
       updateWhenZooming: false,
       keepBuffer: 2,
-    });
+    };
+    if (pane) options.pane = pane;
+    return L.tileLayer("tiles/" + folder + "/{z}/{x}/{y}.webp", options);
   }
 
   function initMap(meta) {
@@ -377,6 +379,11 @@
     });
     state.map = map;
     window.nbMap = map;
+    map.createPane("rivers");
+    const riverPane = map.getPane("rivers");
+    riverPane.style.zIndex = "348";
+    riverPane.style.pointerEvents = "none";
+    state.riverRenderer = L.canvas({ pane: "rivers", padding: 0.25 });
     map.createPane("flat");
     const flatPane = map.getPane("flat");
     flatPane.style.zIndex = "350";
@@ -415,6 +422,10 @@
     alliancePane.style.zIndex = "352";
     alliancePane.style.pointerEvents = "none";
     state.allianceRenderer = L.svg({ pane: "alliance", padding: 0.5 });
+    map.createPane("photoBorders");
+    const photoBorders = map.getPane("photoBorders");
+    photoBorders.style.zIndex = "356";
+    photoBorders.style.pointerEvents = "none";
     map.createPane("marks");
     const marksPane = map.getPane("marks");
     marksPane.style.zIndex = "360";
@@ -423,9 +434,10 @@
     state.marksRenderer = L.svg({ pane: "marks", padding: 0.5 });
     map.zoomControl.setPosition("topleft");
     state.layers.terrain = makeTileLayer("terrain", "assets/empty.webp");
+    state.layers.terrain.setUrl("tiles/terrain/{z}/{x}/{y}.webp?v=3");
     state.layers.political = makeTileLayer("political", "assets/empty.webp");
     state.layers.depth = makeTileLayer("depth", "assets/empty.webp");
-    state.layers.outlines = makeTileLayer("outlines", "assets/blank.webp");
+    state.layers.outlines = makeTileLayer("outlines", "assets/blank.webp", "photoBorders");
     L.control.scale({ imperial: false, metric: true, position: "bottomright", maxWidth: 160 }).addTo(map);
     installMinimap(map, meta);
     installLayers(map);
@@ -438,6 +450,7 @@
       renderSectors();
       renderVillages();
       renderAlliances();
+      renderRivers();
     });
     map.fitBounds(state.imageBounds, {
       paddingTopLeft: [12, headerOffset() + 8],
@@ -3095,6 +3108,70 @@ const claim = claimOf(nation);
     group.addTo(map);
   }
 
+  function renderRivers() {
+    const map = state.map;
+    if (!map) return;
+    const features = (state.rivers && state.rivers.features) || [];
+    if (!features.length) {
+      dropLayer(state.riverLayer);
+      state.riverLayer = null;
+      state.riverPad = null;
+      return;
+    }
+    const view = map.getBounds();
+    const pad = state.riverPad;
+    if (pad && state.riverLayer && pad.bounds.contains(view)) return;
+    const grown = view.pad(0.35);
+    dropLayer(state.riverLayer);
+    const group = L.layerGroup();
+    features.forEach(function (feature) {
+      const coords = feature.geometry && feature.geometry.coordinates;
+      if (!coords || coords.length < 2) return;
+      let minX = Infinity;
+      let minY = Infinity;
+      let maxX = -Infinity;
+      let maxY = -Infinity;
+      for (let i = 0; i < coords.length; i++) {
+        const x = coords[i][0];
+        const y = coords[i][1];
+        if (x < minX) minX = x;
+        if (y < minY) minY = y;
+        if (x > maxX) maxX = x;
+        if (y > maxY) maxY = y;
+      }
+      if (maxX < grown.getWest() || minX > grown.getEast() || maxY < grown.getSouth() || minY > grown.getNorth()) return;
+      const flow = Math.max(1, Number((feature.properties && feature.properties.flow) || 1));
+      const mouth = Math.min(3.6, 0.95 + Math.log10(flow) * 0.72);
+      const source = Math.max(0.75, mouth * 0.36);
+      const slices = coords.length > 8 ? 3 : 1;
+      const step = Math.ceil(coords.length / slices);
+      for (let slice = 0; slice < slices; slice++) {
+        const part = coords.slice(slice * step, Math.min(coords.length, (slice + 1) * step + 1));
+        if (part.length < 2) continue;
+        const along = slices === 1 ? 1 : slice / (slices - 1);
+        L.polyline(
+          part.map(function (pt) {
+            return [pt[1], pt[0]];
+          }),
+          {
+            pane: "rivers",
+            renderer: state.riverRenderer,
+            color: "#5f9fbe",
+            weight: source + (mouth - source) * along,
+            opacity: 0.92,
+            lineCap: "round",
+            lineJoin: "round",
+            smoothFactor: 0,
+            interactive: false,
+          }
+        ).addTo(group);
+      }
+    });
+    state.riverLayer = group;
+    state.riverPad = { bounds: grown };
+    if (group.getLayers().length) group.addTo(map);
+  }
+
   function applyTrade(collection) {
     if (collection) state.tradeRaw = collection;
     state.tradeStamp = (state.tradeStamp || 0) + 1;
@@ -4234,7 +4311,7 @@ const claim = claimOf(nation);
       .catch(function () {
         return null;
       });
-    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, provinceNames, flags, lut] = await Promise.all([
+    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, provinceNames, flags, rivers, lut] = await Promise.all([
       fetch("data/world.json").then(function (res) {
         if (!res.ok) throw new Error("world");
         return res.json();
@@ -4309,6 +4386,13 @@ const claim = claimOf(nation);
         .catch(function () {
           return {};
         }),
+      fetch("data/rivers.geojson?t=" + stamp, { cache: "no-store" })
+        .then(function (res) {
+          return res.ok ? res.json() : { features: [] };
+        })
+        .catch(function () {
+          return { features: [] };
+        }),
       loadLookup(meta),
     ]);
     state.lut = lut;
@@ -4320,6 +4404,8 @@ const claim = claimOf(nation);
     state.alliances = loadAlliances(alliances);
     state.provinceNames = loadProvinceNames(provinceNames);
     state.flags = loadFlags(flags);
+    state.rivers = rivers && rivers.features ? rivers : { features: [] };
+    renderRivers();
     state.sectorFeatures = (sectors && sectors.features) || [];
     state.sectorRows = loadSectorControl(sectorControl);
     state.historySnapshots = await loadHistory();
