@@ -79,6 +79,26 @@ Edit `data/claims.json`. Keys are nation ids as strings. `{}` means nothing is t
 
 A taken nation is labeled like `Basileia Rhomania (Tom)` at its capital and in search. An unclaimed nation stays plain. The nation also gets a red hatch. Commit and push that file. A rebuild is not required. The fogged west is unchanged: these names are published nations, and the claim markers still drop out on a concealed province.
 
+### `tools/nb.py` (routine data edits)
+
+From the repository root, `python3 tools/nb.py` edits a few `data/` files with validation, a timestamped backup under `data/.nb-backups/`, a diff summary, and `python3 scripts/check_history.py` before the write sticks (failed checks restore the backup). Pass `--dry-run` immediately after `nb.py` to preview only.
+
+Claims use **nation ids** (same keys as `claims.json`), not province ids:
+
+```bash
+python3 tools/nb.py --dry-run claim assign 25 "Tom (Grand Albion)" --short Tom
+python3 tools/nb.py claim unassign 66
+python3 tools/nb.py rename province 894 "Province of Khanbaliq (Hebei)"
+python3 tools/nb.py rename settlement 2201-A Aldrillia
+python3 tools/nb.py --dry-run transfer --from 26 --to 25 1201 1202
+python3 tools/nb.py limits check
+python3 tools/nb.py limits check --default-max 3 --type Fort
+```
+
+`transfer` updates `data/world.json` (`nation_id` and nation `provinces` lists), matching rows in `data/province_slots.json`, and sector controllers in `data/sector_control.csv` for `<province>-A/B/C`. Provinces must currently belong to `--from`. For timeline-only ownership changes without retargeting the cycle-0 baseline, use history `transfers` in a snapshot instead.
+
+Run tests: `python3 -m unittest tests/test_nb.py`.
+
 ## Infrastructure
 
 Edit `data/infrastructure.json`. The layer is Layers → Infrastructure, on by default. It is vector, so the icons and roads stay sharp past the raster. `"capitals": true` draws a star at every published nation capital, using the capital already stored on the nation.
