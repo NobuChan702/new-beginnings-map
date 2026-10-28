@@ -759,6 +759,11 @@
   }
 
   function nationPoint(nation) {
+    const feature = sectorIndex().get(nation.capital_province + "-A");
+    if (feature) {
+      const point = sectorMarkerPoint(feature);
+      if (point) return point;
+    }
     if (nation.capital_xy && nation.capital_xy.length === 2) return nation.capital_xy;
     const box = nation.bbox;
     return [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2];
@@ -2098,40 +2103,289 @@ const claim = claimOf(nation);
     return cycle <= view;
   }
 
+  function ringsOf(geom) {
+    if (!geom) return [];
+    if (geom.type === "Polygon") return [geom.coordinates];
+    if (geom.type === "MultiPolygon") return geom.coordinates;
+    return [];
+  }
+
+  function pointInRing(x, y, ring) {
+    let inside = false;
+    const count = ring.length;
+    if (count < 3) return false;
+    let j = count - 1;
+    for (let i = 0; i < count; i++) {
+      const xi = ring[i][0];
+      const yi = ring[i][1];
+      const xj = ring[j][0];
+      const yj = ring[j][1];
+      if (yi > y !== yj > y) {
+        const denom = yj - yi;
+        if (denom !== 0 && x < ((xj - xi) * (y - yi)) / denom + xi) inside = !inside;
+      }
+      j = i;
+    }
+    return inside;
+  }
+
+  function geomContains(x, y, geom) {
+    const parts = ringsOf(geom);
+    for (let p = 0; p < parts.length; p++) {
+      const rings = parts[p];
+      if (!rings || !rings.length || !pointInRing(x, y, rings[0])) continue;
+      let inHole = false;
+      for (let h = 1; h < rings.length; h++) {
+        if (pointInRing(x, y, rings[h])) {
+          inHole = true;
+          break;
+        }
+      }
+      if (!inHole) return true;
+    }
+    return false;
+  }
+
+  function segmentDistance(x, y, ax, ay, bx, by) {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const span = dx * dx + dy * dy;
+    if (span === 0) return Math.hypot(x - ax, y - ay);
+    const along = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / span));
+    return Math.hypot(x - (ax + along * dx), y - (ay + along * dy));
+  }
+
+  function boundaryDistance(x, y, geom) {
+    let best = null;
+    const parts = ringsOf(geom);
+    for (let p = 0; p < parts.length; p++) {
+      const rings = parts[p];
+      for (let r = 0; r < rings.length; r++) {
+        const ring = rings[r];
+        for (let i = 0; i < ring.length - 1; i++) {
+          const dist = segmentDistance(x, y, ring[i][0], ring[i][1], ring[i + 1][0], ring[i + 1][1]);
+          if (best == null || dist < best) best = dist;
+        }
+      }
+    }
+    return best == null ? 0 : best;
+  }
+
+  function geomCentroid(geom) {
+    let area = 0;
+    let sx = 0;
+    let sy = 0;
+    const parts = ringsOf(geom);
+    for (let p = 0; p < parts.length; p++) {
+      const ring = parts[p][0];
+      if (!ring) continue;
+      for (let i = 0; i < ring.length - 1; i++) {
+        const x1 = ring[i][0];
+        const y1 = ring[i][1];
+        const x2 = ring[i + 1][0];
+        const y2 = ring[i + 1][1];
+        const cross = x1 * y2 - x2 * y1;
+        area += cross;
+        sx += (x1 + x2) * cross;
+        sy += (y1 + y2) * cross;
+      }
+    }
+    if (Math.abs(area) < 1e-9) {
+      const ring = parts[0] && parts[0][0];
+      return ring ? [ring[0][0], ring[0][1]] : [0, 0];
+    }
+    area *= 0.5;
+    return [sx / (6 * area), sy / (6 * area)];
+  }
+
+  function geomBounds(geom) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    const parts = ringsOf(geom);
+    for (let p = 0; p < parts.length; p++) {
+      const rings = parts[p];
+      for (let r = 0; r < rings.length; r++) {
+        const ring = rings[r];
+        for (let i = 0; i < ring.length; i++) {
+          const x = ring[i][0];
+          const y = ring[i][1];
+          if (x < minX) minX = x;
+          if (y < minY) minY = y;
+          if (x > maxX) maxX = x;
+          if (y > maxY) maxY = y;
+        }
+      }
+    }
+    return [minX, minY, maxX, maxY];
+  }
+
+  function sectorOnLand(x, y, provinceId) {
+    return provinceAt(x, y) === provinceId;
+  }
+
+  function sectorPole(geom, provinceId) {
+    const box = geomBounds(geom);
+    const span = Math.max(box[2] - box[0], box[3] - box[1], 1);
+    let step = span / 10;
+    let best = null;
+    let bestD = -1;
+    let window = box;
+    for (let pass = 0; pass < 5; pass++) {
+      for (let x = window[0]; x <= window[2] + step * 0.01; x += step) {
+        for (let y = window[1]; y <= window[3] + step * 0.01; y += step) {
+          if (!geomContains(x, y, geom) || !sectorOnLand(x, y, provinceId)) continue;
+          const dist = boundaryDistance(x, y, geom);
+          if (dist > bestD) {
+            bestD = dist;
+            best = [x, y];
+          }
+        }
+      }
+      if (!best) break;
+      step = Math.max(step / 3, 0.35);
+      window = [best[0] - step * 4, best[1] - step * 4, best[0] + step * 4, best[1] + step * 4];
+    }
+    if (!best) return null;
+    return { point: best, inradius: bestD };
+  }
+
+  function sectorMarkerPoint(feature) {
+    const id = feature.properties && feature.properties.id;
+    if (!id) return null;
+    if (!state.sectorPoints) state.sectorPoints = new Map();
+    if (state.sectorPoints.has(id)) return state.sectorPoints.get(id);
+    const geom = feature.geometry;
+    const provinceId = feature.properties.province;
+    const pole = sectorPole(geom, provinceId);
+    if (!pole) {
+      state.sectorPoints.set(id, null);
+      return null;
+    }
+    const centre = geomCentroid(geom);
+    let chosen = pole.point;
+    if (sectorOnLand(centre[0], centre[1], provinceId) && geomContains(centre[0], centre[1], geom)) {
+      const clearance = boundaryDistance(centre[0], centre[1], geom);
+      if (pole.inradius <= 0 || clearance >= 0.25 * pole.inradius) chosen = centre;
+    }
+    state.sectorPoints.set(id, chosen);
+    return chosen;
+  }
+
+  function sectorIndex() {
+    if (state.sectorById) return state.sectorById;
+    const index = new Map();
+    (state.sectorFeatures || []).forEach(function (feature) {
+      const id = feature.properties && feature.properties.id;
+      if (id) index.set(id, feature);
+    });
+    state.sectorById = index;
+    return index;
+  }
+
+  function loadSectorLevels(data) {
+    const levels = new Map();
+    const provinces = data && data.provinces;
+    if (!provinces) return levels;
+    Object.keys(provinces).forEach(function (key) {
+      const row = provinces[key];
+      (row && row.sectors ? row.sectors : []).forEach(function (sector) {
+        const level = sector && sector.level;
+        if (level === "city" || level === "town" || level === "village" || level === "none") {
+          levels.set(sector.sector, level);
+        }
+      });
+    });
+    return levels;
+  }
+
+  function nationOwningCapital(provinceId) {
+    for (let i = 0; i < state.nations.length; i++) {
+      if (state.nations[i].capital_province === provinceId) return state.nations[i];
+    }
+    return null;
+  }
+
+  function settlementLevel(feature) {
+    const id = feature.properties.id;
+    if (state.sectorLevels && state.sectorLevels.has(id)) return state.sectorLevels.get(id);
+    if (feature.properties.letter !== "A") return "none";
+    const nation = nationOwningCapital(feature.properties.province);
+    if (nation) return nation.tier === "major" ? "city" : "town";
+    return "village";
+  }
+
+  function settlementDisplayName(feature, level) {
+    const id = feature.properties.id;
+    const rows = state.settlementRows || [];
+    let fallback = "";
+    for (let i = 0; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.sector !== id) continue;
+      if (row.type === level) return row.name;
+      if (row.type === "capital" && (level === "city" || level === "town")) return row.name;
+      if (!fallback) fallback = row.name;
+    }
+    return fallback || kindLabel(level);
+  }
+
+  function addLedgerSettlements(group, grown, zoom, villages) {
+    const features = state.sectorFeatures || [];
+    features.forEach(function (feature) {
+      const box = feature.properties && feature.properties.bbox;
+      if (box && (box[2] < grown.getWest() || box[0] > grown.getEast() || box[3] < grown.getSouth() || box[1] > grown.getNorth())) return;
+      const level = settlementLevel(feature);
+      if (villages) {
+        if (level !== "village") return;
+      } else if (level !== "city" && level !== "town") {
+        return;
+      }
+      if (zoom < infraMinZoom(level)) return;
+      const provinceId = feature.properties.province;
+      if (isConcealed(provinceId)) return;
+      const point = sectorMarkerPoint(feature);
+      if (!point || !grown.contains(L.latLng(point[1], point[0]))) return;
+      if (pointConcealed(point[0], point[1])) return;
+      const size = level === "city" ? 16 : level === "town" ? 14 : 10;
+      const name = settlementDisplayName(feature, level);
+      const prov = state.provinces.get(provinceId);
+      const nationId = prov && prov.nation_id != null ? prov.nation_id : null;
+      const marker = L.marker([point[1], point[0]], {
+        icon: L.divIcon({
+          className: "nb-infra nb-infra-" + level,
+          html: infraSvg(level),
+          iconSize: [size, size],
+          iconAnchor: [size / 2, size / 2],
+        }),
+        title: name,
+        zIndexOffset: level === "village" ? 120 : 180,
+        keyboard: true,
+      });
+      marker.on("click", function (event) {
+        L.DomEvent.stopPropagation(event);
+        const html =
+          level === "village"
+            ? villageHtml({ name: name, nation: nationId, province: provinceId })
+            : infraHtml({ type: level, name: name, nation: nationId, province: provinceId });
+        openPlacePopup(event.latlng, html, nationId);
+      });
+      marker.addTo(group);
+    });
+  }
+
   function sectorAnchors() {
     const sig = String(state.infraStamp || 0);
     if (state.sectorAnchors && state.sectorAnchorSig === sig) return state.sectorAnchors;
     const anchors = new Map();
-    const rank = { capital: 0, city: 1, town: 2, village: 3 };
-    const places = collectInfra().places;
-    const byKey = new Map();
-    Object.keys(places).forEach(function (id) {
-      const place = places[id];
-      if (!place || place.x == null || place.y == null) return;
-      byKey.set(place.type + ":" + place.province + ":" + place.name, place);
-    });
-    (state.settlementRows || []).forEach(function (row) {
-      let x = null;
-      let y = null;
-      if (row.type === "capital") {
-        for (let i = 0; i < state.nations.length; i++) {
-          const nation = state.nations[i];
-          if (nation.capital_province !== row.province || !nation.capital_xy) continue;
-          x = nation.capital_xy[0];
-          y = nation.capital_xy[1];
-          break;
-        }
-      } else {
-        const place = byKey.get(row.type + ":" + row.province + ":" + row.name);
-        if (place) {
-          x = place.x;
-          y = place.y;
-        }
-      }
-      if (x == null || y == null) return;
-      const score = rank[row.type] == null ? 9 : rank[row.type];
-      const prev = anchors.get(row.sector);
-      if (!prev || score < prev.rank) anchors.set(row.sector, { x: x, y: y, rank: score, province: row.province });
+    const index = sectorIndex();
+    (state.buildings || []).forEach(function (row) {
+      if (anchors.has(row.sector)) return;
+      const feature = index.get(row.sector);
+      if (!feature) return;
+      const point = sectorMarkerPoint(feature);
+      if (!point) return;
+      anchors.set(row.sector, { x: point[0], y: point[1], rank: 0, province: feature.properties.province });
     });
     state.sectorAnchors = anchors;
     state.sectorAnchorSig = sig;
@@ -2286,7 +2540,7 @@ const claim = claimOf(nation);
     }
     Object.keys(items.places).forEach(function (id) {
       const place = items.places[id];
-      if (place.type === "village") return;
+      if (place.type === "village" || place.type === "city" || place.type === "town" || place.type === "capital") return;
       if (zoom < infraMinZoom(place.type)) return;
       const xy = placePoint(place);
       if (!xy || !grown.contains(L.latLng(xy[1], xy[0]))) return;
@@ -2308,6 +2562,7 @@ const claim = claimOf(nation);
       });
       marker.addTo(group);
     });
+    addLedgerSettlements(group, grown, zoom, false);
     addSectorForts(group, grown, zoom);
     state.infraLayer = group;
     syncInfraVisibility();
@@ -2335,30 +2590,7 @@ const claim = claimOf(nation);
     dropLayer(state.villageLayer);
     const grown = view.pad(0.45);
     const group = L.layerGroup();
-    const items = collectInfra();
-    Object.keys(items.places).forEach(function (id) {
-      const place = items.places[id];
-      if (place.type !== "village") return;
-      const xy = placePoint(place);
-      if (!xy || !grown.contains(L.latLng(xy[1], xy[0]))) return;
-      const size = 10;
-      const marker = L.marker([xy[1], xy[0]], {
-        icon: L.divIcon({
-          className: "nb-infra nb-infra-village",
-          html: infraSvg("village"),
-          iconSize: [size, size],
-          iconAnchor: [size / 2, size / 2],
-        }),
-        title: place.name || "Village",
-        zIndexOffset: 120,
-        keyboard: true,
-      });
-      marker.on("click", function (event) {
-        L.DomEvent.stopPropagation(event);
-        openPlacePopup(event.latlng, villageHtml(place), place.nation);
-      });
-      marker.addTo(group);
-    });
+    addLedgerSettlements(group, grown, map.getZoom(), true);
     state.villageLayer = group;
     state.villagePad = { sig: sig, bounds: grown, empty: !group.getLayers().length };
     if (!state.villagePad.empty) group.addTo(map);
@@ -4311,7 +4543,7 @@ const claim = claimOf(nation);
       .catch(function () {
         return null;
       });
-    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, provinceNames, flags, rivers, lut] = await Promise.all([
+    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, provinceNames, flags, slots, rivers, lut] = await Promise.all([
       fetch("data/world.json").then(function (res) {
         if (!res.ok) throw new Error("world");
         return res.json();
@@ -4386,6 +4618,13 @@ const claim = claimOf(nation);
         .catch(function () {
           return {};
         }),
+      fetch("data/province_slots.json?t=" + stamp, { cache: "no-store" })
+        .then(function (res) {
+          return res.ok ? res.json() : null;
+        })
+        .catch(function () {
+          return null;
+        }),
       fetch("data/rivers.geojson?t=" + stamp, { cache: "no-store" })
         .then(function (res) {
           return res.ok ? res.json() : { features: [] };
@@ -4407,6 +4646,10 @@ const claim = claimOf(nation);
     state.rivers = rivers && rivers.features ? rivers : { features: [] };
     renderRivers();
     state.sectorFeatures = (sectors && sectors.features) || [];
+    state.sectorById = null;
+    state.sectorPoints = new Map();
+    state.sectorLevels = loadSectorLevels(slots);
+    state.sectorAnchors = null;
     state.sectorRows = loadSectorControl(sectorControl);
     state.historySnapshots = await loadHistory();
     installTimeline();
