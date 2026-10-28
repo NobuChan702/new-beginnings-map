@@ -1100,6 +1100,94 @@
     );
   }
 
+  function hideFlagCard() {
+    const card = document.getElementById("flag-card");
+    if (!card) return;
+    card.hidden = true;
+    card.classList.remove("is-expanded");
+  }
+
+  function placeFlagCard() {
+    const card = document.getElementById("flag-card");
+    if (!card || card.hidden) return;
+    const phone = window.matchMedia("(max-width: 720px)").matches;
+    const top = phone ? "calc(var(--header-h) + 78px)" : "calc(var(--header-h) + 96px)";
+    const spots = [
+      { left: "max(12px, env(safe-area-inset-left))", right: "auto", top: top, bottom: "auto" },
+      { left: "auto", right: "max(12px, env(safe-area-inset-right))", top: top, bottom: "auto" },
+      { left: "max(12px, env(safe-area-inset-left))", right: "auto", top: "auto", bottom: "calc(92px + env(safe-area-inset-bottom))" },
+      { left: "auto", right: "max(12px, env(safe-area-inset-right))", top: "auto", bottom: "calc(92px + env(safe-area-inset-bottom))" },
+    ];
+    function apply(spot) {
+      card.style.left = spot.left;
+      card.style.right = spot.right;
+      card.style.top = spot.top;
+      card.style.bottom = spot.bottom;
+    }
+    const pop = document.querySelector(".leaflet-popup");
+    if (!pop) {
+      apply(spots[0]);
+      return;
+    }
+    const box = pop.getBoundingClientRect();
+    const popup = { left: box.left - 10, right: box.right + 10, top: box.top - 10, bottom: box.bottom + 10 };
+    let best = spots[0];
+    let bestArea = Infinity;
+    spots.forEach(function (spot) {
+      apply(spot);
+      const rect = card.getBoundingClientRect();
+      const width = Math.min(rect.right, popup.right) - Math.max(rect.left, popup.left);
+      const height = Math.min(rect.bottom, popup.bottom) - Math.max(rect.top, popup.top);
+      const area = width > 0 && height > 0 ? width * height : 0;
+      if (area < bestArea) {
+        bestArea = area;
+        best = spot;
+      }
+    });
+    apply(best);
+  }
+
+  function showFlagCard(nation) {
+    const src = flagSrc(nation);
+    if (!src) {
+      hideFlagCard();
+      return;
+    }
+    let card = document.getElementById("flag-card");
+    if (!card) {
+      card = document.createElement("aside");
+      card.id = "flag-card";
+      card.className = "nb-flag-card";
+      card.setAttribute("aria-label", "Nation flag");
+      card.innerHTML = '<button type="button" class="nb-flag-card-close" aria-label="Close flag">×</button><img alt=""><p></p>';
+      card.addEventListener("click", function (event) {
+        if (event.target.closest(".nb-flag-card-close")) {
+          hideFlagCard();
+          return;
+        }
+        if (window.matchMedia("(max-width: 720px)").matches) card.classList.toggle("is-expanded");
+        placeFlagCard();
+      });
+      document.body.appendChild(card);
+    }
+    const same = card.getAttribute("data-nation") === String(nation.id) && !card.hidden;
+    card.setAttribute("data-nation", String(nation.id));
+    const img = card.querySelector("img");
+    if (img.getAttribute("src") !== src) img.setAttribute("src", src);
+    img.alt = "";
+    card.querySelector("p").textContent = nationLabel(nation);
+    if (!same) card.classList.remove("is-expanded");
+    card.hidden = false;
+    window.requestAnimationFrame(placeFlagCard);
+    window.setTimeout(placeFlagCard, 280);
+  }
+
+  function openPlacePopup(latlng, html, nationId) {
+    openPopup(latlng, html);
+    const nation = nationId == null || nationId === "" ? null : state.nationsById.get(Number(nationId));
+    showFlagCard(nation);
+  }
+
   function openPopup(latlng, html) {
     const pad = headerOffset();
     const maxWidth = Math.min(340, Math.max(220, window.innerWidth - 40));
@@ -2206,7 +2294,7 @@ const claim = claimOf(nation);
       });
       marker.on("click", function (event) {
         L.DomEvent.stopPropagation(event);
-        openPopup(event.latlng, infraHtml(place));
+        openPlacePopup(event.latlng, infraHtml(place), place.nation);
       });
       marker.addTo(group);
     });
@@ -2257,7 +2345,7 @@ const claim = claimOf(nation);
       });
       marker.on("click", function (event) {
         L.DomEvent.stopPropagation(event);
-        openPopup(event.latlng, villageHtml(place));
+        openPlacePopup(event.latlng, villageHtml(place), place.nation);
       });
       marker.addTo(group);
     });
@@ -4241,6 +4329,7 @@ const claim = claimOf(nation);
     installTimeline();
     goToHistory(Math.max(0, state.historySnapshots.length - 1), { force: true, silent: true });
     state.map.on("click", onMapClick);
+    state.map.on("popupclose", hideFlagCard);
     if (state.concealedKey == null) {
       state.concealedKey = "";
       applyClaims();
