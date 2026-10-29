@@ -1,0 +1,7 @@
+op,province,nation,from,cycle,name,target,color,nation_a,nation_b,action
+transfer,1202,25,26,0,,,,,,
+rename,894,,,,Province of Khanbaliq,,,,,
+religion,,,,,Example Faith,nation:25,#2f6fbe,,,
+religion,,,,,Local Rite,province:878,,,,
+capital,1333,75,,,Lighthollow,,,,,
+war,,,,,,,,23,25,start

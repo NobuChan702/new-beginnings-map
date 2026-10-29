@@ -152,6 +152,17 @@ The capital's place name is not stored on the nation.
 python3 tools/nb.py --dry-run capital move 75 1333 --name "Lighthollow"
 ```
 
+#### Season batch
+
+`apply-batch` reads one CSV or JSON file and applies a season's province transfers, war start/end, capital moves, religion sets, and province renames. It uses the same checks as those commands. The whole file is validated first. Unknown ids, bad nations, and duplicate or conflicting rows are listed together, and nothing is written. `--dry-run` prints a JSON summary of the changes and the files they would touch. It works in either position: `nb.py --dry-run apply-batch FILE` or `nb.py apply-batch FILE --dry-run`.
+
+A file is left untouched when the only difference would be a trailing newline. `data/wars.csv` is the list of active wars (`nation_a`, `nation_b`, `state`). The map does not draw it. The file format, with CSV and JSON examples, is in [docs/apply-batch.md](docs/apply-batch.md). Sample files are `examples/apply-batch.csv` and `examples/apply-batch.json`. Those samples show the shape only. They are not a season order.
+
+```bash
+python3 tools/nb.py --dry-run apply-batch season.json
+python3 tools/nb.py apply-batch season.json --dry-run
+```
+
 #### Export
 
 `export` does not commit or push. It runs `scripts/check_history.py` and `limits check` (built count against each province max, with no `--default-max`). If either check fails, it writes nothing. Otherwise it zips every file that differs from `HEAD`, plus untracked files under `data/` and `assets/`, into `DIR/map-<UTC stamp>.zip`. The default directory is `D:\NewBeginnings\sync\out` on Windows and `./sync/out` otherwise (`sync/` is gitignored).

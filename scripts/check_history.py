@@ -619,6 +619,43 @@ def check_religions(provinces, nations):
                 fail(f"religions.csv:{index}: province {number} is west of the fog line")
 
 
+def check_wars(nations):
+    path = ROOT / "data" / "wars.csv"
+    if not path.is_file():
+        fail("missing data/wars.csv")
+    with path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.reader(handle))
+    if not rows or rows[0] != ["nation_a", "nation_b", "state"]:
+        fail("wars.csv: header must be nation_a,nation_b,state")
+    seen = set()
+    for index, row in enumerate(rows[1:], start=2):
+        if not row or (len(row) == 1 and row[0].strip() == ""):
+            continue
+        if len(row) != 3:
+            fail(f"wars.csv:{index}: expected 3 columns")
+        a_text, b_text, state = (part.strip() for part in row)
+        if not a_text.isdigit() or not b_text.isdigit():
+            fail(f"wars.csv:{index}: nation ids must be integers")
+        nation_a = int(a_text)
+        nation_b = int(b_text)
+        if nation_a >= nation_b:
+            fail(f"wars.csv:{index}: nation_a must be a lower id than nation_b")
+        if (nation_a, nation_b) in seen:
+            fail(f"wars.csv:{index}: nations {nation_a} and {nation_b} are listed twice")
+        seen.add((nation_a, nation_b))
+        if state != "active":
+            fail(f"wars.csv:{index}: state must be active")
+        for number in (nation_a, nation_b):
+            nation = nations.get(number)
+            if nation is None:
+                fail(f"wars.csv:{index}: nation {number} is not on the published map")
+                continue
+            box = nation.get("bbox") or [0, 0, 0, 0]
+            xy = nation.get("capital_xy") or [0, 0]
+            if box[0] < WEST or xy[0] < WEST:
+                fail(f"wars.csv:{index}: nation {number} is west of the fog line")
+
+
 def check_flags(nations):
     path = ROOT / "data" / "flags.json"
     if not path.is_file():
@@ -742,6 +779,7 @@ def main():
     check_province_names(provinces)
     check_flags(nations)
     check_religions(provinces, nations)
+    check_wars(nations)
 
     for name in files:
         if not isinstance(name, str) or "/" in name or "\\" in name or name.startswith("."):
