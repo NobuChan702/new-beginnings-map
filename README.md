@@ -129,6 +129,12 @@ The capital's place name is not stored on the nation.
 
 `capital set` renames that settlements row and writes the same name on `<capital_province>-A` in the overrides file. `settlements.csv` stays on its current newlines, so the edit is that one row. If a public trade route in `data/trade_routes.json` or a history snapshot names the old capital as `settlement` for this nation id, that string is updated too so the route still names the capital. The same backup and secrecy check apply. Names cannot contain commas or quotes, because the page splits `settlements.csv` on commas.
 
+`capital move` moves the capital to another province that nation already owns. The old `type=capital` row becomes a city, and the target province's sector A (its city, or a new row copied from that province's city or main settlement) becomes `type=capital`. `capital_province` and `capital_xy` in `data/world.json` follow it. `capital_xy` is that settlement's marker in `data/infrastructure.json`, and the former capital gets a city place at the old point so the marker does not disappear. The province ledger (`capital` and sector A `map_label` in `data/province_slots.json`) is updated. Claims do not store a capital, so `data/claims.json` is left as it is unless a claim object already has a `capital` field. `--name` writes the place name on the new capital row and in `data/settlement_name_overrides.csv`. A move that changes nothing is not written, and CSV line endings and row order stay as they are. `--dry-run` prints every change and writes nothing.
+
+```bash
+python3 tools/nb.py --dry-run capital move 75 1333 --name "Lighthollow"
+```
+
 #### Export
 
 `export` does not commit or push. It runs `scripts/check_history.py` and `limits check` (built count against each province max, with no `--default-max`). If either check fails, it writes nothing. Otherwise it zips every file that differs from `HEAD`, plus untracked files under `data/` and `assets/`, into `DIR/map-<UTC stamp>.zip`. The default directory is `D:\NewBeginnings\sync\out` on Windows and `./sync/out` otherwise (`sync/` is gitignored).
