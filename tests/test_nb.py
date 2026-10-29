@@ -457,6 +457,146 @@ class CsvRewriteTests(unittest.TestCase):
             shutil.rmtree(directory)
 
 
+class CapitalMoveTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.data = self.tmp / "data"
+        self.data.mkdir()
+        self.world = {
+            "nations": [
+                {
+                    "id": 75,
+                    "name": "Holy Order of Eternea (minor)",
+                    "short_name": "Holy Order of Eternea",
+                    "capital_province": 1315,
+                    "capital_xy": [5100.0, 2100.0],
+                    "bbox": [4000, 0, 5000, 500],
+                    "provinces": [1315, 1333],
+                },
+                {
+                    "id": 8,
+                    "name": "Other",
+                    "short_name": "Other",
+                    "capital_province": 50,
+                    "capital_xy": [4100.0, 40.0],
+                    "bbox": [4000, 0, 4200, 80],
+                    "provinces": [50],
+                },
+            ],
+            "provinces": {
+                "1315": {"nation_id": 75, "bbox": [4000, 0, 4300, 200], "xy": [4100, 80]},
+                "1333": {"nation_id": 75, "bbox": [4400, 0, 4800, 200], "xy": [4600, 80]},
+                "50": {"nation_id": 8, "bbox": [4000, 0, 4200, 80], "xy": [4100, 40]},
+            },
+        }
+        (self.data / "world.json").write_text(json.dumps(self.world, separators=(",", ":")) + "\n", encoding="utf-8")
+        settlements = (
+            "nation,province,name,type,port,sector_id\r\n"
+            "Holy Order of Eternea,1315,Holy Order of Eternea,capital,no,1315-A\r\n"
+            "Holy Order of Eternea,1315,Lii,town,no,1315-B\r\n"
+            "Holy Order of Eternea,1333,Liiliiliilii,city,no,1333-A\r\n"
+            "Holy Order of Eternea,1333,Liiliiliitham,town,no,1333-B\r\n"
+        )
+        self.settlements = settlements.encode("utf-8")
+        (self.data / "settlements.csv").write_bytes(self.settlements)
+        infra = {
+            "capitals": True,
+            "places": [
+                {"id": "city-1333", "type": "city", "name": "Liiliiliilii", "province": 1333, "x": 5400.5, "y": 2200.5, "cycle": 0, "nation": 75},
+                {"id": "town-1333", "type": "town", "name": "Liiliiliitham", "province": 1333, "x": 5300, "y": 2300, "cycle": 0, "nation": 75},
+            ],
+            "roads": [],
+        }
+        (self.data / "infrastructure.json").write_text(json.dumps(infra, separators=(",", ":")) + "\n", encoding="utf-8")
+        slots = {
+            "provinces": {
+                "1315": {
+                    "capital": True,
+                    "sectors": [{"sector": "1315-A", "name": "Holy Order of Eternea", "map_label": "capital", "level": "town"}],
+                },
+                "1333": {
+                    "capital": False,
+                    "sectors": [{"sector": "1333-A", "name": "Liiliiliilii", "map_label": "city", "level": "village"}],
+                },
+            }
+        }
+        (self.data / "province_slots.json").write_text(json.dumps(slots, separators=(",", ":")) + "\n", encoding="utf-8")
+        (self.data / "settlement_name_overrides.csv").write_bytes(b"sector_id,name\r\n")
+        (self.data / "claims.json").write_text('{"75": {"player": "Aiden", "short": "Aiden"}}\n', encoding="utf-8")
+        (self.data / "trade_routes.json").write_text('{"routes": []}\n', encoding="utf-8")
+        self.saved = (nb.ROOT, nb.DATA, nb.BACKUP_DIR, nb.CHECK_HISTORY)
+        nb.set_root(self.tmp)
+
+    def tearDown(self) -> None:
+        nb.ROOT, nb.DATA, nb.BACKUP_DIR, nb.CHECK_HISTORY = self.saved
+        shutil.rmtree(self.tmp)
+
+    def _bytes(self) -> dict[str, bytes]:
+        return {path.name: path.read_bytes() for path in self.data.iterdir() if path.is_file()}
+
+    def test_refuses_when_the_nation_does_not_own_the_province(self) -> None:
+        before = self._bytes()
+        with self.assertRaises(ValueError) as caught:
+            nb.cmd_capital_move(argparse_namespace(nation="75", province="50", name=None, dry_run=True))
+        self.assertIn("does not own province 50", str(caught.exception))
+        self.assertEqual(self._bytes(), before)
+
+    def test_dry_run_prints_changes_and_writes_nothing(self) -> None:
+        before = self._bytes()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            nb.main(["--dry-run", "capital", "move", "75", "1333", "--name", "Lighthollow"])
+        text = buf.getvalue()
+        self.assertIn("province 1315 -> 1333", text)
+        self.assertIn("capital_xy [5100.0, 2100.0] -> [5400.5, 2200.5]", text)
+        self.assertIn("1315-A: type capital -> city", text)
+        self.assertIn("1333-A:", text)
+        self.assertIn("Lighthollow", text)
+        self.assertIn("ledger province 1315: capital false", text)
+        self.assertIn("ledger province 1333: capital true", text)
+        self.assertIn("claims.json does not record a capital", text)
+        self.assertIn("(dry-run: not writing)", text)
+        self.assertEqual(self._bytes(), before)
+
+    def test_move_updates_settlements_world_ledger_and_overrides(self) -> None:
+        with mock.patch.object(nb, "run_secrecy_check"):
+            nb.cmd_capital_move(argparse_namespace(nation="75", province="1333", name="Lighthollow", dry_run=False))
+        rows = (self.data / "settlements.csv").read_bytes().split(b"\r\n")
+        self.assertIn(b"Holy Order of Eternea,1315,Holy Order of Eternea,city,no,1315-A", rows)
+        self.assertIn(b"Holy Order of Eternea,1333,Lighthollow,capital,no,1333-A", rows)
+        self.assertEqual(rows[1], b"Holy Order of Eternea,1315,Holy Order of Eternea,city,no,1315-A")
+        self.assertEqual(rows[3], b"Holy Order of Eternea,1333,Lighthollow,capital,no,1333-A")
+        world = json.loads((self.data / "world.json").read_text(encoding="utf-8"))
+        nation = next(item for item in world["nations"] if item["id"] == 75)
+        self.assertEqual(nation["capital_province"], 1333)
+        self.assertEqual(nation["capital_xy"], [5400.5, 2200.5])
+        slots = json.loads((self.data / "province_slots.json").read_text(encoding="utf-8"))
+        self.assertFalse(slots["provinces"]["1315"]["capital"])
+        self.assertEqual(slots["provinces"]["1315"]["sectors"][0]["map_label"], "city")
+        self.assertTrue(slots["provinces"]["1333"]["capital"])
+        self.assertEqual(slots["provinces"]["1333"]["sectors"][0]["map_label"], "capital")
+        self.assertEqual(slots["provinces"]["1333"]["sectors"][0]["name"], "Lighthollow")
+        overrides = (self.data / "settlement_name_overrides.csv").read_bytes()
+        self.assertEqual(overrides, b"sector_id,name\r\n1333-A,Lighthollow\r\n")
+        infra = json.loads((self.data / "infrastructure.json").read_text(encoding="utf-8"))
+        city = next(place for place in infra["places"] if place["id"] == "city-1333")
+        self.assertEqual(city["name"], "Lighthollow")
+        former = next(place for place in infra["places"] if place["id"] == "city-1315")
+        self.assertEqual(former["x"], 5100.0)
+        self.assertEqual(former["y"], 2100.0)
+        self.assertEqual(former["type"], "city")
+        claims = (self.data / "claims.json").read_text(encoding="utf-8")
+        self.assertEqual(json.loads(claims)["75"]["player"], "Aiden")
+        self.assertNotIn("capital", json.loads(claims)["75"])
+
+    def test_second_move_to_the_same_capital_is_a_noop(self) -> None:
+        with mock.patch.object(nb, "run_secrecy_check"):
+            nb.cmd_capital_move(argparse_namespace(nation="75", province="1333", name="Lighthollow", dry_run=False))
+            before = self._bytes()
+            nb.cmd_capital_move(argparse_namespace(nation="75", province="1333", name="Lighthollow", dry_run=False))
+        self.assertEqual(self._bytes(), before)
+
+
 class ReligionCommandTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp())

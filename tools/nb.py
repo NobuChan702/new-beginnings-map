@@ -782,6 +782,238 @@ def cmd_capital_set(args: argparse.Namespace) -> None:
     safe_write_many(items, args.dry_run)
 
 
+def _xy_pair(value: Any) -> list[Any] | None:
+    if not isinstance(value, list) or len(value) < 2:
+        return None
+    if isinstance(value[0], bool) or isinstance(value[1], bool):
+        return None
+    if not isinstance(value[0], (int, float)) or not isinstance(value[1], (int, float)):
+        return None
+    return [value[0], value[1]]
+
+
+def _find_place(places: list[dict[str, Any]], province: int, name: str, kind: str) -> dict[str, Any] | None:
+    for place in places:
+        if place.get("province") == province and place.get("name") == name and place.get("type") == kind:
+            return place
+    return None
+
+
+def cmd_capital_move(args: argparse.Namespace) -> None:
+    """Move a nation's capital to another province it owns.
+
+    The old capital settlement becomes a city. The target province's city
+    sector (sector A, or its city / main settlement if that row is missing)
+    becomes type=capital. capital_xy is that settlement's marker in
+    infrastructure.json. The province ledger's capital flag and map_label
+    follow the move. Claims do not store a capital. --name is written to
+    settlement_name_overrides.csv and to the capital row the page reads.
+    """
+    world, provinces, nations = load_world()
+    nid = int(args.nation)
+    pid = int(args.province)
+    assert_public_nation(nid, nations, "capital move")
+    assert_public_province(pid, provinces, "capital move")
+    nation = nations[nid]
+    owner = provinces[pid].get("nation_id")
+    if owner != nid:
+        owner_text = "unclaimed" if owner is None else f"nation {owner}"
+        raise ValueError(
+            f"nation {nid} ({nation['short_name']}) does not own province {pid}; it is {owner_text}"
+        )
+    new_name = None
+    if args.name is not None:
+        new_name = str(args.name).strip()
+        if not new_name or new_name.lower() == "terillia":
+            raise ValueError("name is missing or reserved")
+        if any(ch in new_name for ch in ",\"\r\n"):
+            raise ValueError("capital name cannot contain commas or quotes (the map splits settlements.csv on commas)")
+
+    old_pid = int(nation["capital_province"])
+    settlements_path = DATA / "settlements.csv"
+    header, body = read_csv_rows(settlements_path)
+    if header != ["nation", "province", "name", "type", "port", "sector_id"]:
+        raise ValueError("settlements.csv: header must be nation,province,name,type,port,sector_id")
+    short = nation["short_name"]
+    capital_rows = [
+        index
+        for index, row in enumerate(body)
+        if len(row) >= 6 and row[0].strip() == short and row[3].strip().lower() == "capital"
+    ]
+    if len(capital_rows) != 1:
+        raise ValueError(f"nation {nid} has {len(capital_rows)} capital settlement rows")
+    old_row = body[capital_rows[0]]
+    old_capital_name = old_row[2]
+    if old_pid == pid and new_name is None:
+        print(f"Province {pid} is already the capital of nation {nid} ({short}).")
+        print("Nothing to write.")
+        return
+
+    target_sector = f"{pid}-A"
+    target_indexes = [index for index, row in enumerate(body) if len(row) >= 6 and row[5].strip() == target_sector]
+    created = False
+    if target_indexes:
+        target = body[target_indexes[0]]
+        if target[0].strip() != short:
+            raise ValueError(
+                f"{target_sector} belongs to {target[0].strip()!r}, not {short}"
+            )
+        source_name = target[2]
+        source_kind = target[3].strip().lower()
+    else:
+        city_rows = [
+            row
+            for row in body
+            if len(row) >= 6 and row[1].strip() == str(pid) and row[3].strip().lower() == "city" and row[0].strip() == short
+        ]
+        main_rows = [row for row in body if len(row) >= 6 and row[1].strip() == str(pid) and row[0].strip() == short]
+        source = city_rows[0] if city_rows else (main_rows[0] if main_rows else None)
+        if source is None:
+            raise ValueError(f"province {pid} has no city or settlement to turn into a capital")
+        source_name = source[2]
+        source_kind = source[3].strip().lower()
+        target = [short, str(pid), source_name, "capital", source[4].strip() or "no", target_sector]
+        body.append(target)
+        created = True
+
+    if not created:
+        target[3] = "capital"
+    if new_name:
+        target[2] = new_name
+    if old_pid != pid:
+        old_row[3] = "city"
+
+    infra_path = DATA / "infrastructure.json"
+    infra = json.loads(infra_path.read_text(encoding="utf-8"))
+    places = infra.setdefault("places", [])
+    if not isinstance(places, list):
+        raise ValueError("infrastructure.json places must be a list")
+    marker = _find_place(places, pid, source_name, "city") or _find_place(places, pid, source_name, source_kind)
+    marker_xy = _xy_pair([marker.get("x"), marker.get("y")]) if marker else None
+    if marker_xy is None:
+        marker_xy = _xy_pair(provinces[pid].get("xy"))
+    if marker_xy is None:
+        raise ValueError(f"province {pid} has no marker position in infrastructure.json")
+    if new_name and marker is not None:
+        marker["name"] = new_name
+
+    old_xy = _xy_pair(nation.get("capital_xy")) or marker_xy
+    added_place = None
+    if old_pid != pid and _find_place(places, old_pid, old_row[2], "city") is None:
+        place_id = f"city-{old_pid}"
+        taken = {str(place.get("id")) for place in places}
+        if place_id in taken:
+            place_id = f"city-{old_pid}-former-capital"
+        added_place = {
+            "id": place_id,
+            "type": "city",
+            "name": old_row[2],
+            "province": old_pid,
+            "x": old_xy[0],
+            "y": old_xy[1],
+            "cycle": 0,
+            "nation": nid,
+        }
+        places.append(added_place)
+
+    if old_pid != pid:
+        nation["capital_province"] = pid
+        nation["capital_xy"] = marker_xy
+
+    slots_path = DATA / "province_slots.json"
+    slots = json.loads(slots_path.read_text(encoding="utf-8")) if slots_path.is_file() else {"provinces": {}}
+    slot_provinces = slots.setdefault("provinces", {})
+    ledger_notes: list[str] = []
+    for slot_pid, is_capital, label in ((old_pid, False, "city"), (pid, True, "capital")):
+        if old_pid == pid and not is_capital:
+            continue
+        row = slot_provinces.get(str(slot_pid))
+        if not isinstance(row, dict):
+            continue
+        if row.get("capital") is not is_capital:
+            row["capital"] = is_capital
+            ledger_notes.append(f"ledger province {slot_pid}: capital {str(is_capital).lower()}")
+        for sector in row.get("sectors") or []:
+            if not isinstance(sector, dict):
+                continue
+            if str(sector.get("sector") or "") != f"{slot_pid}-A":
+                continue
+            if sector.get("map_label") != label:
+                sector["map_label"] = label
+                ledger_notes.append(f"ledger {slot_pid}-A: map_label {label}")
+            if is_capital and new_name and sector.get("name") != new_name:
+                sector["name"] = new_name
+                ledger_notes.append(f"ledger {slot_pid}-A: name {new_name}")
+
+    claims_path = DATA / "claims.json"
+    claims_note = None
+    if claims_path.is_file():
+        claims = json.loads(claims_path.read_text(encoding="utf-8"))
+        entry = claims.get(str(nid)) if isinstance(claims, dict) else None
+        if isinstance(entry, dict) and "capital" in entry and entry.get("capital") != pid:
+            entry["capital"] = pid
+            claims_note = f"claims {nid}: capital {pid}"
+        else:
+            claims = None
+    else:
+        claims = None
+
+    overrides_path = DATA / "settlement_name_overrides.csv"
+    override_text = None
+    if new_name:
+        if overrides_path.is_file():
+            ov_header, ov_body = read_csv_rows(overrides_path)
+        else:
+            ov_header, ov_body = ["sector_id", "name"], []
+        if ov_header != ["sector_id", "name"]:
+            raise ValueError("settlement_name_overrides.csv: header must be sector_id,name")
+        replaced = False
+        for ov in ov_body:
+            if ov and ov[0].strip() == target_sector:
+                ov[1] = new_name
+                replaced = True
+        if not replaced:
+            ov_body.append([target_sector, new_name])
+        override_text = write_csv_rows(overrides_path, ov_header, ov_body)
+
+    if old_pid != pid:
+        print(f"Capital of nation {nid} ({short}): province {old_pid} -> {pid}")
+        print(f"capital_xy {old_xy} -> {marker_xy}")
+        print(f"settlements {old_row[5].strip()}: type capital -> city ({old_row[2]})")
+    else:
+        print(f"Capital of nation {nid} ({short}) stays in province {pid}")
+    action = "create" if created else f"type {source_kind} -> capital"
+    shown = target[2]
+    print(f"settlements {target_sector}: {action} ({shown})")
+    if new_name and new_name != source_name:
+        print(f"name {source_name!r} -> {new_name!r} in settlements.csv and settlement_name_overrides.csv")
+    if added_place is not None:
+        print(f"infrastructure add {added_place['id']} at {old_xy}")
+    for note in ledger_notes:
+        print(note)
+    if claims_note:
+        print(claims_note)
+    else:
+        print("claims.json does not record a capital")
+
+    items: list[tuple[Path, str | bytes]] = [
+        (settlements_path, write_csv_rows(settlements_path, header, body)),
+        (DATA / "world.json", dumps_json(world, DATA / "world.json")),
+        (infra_path, dumps_json(infra, infra_path)),
+    ]
+    if slots_path.is_file() or ledger_notes:
+        items.append((slots_path, dumps_json(slots, slots_path)))
+    if override_text is not None:
+        items.append((overrides_path, override_text))
+    if claims is not None and claims_note:
+        items.append((claims_path, dumps_claims(claims)))
+    if new_name and new_name != source_name:
+        items.extend(_retarget_capital_routes(source_name, new_name, nid))
+    if new_name and old_capital_name != new_name and old_capital_name != source_name:
+        items.extend(_retarget_capital_routes(old_capital_name, new_name, nid))
+    safe_write_many(items, args.dry_run)
+
+
 def default_export_dir() -> Path:
     if os.name == "nt":
         return Path(WINDOWS_EXPORT_DIR)
@@ -1263,6 +1495,14 @@ def build_parser() -> argparse.ArgumentParser:
     capital_set.add_argument("nation", help="Nation id (published map).")
     capital_set.add_argument("name", help="Capital place name.")
     capital_set.set_defaults(func=cmd_capital_set)
+    capital_move = capital_sub.add_parser(
+        "move",
+        help="Move a nation's capital to a province it owns.",
+    )
+    capital_move.add_argument("nation", help="Nation id.")
+    capital_move.add_argument("province", help="Province id the nation must already own.")
+    capital_move.add_argument("--name", default=None, help="Capital place name, stored in settlement_name_overrides.csv.")
+    capital_move.set_defaults(func=cmd_capital_move)
 
     export = sub.add_parser(
         "export",
