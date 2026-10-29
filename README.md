@@ -116,7 +116,7 @@ python3 tools/nb.py export --dry-run --out ./sync/out
 
 The page loads that JSON and shows the image on the nation popup, the search row, and the corner flag card. `scripts/check_history.py` requires each key to be a published nation and each path to be a file inside the repo.
 
-`flag set` checks the file is a real PNG (signature, IHDR, per-chunk CRC, and IEND), copies it to `assets/flags/<slug>.png`, and sets that path in `data/flags.json`. The slug is the nation `name` with the trailing tier parenthesis removed, then lowercased, with every other run of non-letters and non-digits turned into a hyphen. For every nation in the current data that remainder is the same as `short_name`, which is why the three files above match. `--dry-run` prints the diff and does not copy. A real write backs up the previous JSON and, when replacing a PNG, the previous image, then runs the secrecy check and restores those backups if the check fails.
+`flag set` checks the file is a real PNG (signature, IHDR, per-chunk CRC, and IEND), copies it to `assets/flags/<slug>.png`, and sets that path in `data/flags.json`. JSON rewrites keep the file's existing CRLF or LF endings, so a checkout made with `core.autocrlf=true` shows only the changed line. The slug is the nation `name` with the trailing tier parenthesis removed, then lowercased, with every other run of non-letters and non-digits turned into a hyphen. For every nation in the current data that remainder is the same as `short_name`, which is why the three files above match. `--dry-run` prints the diff and does not copy. A real write backs up the previous JSON and, when replacing a PNG, the previous image, then runs the secrecy check and restores those backups if the check fails.
 
 #### Capitals
 

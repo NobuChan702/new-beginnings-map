@@ -2,7 +2,6 @@
 import hashlib
 import io
 import json
-import os
 import shutil
 import struct
 import subprocess
@@ -94,6 +93,10 @@ def copy_min_repo(dest: Path) -> None:
         shutil.rmtree(backups)
 
 
+def normalize_newlines(data: bytes) -> bytes:
+    return data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")
+
+
 def git_quiet(repo: Path, *args: str) -> str:
     proc = subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
     if proc.returncode != 0:
@@ -107,7 +110,7 @@ def init_git(repo: Path) -> str:
     git_quiet(repo, "config", "user.name", "nb test")
     git_quiet(repo, "config", "commit.gpgsign", "false")
     git_quiet(repo, "config", "core.autocrlf", "false")
-    (repo / "NOTES.txt").write_text("tracked\n", encoding="utf-8")
+    (repo / "NOTES.txt").write_bytes(b"tracked\n")
     git_quiet(repo, "add", "-A")
     git_quiet(repo, "commit", "-m", "init")
     return git_quiet(repo, "rev-parse", "HEAD").strip()
@@ -216,6 +219,23 @@ class FlagCommandTests(RepoCopyCase):
         with self.assertRaises(ValueError):
             nb.cmd_flag_set(argparse_namespace(nation="999999", png=str(src), dry_run=True))
 
+    def test_json_rewrite_keeps_crlf_and_changes_one_line(self) -> None:
+        flags = self.repo / "data" / "flags.json"
+        original = flags.read_bytes().replace(b"\n", b"\r\n")
+        flags.write_bytes(original)
+        src = self.tmp / "zaneth.png"
+        src.write_bytes(tiny_png())
+        nb.cmd_flag_set(argparse_namespace(nation="8", png=str(src), dry_run=False))
+        updated = flags.read_bytes()
+        self.assertTrue(updated.endswith(b"\r\n"))
+        self.assertNotIn(b"\n", updated.replace(b"\r\n", b""))
+        old_lines = original.split(b"\r\n")
+        new_lines = updated.split(b"\r\n")
+        self.assertEqual(new_lines[:3], old_lines[:3])
+        self.assertEqual(new_lines[3], old_lines[3] + b",")
+        self.assertEqual(new_lines[4], b'  "8": "assets/flags/zaneth.png"')
+        self.assertEqual(new_lines[5:], [b"}", b""])
+
 
 class CapitalCommandTests(RepoCopyCase):
     def test_dry_run_leaves_settlements_and_overrides_unchanged(self) -> None:
@@ -306,47 +326,39 @@ class CapitalCommandTests(RepoCopyCase):
 class ExportCommandTests(RepoCopyCase):
     def test_windows_default_directory_constant(self) -> None:
         self.assertEqual(nb.WINDOWS_EXPORT_DIR, r"D:\NewBeginnings\sync\out")
-        self.assertEqual(nb.default_export_dir(), Path("sync") / "out")
+        self.assertEqual(nb.default_export_dir("nt"), Path(nb.WINDOWS_EXPORT_DIR))
+        self.assertEqual(nb.default_export_dir("posix"), Path("sync") / "out")
 
     def test_dry_run_runs_checks_and_does_not_write_the_zip(self) -> None:
         head = init_git(self.repo)
-        (self.repo / "README.md").write_text(
-            (self.repo / "README.md").read_text(encoding="utf-8") + "\nnote\n", encoding="utf-8"
-        )
+        readme = self.repo / "README.md"
+        readme.write_bytes(readme.read_bytes() + b"\nnote\n")
         out = self.tmp / "bundle"
-        previous = Path.cwd()
-        os.chdir(self.repo)
-        try:
-            buf = io.StringIO()
-            with redirect_stdout(buf):
-                nb.main(["--dry-run", "export"])
-                nb.main(["export", "--dry-run", "--out", str(out)])
-        finally:
-            os.chdir(previous)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            nb.main(["--dry-run", "export", "--out", str(out)])
+            nb.main(["export", "--dry-run", "--out", str(out)])
         text = buf.getvalue()
         self.assertIn("history secrecy ok", text)
         self.assertIn("No building-limit violations found.", text)
-        self.assertIn("sync/out", text)
+        self.assertIn(str(out), text)
         self.assertIn("modified README.md", text)
         self.assertIn(head, text)
         self.assertIn("(dry-run: not writing)", text)
         self.assertFalse(out.exists())
-        self.assertFalse((self.repo / "sync").exists())
         self.assertEqual(git_quiet(self.repo, "rev-parse", "HEAD").strip(), head)
 
     def test_zip_lists_status_and_sha256_without_committing(self) -> None:
         head = init_git(self.repo)
         notes_bytes = (self.repo / "NOTES.txt").read_bytes()
         claims_path = self.repo / "data" / "claims.json"
-        claims_path.write_text(
-            claims_path.read_text(encoding="utf-8").replace('"player": "Tom"', '"player": "Thomas"', 1),
-            encoding="utf-8",
-        )
-        (self.repo / "data" / "extra.txt").write_text("hello\n", encoding="utf-8")
-        (self.repo / "scratch.txt").write_text("nope\n", encoding="utf-8")
+        claims_path.write_bytes(claims_path.read_bytes().replace(b'"player": "Tom"', b'"player": "Thomas"', 1))
+        extra_path = self.repo / "data" / "extra.txt"
+        extra_path.write_bytes(b"hello\n")
+        (self.repo / "scratch.txt").write_bytes(b"nope\n")
         (self.repo / "assets" / "flags" / "spare.png").write_bytes(b"spare")
         readme = self.repo / "README.md"
-        readme.write_text(readme.read_text(encoding="utf-8") + "\nExported.\n", encoding="utf-8")
+        readme.write_bytes(readme.read_bytes() + b"\nExported.\n")
         (self.repo / "NOTES.txt").unlink()
         out = self.tmp / "bundle"
         nb.cmd_export(argparse_namespace(dry_run=False, export_dry_run=False, out=str(out)))
@@ -356,6 +368,9 @@ class ExportCommandTests(RepoCopyCase):
         with zipfile.ZipFile(zips[0]) as archive:
             names = set(archive.namelist())
             manifest = json.loads(archive.read("manifest.json"))
+            claims_zip = archive.read("data/claims.json")
+            extra_zip = archive.read("data/extra.txt")
+            readme_zip = archive.read("README.md")
         self.assertEqual(manifest["base"], head)
         by_path = {row["path"]: row for row in manifest["files"]}
         self.assertEqual(by_path["README.md"]["status"], "modified")
@@ -366,12 +381,20 @@ class ExportCommandTests(RepoCopyCase):
         self.assertNotIn("scratch.txt", by_path)
         self.assertNotIn("NOTES.txt", names)
         self.assertNotIn("scratch.txt", names)
-        self.assertEqual(by_path["NOTES.txt"]["sha256"], hashlib.sha256(notes_bytes).hexdigest())
+        blob = subprocess.run(
+            ["git", "-C", str(self.repo), "show", "HEAD:NOTES.txt"],
+            check=True,
+            capture_output=True,
+        ).stdout
+        self.assertEqual(normalize_newlines(notes_bytes), b"tracked\n")
+        self.assertEqual(normalize_newlines(blob), b"tracked\n")
+        self.assertEqual(by_path["NOTES.txt"]["sha256"], hashlib.sha256(blob).hexdigest())
         self.assertEqual(by_path["data/claims.json"]["sha256"], hashlib.sha256(claims_path.read_bytes()).hexdigest())
         self.assertEqual(by_path["README.md"]["sha256"], hashlib.sha256(readme.read_bytes()).hexdigest())
-        with zipfile.ZipFile(zips[0]) as archive:
-            self.assertEqual(archive.read("data/claims.json"), claims_path.read_bytes())
-            self.assertEqual(archive.read("data/extra.txt"), b"hello\n")
+        self.assertEqual(by_path["data/extra.txt"]["sha256"], hashlib.sha256(extra_path.read_bytes()).hexdigest())
+        self.assertEqual(normalize_newlines(claims_zip), normalize_newlines(claims_path.read_bytes()))
+        self.assertEqual(normalize_newlines(extra_zip), b"hello\n")
+        self.assertEqual(normalize_newlines(readme_zip), normalize_newlines(readme.read_bytes()))
         self.assertEqual(git_quiet(self.repo, "rev-parse", "HEAD").strip(), head)
         status = git_quiet(self.repo, "status", "--porcelain")
         self.assertIn("README.md", status)

@@ -89,6 +89,24 @@ def json_style(path: Path) -> tuple[str, bool]:
     return ("  ", not compact) if not compact else (", ", False)
 
 
+def file_newline(path: Path) -> str:
+    """CRLF when the file already uses it, otherwise LF.
+
+    A checkout with core.autocrlf=true stores CRLF in the working tree. Rewriting
+    that file with LF makes every line look changed.
+    """
+    if path.is_file() and b"\r\n" in path.read_bytes():
+        return "\r\n"
+    return "\n"
+
+
+def apply_newline(text: str, newline: str) -> str:
+    normalized = text.replace("\r\n", "\n").replace("\r", "\n")
+    if newline == "\r\n":
+        return normalized.replace("\n", "\r\n")
+    return normalized
+
+
 def dumps_claims(data: dict[str, Any]) -> str:
     lines = ["{"]
     items = list(data.items())
@@ -102,14 +120,17 @@ def dumps_claims(data: dict[str, Any]) -> str:
                 inner = "{ " + inner[1:-1] + " }"
         lines.append(f'  "{key}": {inner}{comma}')
     lines.append("}\n")
-    return "\n".join(lines)
+    text = "\n".join(lines)
+    return apply_newline(text, file_newline(DATA / "claims.json"))
 
 
 def dumps_json(data: Any, path: Path) -> str:
     indent, pretty = json_style(path)
     if pretty:
-        return json.dumps(data, indent=2 if indent == "  " else None, ensure_ascii=False) + "\n"
-    return json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n"
+        text = json.dumps(data, indent=2 if indent == "  " else None, ensure_ascii=False) + "\n"
+    else:
+        text = json.dumps(data, ensure_ascii=False, separators=(",", ":")) + "\n"
+    return apply_newline(text, file_newline(path))
 
 
 def diff_summary(before: str, after: str, label: str) -> None:
@@ -147,7 +168,9 @@ def run_secrecy_check() -> None:
 
 
 def safe_write(path: Path, new_text: str, dry_run: bool) -> None:
-    old_text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    # Read bytes so CRLF stays intact. write_text would turn \n into os.linesep
+    # and double a CR that is already in the text.
+    old_text = path.read_bytes().decode("utf-8") if path.is_file() else ""
     diff_summary(old_text, new_text, path.relative_to(ROOT).as_posix())
     if old_text == new_text:
         print("Nothing to write.")
@@ -164,7 +187,7 @@ def safe_write(path: Path, new_text: str, dry_run: bool) -> None:
         print(f"Backup: {backup.relative_to(ROOT)}")
 
     tmp = path.with_suffix(path.suffix + ".nb.tmp")
-    tmp.write_text(new_text, encoding="utf-8")
+    tmp.write_bytes(new_text.encode("utf-8"))
     os.replace(tmp, path)
     try:
         run_secrecy_check()
@@ -189,11 +212,7 @@ def read_csv_rows(path: Path) -> tuple[list[str], list[list[str]]]:
 
 def csv_lineterminator(path: Path) -> str:
     """Keep a CSV on its current newline so a one-cell edit does not rewrite the file."""
-    if path.is_file():
-        sample = path.read_bytes()[:8192]
-        if b"\r\n" in sample:
-            return "\r\n"
-    return "\n"
+    return file_newline(path)
 
 
 def write_csv_rows(path: Path, header: list[str], body: list[list[str]]) -> str:
@@ -355,9 +374,9 @@ def cmd_transfer(args: argparse.Namespace) -> None:
     control_text = write_csv_rows(control_path, header, body)
 
     if args.dry_run:
-        diff_summary(DATA.joinpath("world.json").read_text(encoding="utf-8"), world_text, "data/world.json")
-        diff_summary(slots_path.read_text(encoding="utf-8"), slots_text, "data/province_slots.json")
-        diff_summary(control_path.read_text(encoding="utf-8"), control_text, "data/sector_control.csv")
+        diff_summary(DATA.joinpath("world.json").read_bytes().decode("utf-8"), world_text, "data/world.json")
+        diff_summary(slots_path.read_bytes().decode("utf-8"), slots_text, "data/province_slots.json")
+        diff_summary(control_path.read_bytes().decode("utf-8"), control_text, "data/sector_control.csv")
         print("(dry-run: not writing)")
         return
 
@@ -377,7 +396,7 @@ def cmd_transfer(args: argparse.Namespace) -> None:
                 shutil.copy2(path, backup)
                 print(f"Backup: {backup.relative_to(ROOT)}")
             tmp = path.with_suffix(path.suffix + ".nb.tmp")
-            tmp.write_text(text, encoding="utf-8")
+            tmp.write_bytes(text.encode("utf-8"))
             os.replace(tmp, path)
             written.append((path, backup))
         run_secrecy_check()
@@ -739,8 +758,8 @@ def cmd_capital_set(args: argparse.Namespace) -> None:
     safe_write_many(items, args.dry_run)
 
 
-def default_export_dir() -> Path:
-    if os.name == "nt":
+def default_export_dir(platform: str | None = None) -> Path:
+    if (platform or os.name) == "nt":
         return Path(WINDOWS_EXPORT_DIR)
     return Path("sync") / "out"
 
