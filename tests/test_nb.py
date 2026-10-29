@@ -405,5 +405,110 @@ class ExportCommandTests(RepoCopyCase):
         self.assertEqual(git_quiet(self.repo, "rev-parse", "HEAD").strip(), head)
 
 
+class CsvRewriteTests(unittest.TestCase):
+    def test_unchanged_rows_keep_bytes_and_crlf(self) -> None:
+        raw = b"province,name\r\n200,Beta\r\n10,Alpha\r\n"
+        path = Path(tempfile.mkdtemp()) / "names.csv"
+        path.write_bytes(raw)
+        header, body = nb.read_csv_rows(path)
+        text = nb.write_csv_rows(path, header, body)
+        self.assertEqual(text.encode("utf-8"), raw)
+
+    def test_rename_keeps_row_order_and_line_endings(self) -> None:
+        raw = b"province,name\r\n200,Beta\r\n10,Alpha\r\n"
+        directory = Path(tempfile.mkdtemp())
+        path = directory / "names.csv"
+        path.write_bytes(raw)
+        header, body = nb.read_csv_rows(path)
+        for row in body:
+            if row[0] == "10":
+                row[1] = "Alpine"
+        text = nb.write_csv_rows(path, header, body)
+        self.assertEqual(
+            text.encode("utf-8"),
+            b"province,name\r\n200,Beta\r\n10,Alpine\r\n",
+        )
+
+    def test_rename_command_noop_does_not_touch_the_file(self) -> None:
+        directory = Path(tempfile.mkdtemp())
+        data = directory / "data"
+        data.mkdir()
+        raw = b"province,name\r\n200,Beta\r\n10,Alpha\r\n"
+        (data / "province_names.csv").write_bytes(raw)
+        world = {
+            "nations": [],
+            "provinces": {
+                "10": {"bbox": [4000, 0, 4200, 100], "xy": [4100, 40]},
+                "200": {"bbox": [4300, 0, 4500, 100], "xy": [4400, 40]},
+            },
+        }
+        (data / "world.json").write_text(json.dumps(world), encoding="utf-8")
+        saved = (nb.ROOT, nb.DATA, nb.BACKUP_DIR, nb.CHECK_HISTORY)
+        nb.set_root(directory)
+        try:
+            nb.cmd_rename_province(argparse_namespace(province="10", name="Alpha", dry_run=False))
+            self.assertEqual((data / "province_names.csv").read_bytes(), raw)
+            with mock.patch.object(nb, "run_secrecy_check"):
+                nb.cmd_rename_province(argparse_namespace(province="200", name="Gamma", dry_run=False))
+            updated = (data / "province_names.csv").read_bytes()
+            self.assertEqual(updated, b"province,name\r\n200,Gamma\r\n10,Alpha\r\n")
+        finally:
+            nb.ROOT, nb.DATA, nb.BACKUP_DIR, nb.CHECK_HISTORY = saved
+            shutil.rmtree(directory)
+
+
+class ReligionCommandTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.data = self.tmp / "data"
+        self.data.mkdir()
+        self.raw = b"target,id,religion,color\r\n"
+        (self.data / "religions.csv").write_bytes(self.raw)
+        self.world = {
+            "nations": [
+                {"id": 25, "name": "North", "bbox": [4000, 0, 5000, 200], "capital_xy": [4500, 80]},
+            ],
+            "provinces": {
+                "25": {"bbox": [4000, 0, 4100, 80], "xy": [4050, 40]},
+                "878": {"bbox": [5200, 1500, 5600, 1900], "xy": [5400, 1700]},
+            },
+        }
+        self.provinces = {int(key): value for key, value in self.world["provinces"].items()}
+        self.nations = {nation["id"]: nation for nation in self.world["nations"]}
+        self.saved = (nb.ROOT, nb.DATA, nb.BACKUP_DIR, nb.CHECK_HISTORY)
+        nb.set_root(self.tmp)
+
+    def tearDown(self) -> None:
+        nb.ROOT, nb.DATA, nb.BACKUP_DIR, nb.CHECK_HISTORY = self.saved
+        shutil.rmtree(self.tmp)
+
+    def test_set_nation_and_province_override(self) -> None:
+        with mock.patch.object(nb, "load_world", return_value=(self.world, self.provinces, self.nations)), mock.patch.object(nb, "run_secrecy_check"):
+            nb.cmd_religion_set(argparse_namespace(target="nation:25", name="Old Faith", color=None, dry_run=False))
+            nb.cmd_religion_set(argparse_namespace(target="province:878", name="Local Faith", color="#abc", dry_run=False))
+        text = (self.data / "religions.csv").read_bytes()
+        self.assertEqual(
+            text,
+            b"target,id,religion,color\r\nnation,25,Old Faith,\r\nprovince,878,Local Faith,#abc\r\n",
+        )
+
+    def test_same_name_does_not_rewrite(self) -> None:
+        with mock.patch.object(nb, "load_world", return_value=(self.world, self.provinces, self.nations)), mock.patch.object(nb, "run_secrecy_check"):
+            nb.cmd_religion_set(argparse_namespace(target="nation:25", name="Old Faith", color=None, dry_run=False))
+            before = (self.data / "religions.csv").read_bytes()
+            backups = list((self.data / ".nb-backups").glob("religions.csv.*.bak"))
+            nb.cmd_religion_set(argparse_namespace(target="nation:25", name="Old Faith", color=None, dry_run=False))
+        self.assertEqual((self.data / "religions.csv").read_bytes(), before)
+        self.assertEqual(list((self.data / ".nb-backups").glob("religions.csv.*.bak")), backups)
+
+    def test_dry_run_and_ambiguous_id(self) -> None:
+        with mock.patch.object(nb, "load_world", return_value=(self.world, self.provinces, self.nations)):
+            nb.main(["--dry-run", "religion", "set", "nation:25", "Old Faith"])
+            self.assertEqual((self.data / "religions.csv").read_bytes(), self.raw)
+            with self.assertRaises(SystemExit):
+                nb.main(["religion", "set", "25", "Other"])
+        self.assertEqual((self.data / "religions.csv").read_bytes(), self.raw)
+
+
 if __name__ == "__main__":
     unittest.main()

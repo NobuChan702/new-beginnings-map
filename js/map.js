@@ -29,10 +29,11 @@
     settlementRows: null,
     buildings: null,
     alliances: null,
+    religions: null,
     provinceNames: new Map(),
     flags: new Map(),
     mode: "auto",
-    overlays: { borders: true, claims: true, occupied: true, markers: true, infra: true, trade: true, sectors: true, alliances: false, ids: false },
+    overlays: { borders: true, claims: true, occupied: true, markers: true, infra: true, trade: true, sectors: true, alliances: false, religion: false, ids: false },
     labelLayer: null,
     map: null,
     layers: {},
@@ -422,6 +423,11 @@
     alliancePane.style.zIndex = "352";
     alliancePane.style.pointerEvents = "none";
     state.allianceRenderer = L.svg({ pane: "alliance", padding: 0.5 });
+    map.createPane("religion");
+    const religionPane = map.getPane("religion");
+    religionPane.style.zIndex = "351";
+    religionPane.style.pointerEvents = "none";
+    state.religionRenderer = L.svg({ pane: "religion", padding: 0.5 });
     map.createPane("photoBorders");
     const photoBorders = map.getPane("photoBorders");
     photoBorders.style.zIndex = "356";
@@ -450,6 +456,7 @@
       renderSectors();
       renderVillages();
       renderAlliances();
+      renderReligions();
       renderRivers();
     });
     map.fitBounds(state.imageBounds, {
@@ -484,6 +491,7 @@
           '<label><input type="checkbox" data-overlay="occupied" checked> Occupied territory</label>' +
           '<label><input type="checkbox" data-overlay="sectors" checked> Sectors</label>' +
           '<label><input type="checkbox" data-overlay="alliances"> Alliances</label>' +
+          '<label><input type="checkbox" data-overlay="religion"> Religion</label>' +
           '<label><input type="checkbox" data-overlay="markers" checked> Battles &amp; armies</label>' +
           '<label><input type="checkbox" data-overlay="infra" checked> Infrastructure</label>' +
           '<label><input type="checkbox" data-overlay="trade" checked> Trade routes</label>' +
@@ -517,6 +525,7 @@
             renderSectors();
             renderVillages();
             renderAlliances();
+            renderReligions();
             refreshProvinceLabels();
           });
         });
@@ -2041,6 +2050,7 @@ const claim = claimOf(nation);
     renderHistory();
     renderSectors();
     renderAlliances();
+    renderReligions();
     restyleFlatForHistory();
     applyMode();
   }
@@ -3972,6 +3982,105 @@ const claim = claimOf(nation);
     state.alliancePad = { sig: sig, bounds: bounds, empty: false };
   }
 
+  function loadReligions(text) {
+    const nations = new Map();
+    const provinces = new Map();
+    String(text || "")
+      .split(/\r?\n/)
+      .forEach(function (line, index) {
+        if (!index || !line.trim()) return;
+        const parts = line.split(",");
+        if (parts.length < 3) return;
+        const target = parts[0].trim().toLowerCase();
+        const id = Number(parts[1].trim());
+        const name = parts[2].trim();
+        const color = parts.length > 3 ? parts[3].trim() : "";
+        if ((target !== "nation" && target !== "province") || !isFinite(id) || !name) return;
+        const row = { name: name, color: color };
+        if (target === "province") provinces.set(id, row);
+        else nations.set(id, row);
+      });
+    return { nations: nations, provinces: provinces };
+  }
+
+  function religionColor(row) {
+    const color = row && row.color;
+    if (color && /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(color)) return color;
+    return allianceColor(row && row.name);
+  }
+
+  function religionOfProvince(id, prov) {
+    const table = state.religions;
+    if (!table) return null;
+    if (table.provinces && table.provinces.has(id)) return table.provinces.get(id);
+    const owner = legalOwnerId(id, prov);
+    if (owner != null && table.nations && table.nations.has(owner)) return table.nations.get(owner);
+    return null;
+  }
+
+  function renderReligions() {
+    const map = state.map;
+    if (!map) return;
+    if (!state.overlays.religion) {
+      dropLayer(state.religionLayer);
+      state.religionLayer = null;
+      state.religionPad = null;
+      return;
+    }
+    const view = map.getBounds();
+    const sig =
+      String(state.historyIndex || 0) +
+      ":" +
+      (state.flatById ? "f" : "n") +
+      ":" +
+      (state.overlays.borders ? "b" : "o");
+    const pad = state.religionPad;
+    if (pad && pad.sig === sig && pad.bounds.contains(view) && (state.religionLayer || pad.empty)) return;
+    dropLayer(state.religionLayer);
+    const grown = view.pad(0.45);
+    const features = [];
+    if (state.religions && state.flatById) {
+      state.provinces.forEach(function (prov, id) {
+        if (!provinceIsPublic(id, prov) || isConcealed(id)) return;
+        if (prov.bbox && sectorOutside(prov.bbox, grown)) return;
+        const row = religionOfProvince(id, prov);
+        if (!row) return;
+        const feature = provinceFeature(id, { fill: religionColor(row), religion: row.name });
+        if (feature) features.push(feature);
+      });
+    }
+    if (!features.length) {
+      state.religionLayer = null;
+      state.religionPad = { sig: sig, bounds: grown, empty: true };
+      return;
+    }
+    const borders = state.overlays.borders;
+    state.religionLayer = L.geoJSON(
+      { type: "FeatureCollection", features: features },
+      {
+        pane: "religion",
+        renderer: state.religionRenderer,
+        interactive: false,
+        smoothFactor: 0,
+        style: function (feature) {
+          return {
+            stroke: !!borders,
+            color: "#16140f",
+            weight: borders ? 1 : 0,
+            opacity: 0.95,
+            lineJoin: "round",
+            fill: true,
+            fillColor: feature.properties.fill,
+            fillOpacity: 0.72,
+            interactive: false,
+          };
+        },
+      }
+    );
+    state.religionLayer.addTo(map);
+    state.religionPad = { sig: sig, bounds: grown, empty: false };
+  }
+
   function sectorOutside(box, bounds) {
     return box[2] < bounds.getWest() || box[0] > bounds.getEast() || box[3] < bounds.getSouth() || box[1] > bounds.getNorth();
   }
@@ -4522,6 +4631,7 @@ const claim = claimOf(nation);
     renderHistory();
     renderSectors();
     renderAlliances();
+    renderReligions();
     restyleFlatForHistory();
     if (state.infraRaw) applyInfra();
     if (state.tradeRaw) renderTrade();
@@ -4597,7 +4707,7 @@ const claim = claimOf(nation);
       .catch(function () {
         return null;
       });
-    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, provinceNames, flags, slots, rivers, lut] = await Promise.all([
+    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, religions, provinceNames, flags, slots, rivers, lut] = await Promise.all([
       fetch("data/world.json").then(function (res) {
         if (!res.ok) throw new Error("world");
         return res.json();
@@ -4658,6 +4768,13 @@ const claim = claimOf(nation);
         .catch(function () {
           return "";
         }),
+      fetch("data/religions.csv?t=" + stamp, { cache: "no-store" })
+        .then(function (res) {
+          return res.ok ? res.text() : "";
+        })
+        .catch(function () {
+          return "";
+        }),
       fetch("data/province_names.csv?t=" + stamp, { cache: "no-store" })
         .then(function (res) {
           return res.ok ? res.text() : "";
@@ -4695,6 +4812,7 @@ const claim = claimOf(nation);
     state.settlementRows = loadSettlementRows(settlements);
     state.buildings = loadBuildings(buildings);
     state.alliances = loadAlliances(alliances);
+    state.religions = loadReligions(religions);
     state.provinceNames = loadProvinceNames(provinceNames);
     state.flags = loadFlags(flags);
     state.rivers = rivers && rivers.features ? rivers : { features: [] };

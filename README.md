@@ -262,6 +262,25 @@ Fox Pact,Kingdom of Foxglade,vassal
 
 `bloc` is the shared name. `nation` is the nation's current short name, the same form as `data/settlements.csv`. `role` is `leader`, `ally`, or `vassal`. Every nation in a bloc uses that bloc's colour, including vassals. A nation can be in only one bloc. The colour follows the province owner on the history slider. A concealed province, and anything west of x = 3592, is left off. The popup names the bloc and the role while the nation is listed.
 
+## Religion
+
+Layers → Religion is off until you turn it on. It colours each province by the religion in `data/religions.csv`. The file ships with a header and no rows, so nothing is coloured until a religion is chosen.
+
+```csv
+target,id,religion,color
+nation,25,Example,#2f6fbe
+province,878,Example,
+```
+
+`target` is `nation` or `province`. `id` is that nation or province id. A province row overrides the religion of the nation that owns the province on the history slider. `color` is an optional hex colour. Leave it blank and the page picks a stable colour from the religion name. Concealed provinces are left off.
+
+```bash
+python3 tools/nb.py --dry-run religion set 25 "Example"
+python3 tools/nb.py religion set province:878 "Example" --color #2f6fbe
+```
+
+A bare id is a nation when that number is a nation, or a province when it is only a province. When the number is both, use `nation:25` or `province:878`. The same `--dry-run`, backup, and secrecy check as the other edits apply. A rebuild is not required. `python3 tools/nb.py export` includes `data/religions.csv` when it has changed, because export packs changes under `data/`.
+
 ## History
 
 The bar at the bottom of the map is the timeline. Dates live in `data/history/`. `index.json` is the slider order, earliest first. The page opens on the last file.
