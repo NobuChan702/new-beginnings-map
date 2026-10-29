@@ -28,7 +28,9 @@ jobs:
         uses: actions/configure-pages@v5
 
       - name: Check history secrecy
-        run: python3 scripts/check_history.py
+        run: |
+          python3 scripts/check_history.py
+          python3 scripts/check_settlement_markers.py
 
       - name: Assemble site
         run: |
