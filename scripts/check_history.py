@@ -275,6 +275,26 @@ def interior_gap(geom, x, y):
     return best
 
 
+def strip_tier(name):
+    text = str(name or "").strip()
+    if text.endswith(")") and " (" in text:
+        return text[: text.rfind(" (")].strip()
+    return text
+
+
+def nation_labels(nation):
+    """Id, short name, full name, and the full name without a trailing tier."""
+    labels = set()
+    if nation.get("id") is not None:
+        labels.add(str(nation["id"]))
+    short = str(nation.get("short_name") or "").strip()
+    full = str(nation.get("name") or "").strip()
+    for text in (short, full, strip_tier(full)):
+        if text:
+            labels.add(text)
+    return labels
+
+
 def check_settlements(provinces, nations, places, width, height):
     path = ROOT / "data" / "settlements.csv"
     if not path.is_file():
@@ -284,11 +304,6 @@ def check_settlements(provinces, nations, places, width, height):
     for feature in sectors.get("features") or []:
         props = feature.get("properties") or {}
         geoms[props.get("id")] = feature.get("geometry") or {}
-    by_name = {nation["short_name"]: nation for nation in nations.values()}
-    owner_name = {}
-    for pid, prov in provinces.items():
-        owner = prov.get("nation_id")
-        owner_name[pid] = "Unclaimed" if owner is None else nations[int(owner)]["short_name"]
     with path.open(encoding="utf-8", newline="") as handle:
         rows = list(csv.reader(handle))
     if not rows or rows[0] != ["nation", "province", "name", "type", "port", "sector_id"]:
@@ -316,12 +331,16 @@ def check_settlements(provinces, nations, places, width, height):
             fail(f"settlements.csv:{index}: port must be yes or no")
         if not name:
             fail(f"settlements.csv:{index}: name is missing")
-        if nation_name != owner_name[pid]:
-            fail(f"settlements.csv:{index}: {nation_name} does not own province {pid}")
-        if nation_name != "Unclaimed":
-            nation = by_name.get(nation_name)
-            if nation is None:
-                fail(f"settlements.csv:{index}: nation {nation_name} is not on the published map")
+        owner = provinces[pid].get("nation_id")
+        if owner is None:
+            if nation_name != "Unclaimed":
+                fail(f"settlements.csv:{index}: {nation_name} does not own province {pid}")
+            nation = None
+        else:
+            nation = nations[int(owner)]
+            if nation_name not in nation_labels(nation):
+                fail(f"settlements.csv:{index}: {nation_name} does not own province {pid}")
+        if nation is not None:
             nation_box = nation.get("bbox") or [0, 0, 0, 0]
             nation_xy = nation.get("capital_xy") or [0, 0]
             if nation_box[0] < WEST or nation_xy[0] < WEST:
