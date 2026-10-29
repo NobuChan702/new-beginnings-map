@@ -115,6 +115,9 @@ def dumps_json(data: Any, path: Path) -> str:
 def diff_summary(before: str, after: str, label: str) -> None:
     before_lines = before.splitlines(keepends=True)
     after_lines = after.splitlines(keepends=True)
+    if any(len(line) > 4000 for line in before_lines[:3] + after_lines[:3]):
+        print(f"Diff {label}: one long line, {len(before)} -> {len(after)} bytes")
+        return
     delta = list(difflib.unified_diff(before_lines, after_lines, fromfile=f"a/{label}", tofile=f"b/{label}"))
     if not delta:
         print("No changes.")
@@ -894,6 +897,196 @@ def cmd_export(args: argparse.Namespace) -> None:
     print(f"Wrote {dest}")
 
 
+def _marker_rows() -> list[dict[str, Any]]:
+    world = json.loads((DATA / "world.json").read_text(encoding="utf-8"))
+    infra = json.loads((DATA / "infrastructure.json").read_text(encoding="utf-8"))
+    places = {}
+    for place in infra.get("places") or []:
+        places[(place.get("type"), place.get("province"), place.get("name"))] = place
+    capitals = {}
+    for nation in world["nations"]:
+        xy = nation.get("capital_xy") or [None, None]
+        capitals[int(nation["capital_province"])] = {
+            "nation_id": int(nation["id"]),
+            "x": xy[0],
+            "y": xy[1],
+            "name": nation.get("short_name"),
+        }
+    rows = []
+    with (DATA / "settlements.csv").open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            sector = (row.get("sector_id") or "").strip()
+            kind = (row.get("type") or "").strip().lower()
+            name = (row.get("name") or "").strip()
+            if not sector or not str(row.get("province") or "").isdigit():
+                continue
+            province = int(row["province"])
+            if kind == "capital":
+                cap = capitals.get(province) or {}
+                rows.append(
+                    {
+                        "sector": sector,
+                        "province": province,
+                        "name": name,
+                        "kind": kind,
+                        "x": cap.get("x"),
+                        "y": cap.get("y"),
+                        "target": "capital",
+                        "place_id": None,
+                        "nation_id": cap.get("nation_id"),
+                    }
+                )
+                continue
+            place = places.get((kind, province, name))
+            rows.append(
+                {
+                    "sector": sector,
+                    "province": province,
+                    "name": name,
+                    "kind": kind,
+                    "x": None if place is None else place.get("x"),
+                    "y": None if place is None else place.get("y"),
+                    "target": "missing" if place is None else "infrastructure",
+                    "place_id": None if place is None else place.get("id"),
+                    "nation_id": None if place is None else place.get("nation"),
+                }
+            )
+    return rows
+
+
+def _apply_marker_moves(moves: list[dict[str, Any]], dry_run: bool) -> None:
+    world = json.loads((DATA / "world.json").read_text(encoding="utf-8"))
+    infra = json.loads((DATA / "infrastructure.json").read_text(encoding="utf-8"))
+    by_id = {str(place.get("id")): place for place in infra.get("places") or []}
+    nations = {int(nation["id"]): nation for nation in world["nations"]}
+    summary = []
+    changed = False
+    for move in moves:
+        if not move.get("ok", True):
+            summary.append(f"{move.get('sector')}: {move.get('reason', 'not moved')}")
+            continue
+        if not move.get("moved", True):
+            continue
+        old = (move.get("old_x"), move.get("old_y"))
+        summary.append(
+            f"{move['sector']} {move.get('kind')} {move.get('name')}: {old} -> ({move['x']}, {move['y']})"
+        )
+        if move.get("target") == "capital" and move.get("nation_id") in nations:
+            nations[int(move["nation_id"])]["capital_xy"] = [move["x"], move["y"]]
+            changed = True
+        elif move.get("target") == "infrastructure" and str(move.get("place_id")) in by_id:
+            place = by_id[str(move["place_id"])]
+            place["x"] = move["x"]
+            place["y"] = move["y"]
+            changed = True
+    if not summary:
+        print("No marker moves.")
+        return
+    for line in summary[:40]:
+        print(line)
+    if len(summary) > 40:
+        print(f"... {len(summary) - 40} more")
+    if not changed:
+        print("Nothing to write.")
+        return
+    items: list[tuple[Path, str | bytes]] = []
+    if any(move.get("target") == "capital" and move.get("moved") for move in moves):
+        items.append((DATA / "world.json", dumps_json(world, DATA / "world.json")))
+    if any(move.get("target") == "infrastructure" and move.get("moved") for move in moves):
+        items.append((DATA / "infrastructure.json", dumps_json(infra, DATA / "infrastructure.json")))
+    # These catalogs are one long line. A unified diff of that line is not readable.
+    for path, text in items:
+        old = path.read_text(encoding="utf-8") if path.is_file() else ""
+        if old == text:
+            continue
+        print(f"Will rewrite {path.relative_to(ROOT).as_posix()} ({len(text)} bytes)")
+    safe_write_many(items, dry_run)
+
+
+def cmd_check_markers(args: argparse.Namespace) -> None:
+    script = ROOT / "scripts" / "check_settlement_markers.py"
+    if not script.is_file():
+        raise ValueError(f"missing {script}")
+    proc = subprocess.run(
+        [sys.executable, str(script), "--root", str(ROOT), "--min-px", str(args.min_px)],
+        cwd=ROOT,
+    )
+    raise SystemExit(proc.returncode)
+
+
+def cmd_settlement_move(args: argparse.Namespace) -> None:
+    sector = getattr(args, "sector_id", None)
+    auto = bool(getattr(args, "auto", False))
+    entire = bool(getattr(args, "all_markers", False))
+    xy = getattr(args, "xy", None)
+    if auto == (xy is not None):
+        raise ValueError("use either --auto or --xy X Y")
+    if entire and not auto:
+        raise ValueError("--all is only valid with --auto")
+    if not entire and not sector:
+        raise ValueError("give a sector id, or pass --all --auto")
+    if xy is not None:
+        script = ROOT / "scripts" / "check_settlement_markers.py"
+        proc = subprocess.run(
+            [
+                sys.executable,
+                str(script),
+                "--root",
+                str(ROOT),
+                "--sector",
+                sector,
+                "--xy",
+                str(xy[0]),
+                str(xy[1]),
+                "--min-px",
+                "0",
+            ],
+            cwd=ROOT,
+            capture_output=True,
+            text=True,
+        )
+        if proc.returncode != 0:
+            detail = (proc.stdout or proc.stderr or "point is outside the sector").strip()
+            raise ValueError(detail)
+        moves = []
+        for row in _marker_rows():
+            if row["sector"] != sector:
+                continue
+            if row["target"] == "missing":
+                raise ValueError(f"{sector}: no infrastructure place for {row['kind']} {row['name']}")
+            moves.append(
+                {
+                    **row,
+                    "ok": True,
+                    "old_x": row["x"],
+                    "old_y": row["y"],
+                    "x": round(float(xy[0]), 2),
+                    "y": round(float(xy[1]), 2),
+                    "moved": True,
+                }
+            )
+        if not moves:
+            raise ValueError(f"{sector}: no settlement")
+        _apply_marker_moves(moves, args.dry_run)
+        return
+
+    script = ROOT / "scripts" / "marker_placement.py"
+    if not script.is_file():
+        raise ValueError(f"missing {script}")
+    command = [sys.executable, str(script), "--root", str(ROOT), "place"]
+    if not entire:
+        command.extend(["--sector", sector])
+    proc = subprocess.run(command, cwd=ROOT, capture_output=True, text=True)
+    if proc.returncode != 0:
+        detail = (proc.stderr or proc.stdout or "placement failed").strip()
+        raise ValueError(detail)
+    moves = json.loads(proc.stdout)
+    bad = [move for move in moves if not move.get("ok")]
+    for move in bad:
+        print(f"{move.get('sector')}: {move.get('reason', 'not placed')}")
+    _apply_marker_moves(moves, args.dry_run)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nb.py", description="Edit published map data safely.")
     parser.add_argument("--dry-run", action="store_true", help="Show diff only; do not write.")
@@ -978,6 +1171,21 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory for map-<stamp>.zip. Default: D:\\NewBeginnings\\sync\\out on Windows, else ./sync/out.",
     )
     export.set_defaults(func=cmd_export)
+
+    check = sub.add_parser("check", help="Read-only checks.")
+    check_sub = check.add_subparsers(dest="check_cmd", required=True)
+    markers = check_sub.add_parser("markers", help="Report settlement markers on a border or off their polygon.")
+    markers.add_argument("--min-px", type=float, default=2.0, help="Flag markers closer than N pixels to a border (default 2).")
+    markers.set_defaults(func=cmd_check_markers)
+
+    settlement = sub.add_parser("settlement", help="Move a settlement marker.")
+    settlement_sub = settlement.add_subparsers(dest="settlement_cmd", required=True)
+    move = settlement_sub.add_parser("move", help="Move one sector marker, or every marker with --all --auto.")
+    move.add_argument("sector_id", nargs="?", help="Sector id, for example 878-B.")
+    move.add_argument("--all", dest="all_markers", action="store_true", help="With --auto, place every settlement.")
+    move.add_argument("--auto", action="store_true", help="Use the inland pole of the sector and province.")
+    move.add_argument("--xy", nargs=2, type=float, metavar=("X", "Y"), help="Map-pixel coordinates.")
+    move.set_defaults(func=cmd_settlement_move)
 
     return parser
 

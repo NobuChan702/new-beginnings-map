@@ -2251,9 +2251,62 @@ const claim = claimOf(nation);
     return { point: best, inradius: bestD };
   }
 
+  function settlementMarkerList() {
+    const sig = String(state.infraStamp || 0);
+    if (state.settlementMarkers && state.settlementMarkerSig === sig) return state.settlementMarkers;
+    const places = collectInfra().places;
+    const byKey = new Map();
+    Object.keys(places).forEach(function (id) {
+      const place = places[id];
+      if (!place || place.x == null || place.y == null) return;
+      byKey.set(place.type + "|" + place.province + "|" + place.name, place);
+    });
+    const markers = [];
+    (state.settlementRows || []).forEach(function (row) {
+      let x = null;
+      let y = null;
+      let nation = null;
+      if (row.type === "capital") {
+        const owner = nationOwningCapital(row.province);
+        if (!owner || !owner.capital_xy || owner.capital_xy.length < 2) return;
+        x = owner.capital_xy[0];
+        y = owner.capital_xy[1];
+        nation = owner.id;
+      } else {
+        const place = byKey.get(row.type + "|" + row.province + "|" + row.name);
+        if (!place) return;
+        x = place.x;
+        y = place.y;
+        nation = place.nation;
+      }
+      markers.push({
+        sector: row.sector,
+        type: row.type,
+        name: row.name,
+        province: row.province,
+        x: x,
+        y: y,
+        nation: nation,
+      });
+    });
+    state.settlementMarkers = markers;
+    state.settlementMarkerSig = sig;
+    return markers;
+  }
+
+  function storedMarkerPoint(sectorId) {
+    const markers = settlementMarkerList();
+    for (let i = 0; i < markers.length; i++) {
+      if (markers[i].sector === sectorId) return [markers[i].x, markers[i].y];
+    }
+    return null;
+  }
+
   function sectorMarkerPoint(feature) {
     const id = feature.properties && feature.properties.id;
     if (!id) return null;
+    const stored = storedMarkerPoint(id);
+    if (stored) return stored;
     if (!state.sectorPoints) state.sectorPoints = new Map();
     if (state.sectorPoints.has(id)) return state.sectorPoints.get(id);
     const geom = feature.geometry;
@@ -2331,46 +2384,47 @@ const claim = claimOf(nation);
   }
 
   function addLedgerSettlements(group, grown, zoom, villages) {
-    const features = state.sectorFeatures || [];
-    features.forEach(function (feature) {
-      const box = feature.properties && feature.properties.bbox;
-      if (box && (box[2] < grown.getWest() || box[0] > grown.getEast() || box[3] < grown.getSouth() || box[1] > grown.getNorth())) return;
-      const level = settlementLevel(feature);
+    const index = sectorIndex();
+    settlementMarkerList().forEach(function (marker) {
+      const level = marker.type === "capital" ? "capital" : marker.type;
       if (villages) {
         if (level !== "village") return;
-      } else if (level !== "city" && level !== "town") {
+      } else if (level !== "city" && level !== "town" && level !== "capital") {
         return;
       }
       if (zoom < infraMinZoom(level)) return;
-      const provinceId = feature.properties.province;
+      const feature = index.get(marker.sector);
+      const box = feature && feature.properties && feature.properties.bbox;
+      if (box && (box[2] < grown.getWest() || box[0] > grown.getEast() || box[3] < grown.getSouth() || box[1] > grown.getNorth())) return;
+      const provinceId = marker.province;
       if (isConcealed(provinceId)) return;
-      const point = sectorMarkerPoint(feature);
-      if (!point || !grown.contains(L.latLng(point[1], point[0]))) return;
+      const point = [marker.x, marker.y];
+      if (!grown.contains(L.latLng(point[1], point[0]))) return;
       if (pointConcealed(point[0], point[1])) return;
-      const size = level === "city" ? 16 : level === "town" ? 14 : 10;
-      const name = settlementDisplayName(feature, level);
-      const prov = state.provinces.get(provinceId);
-      const nationId = prov && prov.nation_id != null ? prov.nation_id : null;
-      const marker = L.marker([point[1], point[0]], {
+      const size = level === "capital" ? 18 : level === "city" ? 16 : level === "town" ? 14 : 10;
+      const name = marker.name;
+      const nationId = marker.nation;
+      const iconType = level === "capital" ? "capital" : level;
+      const markerIcon = L.marker([point[1], point[0]], {
         icon: L.divIcon({
-          className: "nb-infra nb-infra-" + level,
-          html: infraSvg(level),
+          className: "nb-infra nb-infra-" + iconType,
+          html: infraSvg(iconType),
           iconSize: [size, size],
           iconAnchor: [size / 2, size / 2],
         }),
         title: name,
-        zIndexOffset: level === "village" ? 120 : 180,
+        zIndexOffset: level === "capital" ? 260 : level === "village" ? 120 : 180,
         keyboard: true,
       });
-      marker.on("click", function (event) {
+      markerIcon.on("click", function (event) {
         L.DomEvent.stopPropagation(event);
         const html =
           level === "village"
             ? villageHtml({ name: name, nation: nationId, province: provinceId })
-            : infraHtml({ type: level, name: name, nation: nationId, province: provinceId });
+            : infraHtml({ type: iconType, name: name, nation: nationId, province: provinceId });
         openPlacePopup(event.latlng, html, nationId);
       });
-      marker.addTo(group);
+      markerIcon.addTo(group);
     });
   }
 
