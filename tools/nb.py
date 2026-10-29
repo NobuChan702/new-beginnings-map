@@ -442,13 +442,26 @@ def cmd_transfer(args: argparse.Namespace) -> None:
     header, body = read_csv_rows(control_path)
     apply_transfer(world, provinces, nations, slots, header, body, from_id, to_id, pids, args.cycle)
 
+    settlements_path = DATA / "settlements.csv"
+    settlement_header, settlement_body = read_csv_rows(settlements_path)
+    if settlement_header != ["nation", "province", "name", "type", "port", "sector_id"]:
+        raise ValueError("settlements.csv: header must be nation,province,name,type,port,sector_id")
+    # The sheet stores the short name. The full name, with the tier, is the same nation.
+    owner_label = nations[to_id]["short_name"]
+    moved = {str(pid) for pid in pids}
+    for row in settlement_body:
+        if len(row) >= 2 and row[1].strip() in moved:
+            row[0] = owner_label
+
     world_text = dumps_json(world, DATA / "world.json")
     slots_text = dumps_json(slots, slots_path)
     control_text = write_csv_rows(control_path, header, body)
+    settlement_text = write_csv_rows(settlements_path, settlement_header, settlement_body)
     files = (
         (DATA / "world.json", world_text),
         (slots_path, slots_text),
         (control_path, control_text),
+        (settlements_path, settlement_text),
     )
     changed_files: list[tuple[Path, str, str]] = []
     for path, text in files:

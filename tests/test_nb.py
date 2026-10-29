@@ -885,5 +885,82 @@ class ApplyBatchTests(unittest.TestCase):
             )
 
 
+class OwnerNameTests(unittest.TestCase):
+    def test_labels_cover_id_short_and_full_name(self) -> None:
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import check_history
+
+        labels = check_history.nation_labels(
+            {"id": 276, "name": "Martellun (minor)", "short_name": "Martellun"}
+        )
+        self.assertEqual(labels, {"276", "Martellun", "Martellun (minor)"})
+        eth = check_history.nation_labels(
+            {"id": 281, "name": "Ethitham (minor)", "short_name": "Ethitham"}
+        )
+        self.assertIn("Ethitham", eth)
+        self.assertIn("281", eth)
+        self.assertNotIn("Verillian Empire", labels)
+
+    def test_transfer_rewrites_a_full_name_settlement_row(self) -> None:
+        tmp = Path(tempfile.mkdtemp())
+        data = tmp / "data"
+        data.mkdir()
+        world = {
+            "nations": [
+                {
+                    "id": 276,
+                    "name": "Martellun (minor)",
+                    "short_name": "Martellun",
+                    "capital_province": 2254,
+                    "capital_xy": [5100, 2100],
+                    "bbox": [4000, 0, 6000, 800],
+                    "provinces": [2200, 2254],
+                },
+                {
+                    "id": 21,
+                    "name": "Verillian Empire (major)",
+                    "short_name": "Verillian Empire",
+                    "capital_province": 10,
+                    "capital_xy": [7000, 2100],
+                    "bbox": [6800, 0, 8000, 800],
+                    "provinces": [10],
+                },
+            ],
+            "provinces": {
+                "2200": {"nation_id": 276, "bbox": [4000, 0, 4500, 200], "xy": [4200, 80]},
+                "2254": {"nation_id": 276, "bbox": [4600, 0, 5200, 200], "xy": [4900, 80]},
+                "10": {"nation_id": 21, "bbox": [6800, 0, 7200, 200], "xy": [7000, 80]},
+            },
+        }
+        (data / "world.json").write_text(json.dumps(world), encoding="utf-8")
+        (data / "province_slots.json").write_text(
+            json.dumps({"provinces": {"2200": {"nation_id": 276, "nation": "Martellun"}, "2254": {"nation_id": 276, "nation": "Martellun"}}}),
+            encoding="utf-8",
+        )
+        (data / "sector_control.csv").write_bytes(
+            b"sector_id,controller,cycle\n2200-A,276,0\n2254-A,276,0\n"
+        )
+        (data / "settlements.csv").write_bytes(
+            b"nation,province,name,type,port,sector_id\r\n"
+            b"Martellun (minor),2200,Martel,city,no,2200-A\r\n"
+            b"276,2254,Martellun,capital,yes,2254-A\r\n"
+        )
+        saved = (nb.ROOT, nb.DATA, nb.BACKUP_DIR, nb.CHECK_HISTORY)
+        nb.set_root(tmp)
+        try:
+            with mock.patch.object(nb, "run_secrecy_check"):
+                nb.main(["transfer", "--from", "276", "--to", "21", "--cycle", "1", "2200", "2254"])
+            text = (data / "settlements.csv").read_text(encoding="utf-8")
+            self.assertIn("Verillian Empire,2200,Martel,city,no,2200-A", text)
+            self.assertIn("Verillian Empire,2254,Martellun,capital,yes,2254-A", text)
+            self.assertNotIn("Martellun (minor)", text)
+            world_out = json.loads((data / "world.json").read_text(encoding="utf-8"))
+            self.assertEqual(world_out["provinces"]["2200"]["nation_id"], 21)
+            self.assertEqual(world_out["provinces"]["2254"]["nation_id"], 21)
+        finally:
+            nb.ROOT, nb.DATA, nb.BACKUP_DIR, nb.CHECK_HISTORY = saved
+            shutil.rmtree(tmp)
+
+
 if __name__ == "__main__":
     unittest.main()
