@@ -150,7 +150,9 @@ def run_secrecy_check() -> None:
 
 
 def safe_write(path: Path, new_text: str, dry_run: bool) -> None:
-    old_text = path.read_text(encoding="utf-8") if path.is_file() else ""
+    # Compare and write the raw bytes. read_text/write_text translate \n to
+    # os.linesep, so a CRLF file looked changed and was saved with different endings.
+    old_text = path.read_bytes().decode("utf-8") if path.is_file() else ""
     diff_summary(old_text, new_text, path.relative_to(ROOT).as_posix())
     if old_text == new_text:
         print("Nothing to write.")
@@ -167,7 +169,7 @@ def safe_write(path: Path, new_text: str, dry_run: bool) -> None:
         print(f"Backup: {backup.relative_to(ROOT)}")
 
     tmp = path.with_suffix(path.suffix + ".nb.tmp")
-    tmp.write_text(new_text, encoding="utf-8")
+    tmp.write_bytes(new_text.encode("utf-8"))
     os.replace(tmp, path)
     try:
         run_secrecy_check()
@@ -192,22 +194,61 @@ def read_csv_rows(path: Path) -> tuple[list[str], list[list[str]]]:
 
 def csv_lineterminator(path: Path) -> str:
     """Keep a CSV on its current newline so a one-cell edit does not rewrite the file."""
-    if path.is_file():
-        sample = path.read_bytes()[:8192]
-        if b"\r\n" in sample:
-            return "\r\n"
+    if path.is_file() and b"\r\n" in path.read_bytes():
+        return "\r\n"
     return "\n"
 
 
-def write_csv_rows(path: Path, header: list[str], body: list[list[str]]) -> str:
+def _csv_line(row: list[str]) -> str:
     import io
 
     buf = io.StringIO()
-    writer = csv.writer(buf, lineterminator=csv_lineterminator(path))
-    writer.writerow(header)
-    for row in body:
-        writer.writerow(row)
+    csv.writer(buf, lineterminator="").writerow(row)
     return buf.getvalue()
+
+
+def _split_csv_lines(original: str, newline: str) -> list[str]:
+    lines = original.split(newline)
+    if lines and lines[-1] == "":
+        lines = lines[:-1]
+    return [line for line in lines if line != ""]
+
+
+def write_csv_rows(path: Path, header: list[str], body: list[list[str]]) -> str:
+    """Serialize CSV without reordering rows or touching unchanged lines.
+
+    When the parsed rows already match, the original file text is returned so
+    a no-op edit does not rewrite the file or its line endings.
+    """
+    import io
+
+    new_rows = [list(header)] + [list(row) for row in body]
+    raw = path.read_bytes() if path.is_file() else b""
+    if not raw:
+        buf = io.StringIO()
+        writer = csv.writer(buf, lineterminator="\n")
+        for row in new_rows:
+            writer.writerow(row)
+        return buf.getvalue()
+    newline = "\r\n" if b"\r\n" in raw else "\n"
+    original = raw.decode("utf-8")
+    kept = _split_csv_lines(original, newline)
+    parsed = [next(csv.reader([line])) for line in kept]
+    if parsed == new_rows:
+        return original
+    out: list[str] = []
+    shared = min(len(kept), len(new_rows))
+    for index in range(shared):
+        if parsed[index] == new_rows[index]:
+            out.append(kept[index])
+        else:
+            out.append(_csv_line(new_rows[index]))
+    for row in new_rows[shared:]:
+        out.append(_csv_line(row))
+    text = newline.join(out)
+    if original.endswith(newline):
+        text += newline
+    return text
 
 
 def cmd_claim_assign(args: argparse.Namespace) -> None:
@@ -265,7 +306,6 @@ def cmd_rename_province(args: argparse.Namespace) -> None:
             break
     if not replaced:
         body.append([str(pid), name])
-    body.sort(key=lambda r: int(r[0]) if r and r[0].isdigit() else 0)
     new_text = write_csv_rows(path, header, body)
     safe_write(path, new_text, args.dry_run)
 
@@ -358,9 +398,9 @@ def cmd_transfer(args: argparse.Namespace) -> None:
     control_text = write_csv_rows(control_path, header, body)
 
     if args.dry_run:
-        diff_summary(DATA.joinpath("world.json").read_text(encoding="utf-8"), world_text, "data/world.json")
-        diff_summary(slots_path.read_text(encoding="utf-8"), slots_text, "data/province_slots.json")
-        diff_summary(control_path.read_text(encoding="utf-8"), control_text, "data/sector_control.csv")
+        diff_summary(DATA.joinpath("world.json").read_bytes().decode("utf-8"), world_text, "data/world.json")
+        diff_summary(slots_path.read_bytes().decode("utf-8"), slots_text, "data/province_slots.json")
+        diff_summary(control_path.read_bytes().decode("utf-8"), control_text, "data/sector_control.csv")
         print("(dry-run: not writing)")
         return
 
@@ -380,7 +420,7 @@ def cmd_transfer(args: argparse.Namespace) -> None:
                 shutil.copy2(path, backup)
                 print(f"Backup: {backup.relative_to(ROOT)}")
             tmp = path.with_suffix(path.suffix + ".nb.tmp")
-            tmp.write_text(text, encoding="utf-8")
+            tmp.write_bytes(text.encode("utf-8"))
             os.replace(tmp, path)
             written.append((path, backup))
         run_secrecy_check()
@@ -1087,6 +1127,75 @@ def cmd_settlement_move(args: argparse.Namespace) -> None:
     _apply_marker_moves(moves, args.dry_run)
 
 
+def parse_religion_target(token: str, provinces: dict[int, dict], nations: dict[int, dict]) -> tuple[str, int]:
+    text = token.strip()
+    kind = None
+    raw = text
+    lower = text.lower()
+    if lower.startswith("province:"):
+        kind = "province"
+        raw = text.split(":", 1)[1].strip()
+    elif lower.startswith("nation:"):
+        kind = "nation"
+        raw = text.split(":", 1)[1].strip()
+    if not raw.isdigit():
+        raise ValueError(f"{token} is not a nation or province id")
+    number = int(raw)
+    is_nation = number in nations
+    is_province = number in provinces
+    if kind is None:
+        if is_nation and is_province:
+            raise ValueError(f"{number} is both a nation and a province; use nation:{number} or province:{number}")
+        if is_nation:
+            kind = "nation"
+        elif is_province:
+            kind = "province"
+        else:
+            raise ValueError(f"{number} is not a published nation or province")
+    if kind == "nation":
+        assert_public_nation(number, nations, "religion set")
+    else:
+        assert_public_province(number, provinces, "religion set")
+    return kind, number
+
+
+def cmd_religion_set(args: argparse.Namespace) -> None:
+    """Map a nation or a province to a religion name. A province row overrides its nation."""
+    _, provinces, nations = load_world()
+    kind, number = parse_religion_target(str(args.target), provinces, nations)
+    religion = str(args.name).strip()
+    if not religion or religion.lower() == "terillia":
+        raise ValueError("religion name is missing or reserved")
+    if any(ch in religion for ch in ",\"\r\n"):
+        raise ValueError("religion name cannot contain commas or quotes")
+    color = (args.color or "").strip()
+    if color and not re.fullmatch(r"#[0-9A-Fa-f]{3}|#[0-9A-Fa-f]{6}", color):
+        raise ValueError("color must be a hex colour such as #2f6fbe")
+    path = DATA / "religions.csv"
+    if path.is_file():
+        header, body = read_csv_rows(path)
+    else:
+        header, body = ["target", "id", "religion", "color"], []
+    if header != ["target", "id", "religion", "color"]:
+        raise ValueError("religions.csv: header must be target,id,religion,color")
+    replaced = False
+    for row in body:
+        while len(row) < 4:
+            row.append("")
+        if row[0].strip().lower() == kind and row[1].strip() == str(number):
+            row[0] = kind
+            row[1] = str(number)
+            row[2] = religion
+            if args.color is not None:
+                row[3] = color
+            replaced = True
+            break
+    if not replaced:
+        body.append([kind, str(number), religion, color])
+    print(f"Religion {kind} {number}: {religion}" + (f" {color}" if color else ""))
+    safe_write(path, write_csv_rows(path, header, body), args.dry_run)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nb.py", description="Edit published map data safely.")
     parser.add_argument("--dry-run", action="store_true", help="Show diff only; do not write.")
@@ -1186,6 +1295,14 @@ def build_parser() -> argparse.ArgumentParser:
     move.add_argument("--auto", action="store_true", help="Use the inland pole of the sector and province.")
     move.add_argument("--xy", nargs=2, type=float, metavar=("X", "Y"), help="Map-pixel coordinates.")
     move.set_defaults(func=cmd_settlement_move)
+
+    religion = sub.add_parser("religion", help="Religion names for nations and provinces (data/religions.csv).")
+    religion_sub = religion.add_subparsers(dest="religion_cmd", required=True)
+    religion_set = religion_sub.add_parser("set", help="Set the religion for a nation or province id.")
+    religion_set.add_argument("target", help="Nation or province id. Use nation:25 or province:878 when the number is both.")
+    religion_set.add_argument("name", help="Religion name. Nobu chooses the real names.")
+    religion_set.add_argument("--color", default=None, help="Optional hex colour, such as #2f6fbe. Omit to keep or leave blank.")
+    religion_set.set_defaults(func=cmd_religion_set)
 
     return parser
 

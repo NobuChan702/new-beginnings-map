@@ -573,6 +573,52 @@ def check_province_names(provinces):
             fail(f"province_names.csv:{index}: name is missing or reserved")
 
 
+def check_religions(provinces, nations):
+    path = ROOT / "data" / "religions.csv"
+    if not path.is_file():
+        fail("missing data/religions.csv")
+    with path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.reader(handle))
+    if not rows or rows[0] != ["target", "id", "religion", "color"]:
+        fail("religions.csv: header must be target,id,religion,color")
+    seen = set()
+    for index, row in enumerate(rows[1:], start=2):
+        if not row or (len(row) == 1 and row[0].strip() == ""):
+            continue
+        if len(row) != 4:
+            fail(f"religions.csv:{index}: expected 4 columns")
+        target, id_text, religion, color = (part.strip() for part in row)
+        if target not in ("nation", "province"):
+            fail(f"religions.csv:{index}: target must be nation or province")
+        if not id_text.isdigit():
+            fail(f"religions.csv:{index}: id must be an integer")
+        number = int(id_text)
+        key = (target, number)
+        if key in seen:
+            fail(f"religions.csv:{index}: {target} {number} is listed twice")
+        seen.add(key)
+        if not religion or religion.lower() == "terillia":
+            fail(f"religions.csv:{index}: religion name is missing or reserved")
+        if color and not (len(color) in (4, 7) and color.startswith("#") and all(ch in "0123456789abcdefABCDEF" for ch in color[1:])):
+            fail(f"religions.csv:{index}: color must be a hex colour or blank")
+        if target == "nation":
+            nation = nations.get(number)
+            if nation is None:
+                fail(f"religions.csv:{index}: nation {number} is not on the published map")
+            box = nation.get("bbox") or [0, 0, 0, 0]
+            xy = nation.get("capital_xy") or [0, 0]
+            if box[0] < WEST or xy[0] < WEST:
+                fail(f"religions.csv:{index}: nation {number} is west of the fog line")
+        else:
+            prov = provinces.get(number)
+            if prov is None:
+                fail(f"religions.csv:{index}: province {number} is not on the published map")
+            box = prov.get("bbox") or [0, 0, 0, 0]
+            xy = prov.get("xy") or [0, 0]
+            if box[0] < WEST or xy[0] < WEST:
+                fail(f"religions.csv:{index}: province {number} is west of the fog line")
+
+
 def check_flags(nations):
     path = ROOT / "data" / "flags.json"
     if not path.is_file():
@@ -695,6 +741,7 @@ def main():
     check_rivers(width, height)
     check_province_names(provinces)
     check_flags(nations)
+    check_religions(provinces, nations)
 
     for name in files:
         if not isinstance(name, str) or "/" in name or "\\" in name or name.startswith("."):
