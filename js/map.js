@@ -36,6 +36,9 @@
     overlays: { borders: true, claims: true, occupied: true, markers: true, infra: true, trade: true, sectors: true, alliances: false, religion: false, ids: false },
     labelLayer: null,
     map: null,
+    provinceTip: null,
+    provinceTipId: null,
+    popupOpen: false,
     layers: {},
     highlightLayer: null,
     highlightUrl: null,
@@ -778,6 +781,23 @@
     return [(box[0] + box[2]) / 2, (box[1] + box[3]) / 2];
   }
 
+  function yieldLines(prov) {
+    if (!window.NBYields || !prov) return null;
+    return window.NBYields.linesFromMix(prov.mix);
+  }
+
+  function yieldHtml(prov) {
+    const lines = yieldLines(prov);
+    if (!lines) return "";
+    return (
+      '<p class="meta nb-yield">' +
+      esc(lines.mine) +
+      '</p><p class="meta nb-yield">' +
+      esc(lines.lumber) +
+      "</p>"
+    );
+  }
+
   function provinceFields(prov) {
     const mix = (prov.mix || [])
       .map(function (pair) {
@@ -794,8 +814,70 @@
       (prov.coastal ? "Yes" : "No") +
       "</dd><dt>Nearby water</dt><dd>" +
       esc(water) +
-      "</dd></dl>"
+      "</dd></dl>" +
+      yieldHtml(prov)
     );
+  }
+
+  function provinceHoverHtml(id, prov) {
+    const lines = yieldLines(prov);
+    if (!lines) return "";
+    return (
+      '<div class="nb-hover"><p class="nb-hover-title">' +
+      esc(provinceTitle(id)) +
+      "</p><p>" +
+      esc(lines.mine) +
+      "</p><p>" +
+      esc(lines.lumber) +
+      "</p></div>"
+    );
+  }
+
+  function closeProvinceTip() {
+    if (state.provinceTip && state.map && state.map.hasLayer(state.provinceTip)) {
+      state.map.removeLayer(state.provinceTip);
+    }
+    state.provinceTipId = null;
+  }
+
+  function onMapHover(event) {
+    if (!state.map || !state.meta || !state.lut || !window.NBYields) return;
+    if (state.popupOpen) {
+      closeProvinceTip();
+      return;
+    }
+    const x = event.latlng.lng;
+    const y = event.latlng.lat;
+    if (x < state.meta.hidden_west_of || concealedSeaAt(x, y)) {
+      closeProvinceTip();
+      return;
+    }
+    const id = provinceAt(x, y);
+    if (!id || isConcealed(id)) {
+      closeProvinceTip();
+      return;
+    }
+    const prov = state.provinces.get(id);
+    const html = prov ? provinceHoverHtml(id, prov) : "";
+    if (!html) {
+      closeProvinceTip();
+      return;
+    }
+    if (!state.provinceTip) {
+      state.provinceTip = L.tooltip({
+        className: "nb-tip nb-province-tip",
+        direction: "top",
+        offset: [0, -12],
+        opacity: 1,
+        sticky: true,
+      });
+    }
+    if (state.provinceTipId !== id) {
+      state.provinceTip.setContent(html);
+      state.provinceTipId = id;
+    }
+    state.provinceTip.setLatLng(event.latlng);
+    if (!state.map.hasLayer(state.provinceTip)) state.provinceTip.addTo(state.map);
   }
 
   function claimOf(nation) {
@@ -4827,7 +4909,16 @@ const claim = claimOf(nation);
     installTimeline();
     goToHistory(Math.max(0, state.historySnapshots.length - 1), { force: true, silent: true });
     state.map.on("click", onMapClick);
-    state.map.on("popupclose", hideFlagCard);
+    state.map.on("mousemove", onMapHover);
+    state.map.on("mouseout", closeProvinceTip);
+    state.map.on("popupopen", function () {
+      state.popupOpen = true;
+      closeProvinceTip();
+    });
+    state.map.on("popupclose", function () {
+      state.popupOpen = false;
+      hideFlagCard();
+    });
     if (state.concealedKey == null) {
       state.concealedKey = "";
       applyClaims();
