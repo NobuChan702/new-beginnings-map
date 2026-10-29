@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
-"""Safe local edits to published map data (claims, names, transfers, building limits).
+"""Safe local edits to published map data (claims, names, transfers, building limits, flags, capitals).
 
 Every mutating command validates inputs, shows a diff summary, supports --dry-run,
 backs up the target file, runs scripts/check_history.py, then saves (or restores on failure).
+
+export runs those checks plus the building-limits check and zips the working tree
+diff. It does not commit or push.
 """
 
 from __future__ import annotations
@@ -10,11 +13,16 @@ from __future__ import annotations
 import argparse
 import csv
 import difflib
+import hashlib
 import json
 import os
+import re
 import shutil
+import struct
 import subprocess
 import sys
+import zipfile
+import zlib
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -25,6 +33,18 @@ BACKUP_DIR = DATA / ".nb-backups"
 CHECK_HISTORY = ROOT / "scripts" / "check_history.py"
 WEST = 3592
 WORK_MIN = 9000
+# Windows sync drop. On any other OS the default is ./sync/out (relative to the cwd).
+WINDOWS_EXPORT_DIR = r"D:\NewBeginnings\sync\out"
+PNG_SIG = b"\x89PNG\r\n\x1a\n"
+
+
+def set_root(root: Path | None = None) -> None:
+    """Point later commands at another checkout. Tests pass a temp copy of the repo."""
+    global ROOT, DATA, BACKUP_DIR, CHECK_HISTORY
+    ROOT = Path(root).resolve() if root is not None else Path(__file__).resolve().parents[1]
+    DATA = ROOT / "data"
+    BACKUP_DIR = DATA / ".nb-backups"
+    CHECK_HISTORY = ROOT / "scripts" / "check_history.py"
 
 
 def eprint(*args: object) -> None:
@@ -167,11 +187,20 @@ def read_csv_rows(path: Path) -> tuple[list[str], list[list[str]]]:
     return rows[0], rows[1:]
 
 
+def csv_lineterminator(path: Path) -> str:
+    """Keep a CSV on its current newline so a one-cell edit does not rewrite the file."""
+    if path.is_file():
+        sample = path.read_bytes()[:8192]
+        if b"\r\n" in sample:
+            return "\r\n"
+    return "\n"
+
+
 def write_csv_rows(path: Path, header: list[str], body: list[list[str]]) -> str:
     import io
 
     buf = io.StringIO()
-    writer = csv.writer(buf, lineterminator="\n")
+    writer = csv.writer(buf, lineterminator=csv_lineterminator(path))
     writer.writerow(header)
     for row in body:
         writer.writerow(row)
@@ -428,6 +457,443 @@ def cmd_limits_check(args: argparse.Namespace) -> None:
     raise SystemExit(1)
 
 
+def _unique_backup(path: Path, stamp: str) -> Path:
+    BACKUP_DIR.mkdir(parents=True, exist_ok=True)
+    candidate = BACKUP_DIR / f"{path.name}.{stamp}.bak"
+    n = 2
+    while candidate.exists():
+        candidate = BACKUP_DIR / f"{path.name}.{stamp}.{n}.bak"
+        n += 1
+    return candidate
+
+
+def _rollback(written: list[tuple[Path, Path | None]]) -> None:
+    for path, backup in reversed(written):
+        if backup is not None and backup.is_file():
+            shutil.copy2(backup, path)
+            eprint(f"Secrecy check failed; restored {path.name} from backup.")
+        else:
+            path.unlink(missing_ok=True)
+            eprint(f"Secrecy check failed; removed new {path.name}.")
+
+
+def safe_write_many(items: list[tuple[Path, str | bytes]], dry_run: bool) -> None:
+    """Write several files with one diff, one backup pass, and one secrecy check."""
+    prepared: list[tuple[Path, bytes, bytes]] = []
+    changed = False
+    for path, data in items:
+        new_b = data.encode("utf-8") if isinstance(data, str) else data
+        old_b = path.read_bytes() if path.is_file() else b""
+        rel = path.relative_to(ROOT).as_posix()
+        if isinstance(data, str):
+            old_text = old_b.decode("utf-8") if old_b else ""
+            diff_summary(old_text, data, rel)
+        elif old_b == new_b:
+            print(f"No changes to {rel}.")
+        else:
+            action = "replace" if path.is_file() else "add"
+            print(f"Binary {rel}: {action} ({len(new_b)} bytes)")
+        if old_b != new_b:
+            changed = True
+        prepared.append((path, new_b, old_b))
+    if not changed:
+        print("Nothing to write.")
+        return
+    if dry_run:
+        print("(dry-run: not writing)")
+        return
+
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    written: list[tuple[Path, Path | None]] = []
+    try:
+        for path, new_b, old_b in prepared:
+            if path.is_file() and old_b == new_b:
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            backup = None
+            if path.is_file():
+                backup = _unique_backup(path, stamp)
+                shutil.copy2(path, backup)
+                print(f"Backup: {backup.relative_to(ROOT)}")
+            tmp = path.with_suffix(path.suffix + ".nb.tmp")
+            tmp.write_bytes(new_b)
+            try:
+                os.replace(tmp, path)
+            except Exception:
+                tmp.unlink(missing_ok=True)
+                raise
+            written.append((path, backup))
+        run_secrecy_check()
+    except RuntimeError as err:
+        _rollback(written)
+        raise SystemExit(str(err)) from err
+    except Exception:
+        _rollback(written)
+        raise
+    names = ", ".join(path.relative_to(ROOT).as_posix() for path, _backup in written)
+    print(f"Wrote {names}")
+
+
+def nation_slug(name: str) -> str:
+    """Slug of the nation name, matching assets/flags/*.png.
+
+    world.json `name` ends with a tier parenthesis such as " (major)". The files
+    already in the repo drop that suffix (which is `short_name` for every nation)
+    and turn everything else that is not a letter or digit into a hyphen.
+    """
+    base = re.sub(r"\s*\([^)]*\)\s*$", "", name.strip())
+    slug = re.sub(r"[^a-z0-9]+", "-", base.lower()).strip("-")
+    if not slug or slug in {".", ".."}:
+        raise ValueError(f"nation name {name!r} does not yield a flag slug")
+    return slug
+
+
+def assert_png(path: Path) -> tuple[int, int]:
+    """Reject anything that is not a PNG: signature, IHDR, chunk CRCs, and IEND."""
+    data = path.read_bytes()
+    if len(data) < 8 or data[:8] != PNG_SIG:
+        raise ValueError(f"{path}: not a PNG (bad signature)")
+    valid_depth = {
+        0: {1, 2, 4, 8, 16},
+        2: {8, 16},
+        3: {1, 2, 4, 8},
+        4: {8, 16},
+        6: {8, 16},
+    }
+    pos = 8
+    saw_ihdr = False
+    saw_iend = False
+    width = height = 0
+    first = True
+    while pos + 8 <= len(data):
+        length = struct.unpack(">I", data[pos : pos + 4])[0]
+        if length > len(data) or pos + 12 + length > len(data):
+            raise ValueError(f"{path}: truncated PNG chunk")
+        ctype = data[pos + 4 : pos + 8]
+        chunk = data[pos + 8 : pos + 8 + length]
+        crc_got = struct.unpack(">I", data[pos + 8 + length : pos + 12 + length])[0]
+        crc_calc = zlib.crc32(ctype + chunk) & 0xFFFFFFFF
+        if crc_got != crc_calc:
+            raise ValueError(f"{path}: PNG chunk CRC mismatch")
+        if first and ctype != b"IHDR":
+            raise ValueError(f"{path}: PNG must start with IHDR")
+        first = False
+        if ctype == b"IHDR":
+            if length != 13 or saw_ihdr:
+                raise ValueError(f"{path}: bad IHDR")
+            width, height, bit_depth, color_type, comp, filt, inter = struct.unpack(">IIBBBBB", chunk)
+            if width <= 0 or height <= 0:
+                raise ValueError(f"{path}: PNG has empty dimensions")
+            if color_type not in valid_depth or bit_depth not in valid_depth[color_type]:
+                raise ValueError(f"{path}: PNG color type or bit depth is invalid")
+            if comp != 0 or filt != 0 or inter not in (0, 1):
+                raise ValueError(f"{path}: PNG IHDR flags are invalid")
+            saw_ihdr = True
+        if ctype == b"IEND":
+            if length != 0:
+                raise ValueError(f"{path}: IEND must be empty")
+            saw_iend = True
+            pos += 12 + length
+            break
+        pos += 12 + length
+    if not saw_ihdr or not saw_iend:
+        raise ValueError(f"{path}: PNG is missing IHDR or IEND")
+    if pos != len(data):
+        raise ValueError(f"{path}: trailing bytes after IEND")
+    return width, height
+
+
+def cmd_flag_set(args: argparse.Namespace) -> None:
+    """Copy a real PNG to assets/flags/<slug>.png and point data/flags.json at it."""
+    _world, _provinces, nations = load_world()
+    nid = int(args.nation)
+    assert_public_nation(nid, nations, "flag set")
+    src = Path(args.png).expanduser()
+    if not src.is_file():
+        raise ValueError(f"PNG not found: {src}")
+    width, height = assert_png(src)
+    nation = nations[nid]
+    slug = nation_slug(nation["name"])
+    rel = f"assets/flags/{slug}.png"
+    dest = (ROOT / "assets" / "flags" / f"{slug}.png").resolve()
+    flag_dir = (ROOT / "assets" / "flags").resolve()
+    if flag_dir not in dest.parents:
+        raise ValueError("flag path escapes assets/flags")
+    flags_path = DATA / "flags.json"
+    raw = json.loads(flags_path.read_text(encoding="utf-8")) if flags_path.is_file() else {}
+    if not isinstance(raw, dict):
+        raise ValueError("flags.json must be an object")
+    for key, existing in raw.items():
+        if existing == rel and str(key) != str(nid):
+            raise ValueError(f"{rel} is already used by nation {key}")
+    raw[str(nid)] = rel
+    print(f"Flag for nation {nid} ({nation['short_name']}): {rel} ({width}x{height})")
+    safe_write_many([(dest, src.read_bytes()), (flags_path, dumps_json(raw, flags_path))], args.dry_run)
+
+
+def _rename_settlement_fields(node: Any, old: str, new: str, nation_id: int) -> bool:
+    changed = False
+    if isinstance(node, dict):
+        nation = node.get("nation")
+        same_nation = nation == nation_id or (
+            isinstance(nation, str) and nation.isdigit() and int(nation) == nation_id
+        )
+        if same_nation and node.get("settlement") == old:
+            node["settlement"] = new
+            changed = True
+        for value in node.values():
+            if _rename_settlement_fields(value, old, new, nation_id):
+                changed = True
+    elif isinstance(node, list):
+        for item in node:
+            if _rename_settlement_fields(item, old, new, nation_id):
+                changed = True
+    return changed
+
+
+def _retarget_capital_routes(old: str, new: str, nation_id: int) -> list[tuple[Path, str]]:
+    """Keep trade endpoints that named this capital pointing at the new name."""
+    if not old or old == new:
+        return []
+    paths = [DATA / "trade_routes.json"]
+    history = DATA / "history"
+    if history.is_dir():
+        paths.extend(sorted(history.glob("*.json")))
+    found: list[tuple[Path, str]] = []
+    for path in paths:
+        if not path.is_file():
+            continue
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not _rename_settlement_fields(data, old, new, nation_id):
+            continue
+        found.append((path, dumps_json(data, path)))
+    return found
+
+
+def cmd_capital_set(args: argparse.Namespace) -> None:
+    """Rename the capital the page renders.
+
+    data/world.json stores where the capital sits (`capital_province` and
+    `capital_xy`) and does not store the place name. js/map.js reads the name
+    from the type=capital row in data/settlements.csv for that province
+    (loadCapitalNames). Claim markers at the capital point use short_name, not
+    this place name. data/infrastructure.json does not list capital markers;
+    the page synthesizes the star from the nation record plus that settlement
+    name. data/settlement_name_overrides.csv is what build_settlements.py
+    reapplies, so the rename is written there too (sector <province>-A).
+    """
+    _world, provinces, nations = load_world()
+    nid = int(args.nation)
+    assert_public_nation(nid, nations, "capital set")
+    name = str(args.name).strip()
+    if not name or name.lower() == "terillia":
+        raise ValueError("name is missing or reserved")
+    if any(ch in name for ch in ",\"\r\n"):
+        raise ValueError("capital name cannot contain commas or quotes (the map splits settlements.csv on commas)")
+    nation = nations[nid]
+    cap_pid = int(nation["capital_province"])
+    assert_public_province(cap_pid, provinces, "capital set")
+
+    settlements_path = DATA / "settlements.csv"
+    header, body = read_csv_rows(settlements_path)
+    if header != ["nation", "province", "name", "type", "port", "sector_id"]:
+        raise ValueError("settlements.csv: header must be nation,province,name,type,port,sector_id")
+    matches = [
+        index
+        for index, row in enumerate(body)
+        if len(row) >= 6 and row[1].strip() == str(cap_pid) and row[3].strip().lower() == "capital"
+    ]
+    if len(matches) != 1:
+        raise ValueError(f"nation {nid} has {len(matches)} capital rows for province {cap_pid}")
+    row = body[matches[0]]
+    if row[0].strip() != nation["short_name"]:
+        raise ValueError(
+            f"capital row for province {cap_pid} belongs to {row[0].strip()!r}, not {nation['short_name']}"
+        )
+    sector_id = row[5].strip()
+    if sector_id != f"{cap_pid}-A":
+        raise ValueError(f"capital row sector is {sector_id}, expected {cap_pid}-A")
+    old_name = row[2]
+    row[2] = name
+
+    overrides_path = DATA / "settlement_name_overrides.csv"
+    ov_header, ov_body = read_csv_rows(overrides_path)
+    if ov_header != ["sector_id", "name"]:
+        raise ValueError("settlement_name_overrides.csv: header must be sector_id,name")
+    replaced = False
+    for ov in ov_body:
+        if ov and ov[0].strip() == sector_id:
+            ov[1] = name
+            replaced = True
+    if not replaced:
+        ov_body.append([sector_id, name])
+
+    print(
+        f"Capital of nation {nid} ({nation['short_name']}), province {cap_pid}: {old_name!r} -> {name!r}"
+    )
+    items: list[tuple[Path, str | bytes]] = [
+        (settlements_path, write_csv_rows(settlements_path, header, body)),
+        (overrides_path, write_csv_rows(overrides_path, ov_header, ov_body)),
+    ]
+    items.extend(_retarget_capital_routes(old_name, name, nid))
+    safe_write_many(items, args.dry_run)
+
+
+def default_export_dir() -> Path:
+    if os.name == "nt":
+        return Path(WINDOWS_EXPORT_DIR)
+    return Path("sync") / "out"
+
+
+def export_directory(arg: str | None) -> Path:
+    path = Path(arg) if arg else default_export_dir()
+    if not path.is_absolute():
+        path = Path.cwd() / path
+    return path
+
+
+def _git_bytes(root: Path, *args: str) -> bytes:
+    proc = subprocess.run(["git", "-C", str(root), *args], capture_output=True)
+    if proc.returncode != 0:
+        detail = proc.stderr.decode("utf-8", "replace").strip()
+        raise ValueError(f"git {' '.join(args)} failed: {detail}")
+    return proc.stdout
+
+
+def _sha256(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def _file_sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 16), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def collect_export_files(root: Path) -> tuple[str, list[dict[str, str]]]:
+    """Tracked changes versus HEAD, plus untracked files under data/ and assets/."""
+    head_proc = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--verify", "HEAD"],
+        capture_output=True,
+    )
+    if head_proc.returncode != 0:
+        detail = head_proc.stderr.decode("utf-8", "replace").strip()
+        raise ValueError(f"export needs a git checkout with a HEAD commit ({detail})")
+    base = head_proc.stdout.decode("utf-8").strip()
+    if _git_bytes(root, "ls-files", "-u").strip():
+        raise ValueError("export refused: unmerged files")
+
+    status_of: dict[str, str] = {}
+    raw = _git_bytes(root, "diff", "-z", "--name-status", "--no-renames", "HEAD")
+    parts = raw.split(b"\0")
+    index = 0
+    while index + 1 < len(parts):
+        code = parts[index].decode("utf-8", "surrogateescape")[:1]
+        rel = parts[index + 1].decode("utf-8", "surrogateescape")
+        index += 2
+        if not rel:
+            continue
+        if code == "A":
+            status_of[rel] = "added"
+        elif code == "D":
+            status_of[rel] = "deleted"
+        else:
+            status_of[rel] = "modified"
+
+    others = _git_bytes(root, "ls-files", "-z", "--others", "--exclude-standard", "--", "data", "assets")
+    for part in others.split(b"\0"):
+        if not part:
+            continue
+        rel = part.decode("utf-8", "surrogateescape")
+        if rel.startswith("data/") or rel.startswith("assets/"):
+            status_of.setdefault(rel, "added")
+
+    records: list[dict[str, str]] = []
+    root_resolved = root.resolve()
+    for rel in sorted(status_of):
+        if "\\" in rel or rel.startswith("/") or ".." in Path(rel).parts:
+            raise ValueError(f"export refused: unsafe path {rel}")
+        status = status_of[rel]
+        full = root / rel
+        if status == "deleted" or not full.exists():
+            blob = _git_bytes(root, "show", f"HEAD:{rel}")
+            records.append({"path": rel, "sha256": _sha256(blob), "status": "deleted"})
+            continue
+        resolved = full.resolve()
+        if root_resolved != resolved and root_resolved not in resolved.parents:
+            raise ValueError(f"export refused: {rel} escapes the repository")
+        if not full.is_file():
+            raise ValueError(f"export refused: {rel} is not a regular file")
+        records.append({"path": rel, "sha256": _file_sha256(full), "status": status})
+    return base, records
+
+
+def _print_export_plan(dest: Path, base: str, records: list[dict[str, str]]) -> None:
+    print(f"Export {dest}")
+    print(f"base {base}")
+    if not records:
+        print("No changed files.")
+        return
+    for row in records:
+        print(f"{row['status']} {row['path']} {row['sha256']}")
+
+
+def write_export_zip(dest: Path, root: Path, base: str, records: list[dict[str, str]]) -> None:
+    if any(row["path"] == "manifest.json" for row in records):
+        raise ValueError("export refused: a changed path is named manifest.json")
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    manifest = {"base": base, "files": records}
+    payload = (json.dumps(manifest, indent=2, ensure_ascii=False) + "\n").encode("utf-8")
+    tmp = dest.with_suffix(dest.suffix + ".nb.tmp")
+    try:
+        with zipfile.ZipFile(tmp, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            archive.writestr("manifest.json", payload)
+            for row in records:
+                if row["status"] == "deleted":
+                    continue
+                archive.write(root / row["path"], arcname=row["path"])
+        os.replace(tmp, dest)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+
+
+def run_limits_check() -> None:
+    try:
+        cmd_limits_check(argparse.Namespace(default_max=None, type=None))
+    except SystemExit as err:
+        if err.code not in (0, None):
+            eprint("export refused: building limits check failed")
+            raise SystemExit("export refused: building limits check failed") from err
+
+
+def cmd_export(args: argparse.Namespace) -> None:
+    """Zip the working-tree diff. Never commits and never pushes."""
+    dry = bool(getattr(args, "dry_run", False) or getattr(args, "export_dry_run", False))
+    try:
+        run_secrecy_check()
+    except RuntimeError as err:
+        eprint(f"export refused: check_history.py failed: {err}")
+        raise SystemExit(f"export refused: check_history.py failed: {err}") from err
+    run_limits_check()
+
+    base, records = collect_export_files(ROOT)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    directory = export_directory(getattr(args, "out", None))
+    dest = directory / f"map-{stamp}.zip"
+    if dest.exists():
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
+        dest = directory / f"map-{stamp}.zip"
+    _print_export_plan(dest, base, records)
+    if dry:
+        print("(dry-run: not writing)")
+        return
+    write_export_zip(dest, ROOT, base, records)
+    print(f"Wrote {dest}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="nb.py", description="Edit published map data safely.")
     parser.add_argument("--dry-run", action="store_true", help="Show diff only; do not write.")
@@ -478,6 +944,40 @@ def build_parser() -> argparse.ArgumentParser:
         help="When a province has no limits object, flag types above this count in built[].",
     )
     check.set_defaults(func=cmd_limits_check)
+
+    flag = sub.add_parser("flag", help="Nation flags (data/flags.json and assets/flags).")
+    flag_sub = flag.add_subparsers(dest="flag_cmd", required=True)
+    flag_set = flag_sub.add_parser("set", help="Copy a PNG to assets/flags/<slug>.png and record it.")
+    flag_set.add_argument("nation", help="Nation id (published map).")
+    flag_set.add_argument("png", help="Path to a PNG file.")
+    flag_set.set_defaults(func=cmd_flag_set)
+
+    capital = sub.add_parser("capital", help="Capital place name shown on the map.")
+    capital_sub = capital.add_subparsers(dest="capital_cmd", required=True)
+    capital_set = capital_sub.add_parser(
+        "set",
+        help="Rename the capital in settlements.csv and the sector-A override.",
+    )
+    capital_set.add_argument("nation", help="Nation id (published map).")
+    capital_set.add_argument("name", help="Capital place name.")
+    capital_set.set_defaults(func=cmd_capital_set)
+
+    export = sub.add_parser(
+        "export",
+        help="Zip files changed vs HEAD plus untracked data/ and assets/. Does not commit or push.",
+    )
+    export.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="export_dry_run",
+        help="Run the checks and print the manifest, but do not write the zip.",
+    )
+    export.add_argument(
+        "--out",
+        default=None,
+        help="Directory for map-<stamp>.zip. Default: D:\\NewBeginnings\\sync\\out on Windows, else ./sync/out.",
+    )
+    export.set_defaults(func=cmd_export)
 
     return parser
 

@@ -93,9 +93,47 @@ python3 tools/nb.py rename settlement 2201-A Aldrillia
 python3 tools/nb.py --dry-run transfer --from 26 --to 25 1201 1202
 python3 tools/nb.py limits check
 python3 tools/nb.py limits check --default-max 3 --type Fort
+python3 tools/nb.py --dry-run flag set 8 ./zaneth.png
+python3 tools/nb.py flag set 8 ./zaneth.png
+python3 tools/nb.py --dry-run capital set 8 "Zaneth Hold"
+python3 tools/nb.py capital set 25 "Constantinople"
+python3 tools/nb.py --dry-run export
+python3 tools/nb.py export --out ./sync/out
+python3 tools/nb.py export --dry-run --out ./sync/out
 ```
 
 `transfer` updates `data/world.json` (`nation_id` and nation `provinces` lists), matching rows in `data/province_slots.json`, and sector controllers in `data/sector_control.csv` for `<province>-A/B/C`. Provinces must currently belong to `--from`. For timeline-only ownership changes without retargeting the cycle-0 baseline, use history `transfers` in a snapshot instead.
+
+#### Flags
+
+`data/flags.json` maps a nation id string to a path under `assets/flags/`. The flags already in the repo are:
+
+| Nation | Name in `data/world.json` | File |
+| --- | --- | --- |
+| 23 | Holy Empire of Sanbreque (major) | `assets/flags/holy-empire-of-sanbreque.png` |
+| 21 | Verillian Empire (major) | `assets/flags/verillian-empire.png` |
+| 30 | The Sevarian League (minor) | `assets/flags/the-sevarian-league.png` |
+
+The page loads that JSON and shows the image on the nation popup, the search row, and the corner flag card. `scripts/check_history.py` requires each key to be a published nation and each path to be a file inside the repo.
+
+`flag set` checks the file is a real PNG (signature, IHDR, per-chunk CRC, and IEND), copies it to `assets/flags/<slug>.png`, and sets that path in `data/flags.json`. The slug is the nation `name` with the trailing tier parenthesis removed, then lowercased, with every other run of non-letters and non-digits turned into a hyphen. For every nation in the current data that remainder is the same as `short_name`, which is why the three files above match. `--dry-run` prints the diff and does not copy. A real write backs up the previous JSON and, when replacing a PNG, the previous image, then runs the secrecy check and restores those backups if the check fails.
+
+#### Capitals
+
+The capital's place name is not stored on the nation.
+
+- `data/world.json` stores where the capital sits: `capital_province` and `capital_xy` (map pixels). The star is drawn at `capital_xy`. A claimed nation's map label, such as `Basileia Rhomania (Tom)`, is `short_name` plus the claim short, anchored on that point. It is not the city name. `capital set` does not move the province or the point.
+- The city name is the `type=capital` row in `data/settlements.csv` (`nation,province,name,type,port,sector_id`) whose province is that `capital_province`. On a capital province the row's sector is `<province>-A`. `js/map.js` `loadCapitalNames` maps the province id to that name. The capital star's title, the popup line `Capital: …` (when the name differs from `short_name`), and search all use it. If the row is missing, the page falls back to `short_name`.
+- `data/infrastructure.json` does not list capital markers. `"capitals": true` makes the page synthesize them from the nation record and the settlements name.
+- `data/settlement_name_overrides.csv` is not read by the page. `scripts/build_settlements.py` applies it after its built-in capital names, keyed by sector id, so a later rebuild keeps a hand-set name.
+
+`capital set` renames that settlements row and writes the same name on `<capital_province>-A` in the overrides file. `settlements.csv` stays on its current newlines, so the edit is that one row. If a public trade route in `data/trade_routes.json` or a history snapshot names the old capital as `settlement` for this nation id, that string is updated too so the route still names the capital. The same backup and secrecy check apply. Names cannot contain commas or quotes, because the page splits `settlements.csv` on commas.
+
+#### Export
+
+`export` does not commit or push. It runs `scripts/check_history.py` and `limits check` (built count against each province max, with no `--default-max`). If either check fails, it writes nothing. Otherwise it zips every file that differs from `HEAD`, plus untracked files under `data/` and `assets/`, into `DIR/map-<UTC stamp>.zip`. The default directory is `D:\NewBeginnings\sync\out` on Windows and `./sync/out` otherwise (`sync/` is gitignored).
+
+`manifest.json` inside the zip has the base commit and one entry per path: `path`, `sha256`, and `status` (`added`, `modified`, or `deleted`). Added and modified hashes are the working-tree bytes, and those files are stored in the zip. A deleted path is listed with the SHA256 of the blob at `HEAD` and is not stored as file bytes. `--dry-run` (before `export`, or after it) runs the checks and prints that manifest, and does not create the zip.
 
 Run tests: `python3 -m unittest tests/test_nb.py`.
 
