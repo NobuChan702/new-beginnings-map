@@ -1226,6 +1226,41 @@ def _marker_rows() -> list[dict[str, Any]]:
     return rows
 
 
+def _follow_marker_roads(infra: dict[str, Any], moves: list[dict[str, Any]]) -> int:
+    """Keep a road end on a settlement marker when that marker moves."""
+    pending = []
+    for move in moves:
+        if not move.get("ok", True) or not move.get("moved", True):
+            continue
+        old_x, old_y = move.get("old_x"), move.get("old_y")
+        new_x, new_y = move.get("x"), move.get("y")
+        if not isinstance(old_x, (int, float)) or not isinstance(new_x, (int, float)):
+            continue
+        if not isinstance(old_y, (int, float)) or not isinstance(new_y, (int, float)):
+            continue
+        pending.append(move)
+    if not pending:
+        return 0
+    scripts = str(ROOT / "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    from road_ends import Land, shift_marker
+
+    land = Land(ROOT)
+    total = 0
+    for move in pending:
+        total += shift_marker(
+            infra,
+            (move["old_x"], move["old_y"]),
+            (move["x"], move["y"]),
+            move.get("nation_id"),
+            land,
+        )
+    if total:
+        print(f"Road ends following markers: {total}")
+    return total
+
+
 def _apply_marker_moves(moves: list[dict[str, Any]], dry_run: bool) -> None:
     world = json.loads((DATA / "world.json").read_text(encoding="utf-8"))
     infra = json.loads((DATA / "infrastructure.json").read_text(encoding="utf-8"))
@@ -1251,6 +1286,9 @@ def _apply_marker_moves(moves: list[dict[str, Any]], dry_run: bool) -> None:
             place["x"] = move["x"]
             place["y"] = move["y"]
             changed = True
+    roads_changed = _follow_marker_roads(infra, moves) > 0
+    if roads_changed:
+        changed = True
     if not summary:
         print("No marker moves.")
         return
@@ -1264,7 +1302,7 @@ def _apply_marker_moves(moves: list[dict[str, Any]], dry_run: bool) -> None:
     items: list[tuple[Path, str | bytes]] = []
     if any(move.get("target") == "capital" and move.get("moved") for move in moves):
         items.append((DATA / "world.json", dumps_json(world, DATA / "world.json")))
-    if any(move.get("target") == "infrastructure" and move.get("moved") for move in moves):
+    if roads_changed or any(move.get("target") == "infrastructure" and move.get("moved") for move in moves):
         items.append((DATA / "infrastructure.json", dumps_json(infra, DATA / "infrastructure.json")))
     # These catalogs are one long line. A unified diff of that line is not readable.
     for path, text in items:
