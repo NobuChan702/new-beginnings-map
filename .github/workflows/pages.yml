@@ -69,6 +69,7 @@ jobs:
           test -f _site/data/province_names.csv
           test -f _site/data/flags.json
           test -f _site/data/religions.csv
+          test -f _site/data/wars.csv
           test -f _site/data/rivers.geojson
           test -f _site/js/history.js
           test -f _site/assets/overview.webp

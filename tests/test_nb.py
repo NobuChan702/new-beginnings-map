@@ -650,5 +650,240 @@ class ReligionCommandTests(unittest.TestCase):
         self.assertEqual((self.data / "religions.csv").read_bytes(), self.raw)
 
 
+class TrailingNewlineTests(unittest.TestCase):
+    def test_safe_write_ignores_only_a_trailing_newline(self) -> None:
+        directory = Path(tempfile.mkdtemp())
+        data = directory / "data"
+        data.mkdir()
+        path = data / "province_slots.json"
+        raw = b'{"provinces":{}}'
+        path.write_bytes(raw)
+        saved = (nb.ROOT, nb.DATA, nb.BACKUP_DIR, nb.CHECK_HISTORY)
+        nb.set_root(directory)
+        try:
+            nb.safe_write(path, raw.decode("utf-8") + "\n", False)
+            self.assertEqual(path.read_bytes(), raw)
+            self.assertFalse((data / ".nb-backups").exists())
+            crlf = data / "notes.csv"
+            crlf.write_bytes(b"a\r\nb\r\n")
+            nb.safe_write(crlf, "a\r\nb\n", False)
+            self.assertEqual(crlf.read_bytes(), b"a\r\nb\r\n")
+            with mock.patch.object(nb, "run_secrecy_check"):
+                nb.safe_write(path, '{"provinces":{"1":1}}\n', False)
+            self.assertEqual(path.read_bytes(), b'{"provinces":{"1":1}}\n')
+            with mock.patch.object(nb, "run_secrecy_check"):
+                nb.safe_write_many([(crlf, "a\nb\n")], False)
+            self.assertEqual(crlf.read_bytes(), b"a\nb\n")
+        finally:
+            nb.ROOT, nb.DATA, nb.BACKUP_DIR, nb.CHECK_HISTORY = saved
+            shutil.rmtree(directory)
+
+
+class ApplyBatchTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.data = self.tmp / "data"
+        self.data.mkdir()
+        self.world = {
+            "nations": [
+                {
+                    "id": 75,
+                    "name": "Holy Order of Eternea (minor)",
+                    "short_name": "Holy Order of Eternea",
+                    "capital_province": 1315,
+                    "capital_xy": [5100.0, 2100.0],
+                    "bbox": [4000, 0, 5000, 500],
+                    "provinces": [1315, 1333],
+                },
+                {
+                    "id": 8,
+                    "name": "Other",
+                    "short_name": "Other",
+                    "capital_province": 50,
+                    "capital_xy": [4100.0, 40.0],
+                    "bbox": [4000, 0, 4200, 80],
+                    "provinces": [50],
+                },
+            ],
+            "provinces": {
+                "1315": {"nation_id": 75, "bbox": [4000, 0, 4300, 200], "xy": [4100, 80]},
+                "1333": {"nation_id": 75, "bbox": [4400, 0, 4800, 200], "xy": [4600, 80]},
+                "50": {"nation_id": 8, "bbox": [4000, 0, 4200, 80], "xy": [4100, 40]},
+            },
+        }
+        (self.data / "world.json").write_text(json.dumps(self.world, separators=(",", ":")) + "\n", encoding="utf-8")
+        settlements = (
+            "nation,province,name,type,port,sector_id\r\n"
+            "Holy Order of Eternea,1315,Holy Order of Eternea,capital,no,1315-A\r\n"
+            "Holy Order of Eternea,1333,Liiliiliilii,city,no,1333-A\r\n"
+        )
+        (self.data / "settlements.csv").write_bytes(settlements.encode("utf-8"))
+        infra = {
+            "capitals": True,
+            "places": [
+                {"id": "city-1333", "type": "city", "name": "Liiliiliilii", "province": 1333, "x": 5400.5, "y": 2200.5, "cycle": 0, "nation": 75},
+            ],
+            "roads": [],
+        }
+        (self.data / "infrastructure.json").write_text(json.dumps(infra, separators=(",", ":")) + "\n", encoding="utf-8")
+        slots = {
+            "provinces": {
+                "50": {"nation_id": 8, "nation": "Other"},
+                "1315": {
+                    "capital": True,
+                    "sectors": [{"sector": "1315-A", "name": "Holy Order of Eternea", "map_label": "capital"}],
+                },
+                "1333": {
+                    "capital": False,
+                    "sectors": [{"sector": "1333-A", "name": "Liiliiliilii", "map_label": "city"}],
+                },
+            }
+        }
+        (self.data / "province_slots.json").write_bytes(json.dumps(slots, separators=(",", ":")).encode("utf-8"))
+        (self.data / "settlement_name_overrides.csv").write_bytes(b"sector_id,name\r\n")
+        (self.data / "claims.json").write_text("{}\n", encoding="utf-8")
+        (self.data / "trade_routes.json").write_text('{"routes":[]}\n', encoding="utf-8")
+        (self.data / "province_names.csv").write_bytes(b"province,name\r\n1315,Old Hold\r\n")
+        (self.data / "religions.csv").write_bytes(b"target,id,religion,color\r\n")
+        (self.data / "sector_control.csv").write_bytes(
+            b"sector_id,controller,cycle\r\n50-A,8,0\r\n50-B,8,0\r\n50-C,8,0\r\n"
+        )
+        (self.data / "wars.csv").write_bytes(b"nation_a,nation_b,state\r\n")
+        self.saved = (nb.ROOT, nb.DATA, nb.BACKUP_DIR, nb.CHECK_HISTORY)
+        nb.set_root(self.tmp)
+
+    def tearDown(self) -> None:
+        nb.ROOT, nb.DATA, nb.BACKUP_DIR, nb.CHECK_HISTORY = self.saved
+        shutil.rmtree(self.tmp)
+
+    def _bytes(self) -> dict[str, bytes]:
+        return {path.name: path.read_bytes() for path in self.data.iterdir() if path.is_file()}
+
+    def _batch(self, text: str, suffix: str = ".json") -> Path:
+        path = self.tmp / f"season{suffix}"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def test_dry_run_json_and_child_flag_write_nothing(self) -> None:
+        path = self._batch(
+            json.dumps(
+                {
+                    "changes": [
+                        {"op": "transfer", "province": 50, "nation": 75},
+                        {"op": "rename", "province": 1333, "name": "Bright Shore"},
+                        {"op": "religion", "target": "nation:75", "name": "Dawn", "color": "#abc"},
+                        {"op": "capital", "nation": 75, "province": 1333, "name": "Lighthollow"},
+                        {"op": "war", "action": "start", "nation_a": 75, "nation_b": 8},
+                    ]
+                }
+            )
+        )
+        before = self._bytes()
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            nb.main(["--dry-run", "apply-batch", str(path)])
+        summary = json.loads(buf.getvalue())
+        self.assertTrue(summary["dry_run"])
+        self.assertEqual(summary["count"], 5)
+        self.assertEqual(summary["changes"][0]["op"], "transfer")
+        self.assertEqual(summary["changes"][0]["from"], 8)
+        self.assertEqual(summary["changes"][0]["nation"], 75)
+        self.assertEqual(summary["changes"][2]["name"], "Dawn")
+        self.assertEqual(summary["changes"][4]["nation_a"], 8)
+        self.assertEqual(summary["changes"][4]["nation_b"], 75)
+        self.assertIn("data/world.json", summary["files"])
+        self.assertIn("data/wars.csv", summary["files"])
+        self.assertIn("data/province_names.csv", summary["files"])
+        self.assertEqual(self._bytes(), before)
+
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            nb.main(["apply-batch", str(path), "--dry-run"])
+        again = json.loads(buf.getvalue())
+        self.assertEqual(again["count"], 5)
+        self.assertEqual(self._bytes(), before)
+
+    def test_apply_writes_every_op_and_keeps_slots_without_only_a_newline(self) -> None:
+        slots_before = (self.data / "province_slots.json").read_bytes()
+        self.assertFalse(slots_before.endswith(b"\n"))
+        path = self._batch(
+            "op,province,nation,name,target,color,nation_a,nation_b,action\n"
+            "transfer,50,75,,,,,,\n"
+            "rename,1333,,Bright Shore,,,,,\n"
+            "religion,,,Dawn,nation:75,#abc,,,\n"
+            "capital,1333,75,Lighthollow,,,,,\n"
+            "war,,,,,,8,75,start\n",
+            ".csv",
+        )
+        with mock.patch.object(nb, "run_secrecy_check"):
+            nb.main(["apply-batch", str(path)])
+        world = json.loads((self.data / "world.json").read_text(encoding="utf-8"))
+        self.assertEqual(world["provinces"]["50"]["nation_id"], 75)
+        nation75 = next(item for item in world["nations"] if item["id"] == 75)
+        nation8 = next(item for item in world["nations"] if item["id"] == 8)
+        self.assertIn(50, nation75["provinces"])
+        self.assertNotIn(50, nation8["provinces"])
+        self.assertEqual(nation75["capital_province"], 1333)
+        names = (self.data / "province_names.csv").read_bytes()
+        self.assertIn(b"1333,Bright Shore", names)
+        self.assertIn(b"1315,Old Hold", names)
+        self.assertTrue(names.startswith(b"province,name\r\n"))
+        religions = (self.data / "religions.csv").read_bytes()
+        self.assertIn(b"nation,75,Dawn,#abc", religions)
+        wars = (self.data / "wars.csv").read_bytes()
+        self.assertEqual(wars, b"nation_a,nation_b,state\r\n8,75,active\r\n")
+        control = (self.data / "sector_control.csv").read_text(encoding="utf-8")
+        self.assertIn("50-A,75,0", control.replace("\r\n", "\n"))
+        slots = json.loads((self.data / "province_slots.json").read_text(encoding="utf-8"))
+        self.assertEqual(slots["provinces"]["50"]["nation_id"], 75)
+        self.assertEqual(slots["provinces"]["50"]["nation"], "Holy Order of Eternea (minor)")
+        self.assertTrue(slots["provinces"]["1333"]["capital"])
+        self.assertFalse(slots["provinces"]["1315"]["capital"])
+        rows = (self.data / "settlements.csv").read_bytes().split(b"\r\n")
+        self.assertIn(b"Holy Order of Eternea,1333,Lighthollow,capital,no,1333-A", rows)
+        self.assertIn(b"Holy Order of Eternea,1315,Holy Order of Eternea,city,no,1315-A", rows)
+
+    def test_validation_errors_are_complete_and_atomic(self) -> None:
+        before = self._bytes()
+        path = self._batch(
+            json.dumps(
+                {
+                    "changes": [
+                        {"op": "transfer", "province": 50, "nation": 75},
+                        {"op": "transfer", "province": 50, "nation": 8},
+                        {"op": "transfer", "province": 50, "nation": 75},
+                        {"op": "rename", "province": 999999, "name": "Nope"},
+                        {"op": "war", "action": "start", "nation_a": 75, "nation_b": 424242},
+                        {"op": "war", "action": "end", "nation_a": 8, "nation_b": 75},
+                        {"op": "capital", "nation": 8, "province": 1333},
+                    ]
+                }
+            )
+        )
+        err = io.StringIO()
+        with redirect_stderr(err), self.assertRaises(SystemExit) as caught:
+            nb.main(["apply-batch", str(path)])
+        self.assertEqual(caught.exception.code, 2)
+        text = err.getvalue()
+        self.assertIn("conflicts with row 1", text)
+        self.assertIn("duplicate of row 1", text)
+        self.assertIn("999999", text)
+        self.assertIn("424242", text)
+        self.assertIn("not at war", text)
+        self.assertIn("does not own province 1333", text)
+        self.assertEqual(self._bytes(), before)
+
+    def test_examples_parse(self) -> None:
+        import batch_ops
+
+        for name in ("apply-batch.json", "apply-batch.csv"):
+            ops, errors = batch_ops.parse_batch(ROOT / "examples" / name)
+            self.assertEqual(errors, [])
+            self.assertEqual(
+                [op["op"] for op in ops],
+                ["transfer", "rename", "religion", "religion", "capital", "war"],
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Safe local edits to published map data (claims, names, transfers, building limits, flags, capitals).
+"""Safe local edits to published map data (claims, names, transfers, building limits, flags, capitals, season batches).
 
 Every mutating command validates inputs, shows a diff summary, supports --dry-run,
 backs up the target file, runs scripts/check_history.py, then saves (or restores on failure).
@@ -149,14 +149,26 @@ def run_secrecy_check() -> None:
         print(line)
 
 
+def text_changed(old: str, new: str) -> bool:
+    """False when the texts match, or the only difference is a trailing newline.
+
+    province_slots.json is one line with no newline at the end. Re-serializing
+    it used to append ``\\n`` and rewrite the file even though the JSON was the same.
+    """
+    if old == new:
+        return False
+    return old.rstrip("\r\n") != new.rstrip("\r\n")
+
+
 def safe_write(path: Path, new_text: str, dry_run: bool) -> None:
     # Compare and write the raw bytes. read_text/write_text translate \n to
     # os.linesep, so a CRLF file looked changed and was saved with different endings.
     old_text = path.read_bytes().decode("utf-8") if path.is_file() else ""
-    diff_summary(old_text, new_text, path.relative_to(ROOT).as_posix())
-    if old_text == new_text:
+    if not text_changed(old_text, new_text):
+        print("No changes.")
         print("Nothing to write.")
         return
+    diff_summary(old_text, new_text, path.relative_to(ROOT).as_posix())
     if dry_run:
         print("(dry-run: not writing)")
         return
@@ -287,15 +299,17 @@ def cmd_claim_unassign(args: argparse.Namespace) -> None:
     safe_write(path, new_text, args.dry_run)
 
 
-def cmd_rename_province(args: argparse.Namespace) -> None:
-    path = DATA / "province_names.csv"
-    header, body = read_csv_rows(path)
+def apply_rename_province(
+    header: list[str],
+    body: list[list[str]],
+    provinces: dict[int, dict],
+    pid: int,
+    name: str,
+) -> None:
     if header != ["province", "name"]:
         raise ValueError("province_names.csv: header must be province,name")
-    _, provinces, _ = load_world()
-    pid = int(args.province)
     assert_public_province(pid, provinces, "rename province")
-    name = args.name.strip()
+    name = name.strip()
     if not name or name.lower() == "terillia":
         raise ValueError("name is missing or reserved")
     replaced = False
@@ -306,8 +320,14 @@ def cmd_rename_province(args: argparse.Namespace) -> None:
             break
     if not replaced:
         body.append([str(pid), name])
-    new_text = write_csv_rows(path, header, body)
-    safe_write(path, new_text, args.dry_run)
+
+
+def cmd_rename_province(args: argparse.Namespace) -> None:
+    path = DATA / "province_names.csv"
+    header, body = read_csv_rows(path)
+    _, provinces, _ = load_world()
+    apply_rename_province(header, body, provinces, int(args.province), args.name)
+    safe_write(path, write_csv_rows(path, header, body), args.dry_run)
 
 
 def cmd_rename_settlement(args: argparse.Namespace) -> None:
@@ -336,45 +356,64 @@ def cmd_rename_settlement(args: argparse.Namespace) -> None:
     safe_write(path, new_text, args.dry_run)
 
 
-def cmd_transfer(args: argparse.Namespace) -> None:
-    world, provinces, nations = load_world()
-    from_id = int(args.from_nation)
-    to_id = int(args.to_nation)
-    assert_public_nation(from_id, nations, "transfer --from")
+def apply_transfer(
+    world: dict[str, Any],
+    provinces: dict[int, dict],
+    nations: dict[int, dict],
+    slots: dict[str, Any],
+    header: list[str],
+    body: list[list[str]],
+    from_id: int | None,
+    to_id: int,
+    pids: list[int],
+    cycle: str | int,
+) -> None:
+    """Move provinces to another nation. Mutates world, slots, and the sector-control rows."""
     assert_public_nation(to_id, nations, "transfer --to")
-    if from_id == to_id:
-        raise ValueError("from and to nation must differ")
-    pids = [int(x) for x in args.provinces]
+    if from_id is not None:
+        assert_public_nation(from_id, nations, "transfer --from")
+        if from_id == to_id:
+            raise ValueError("from and to nation must differ")
     if not pids:
         raise ValueError("list at least one province id")
-
+    resolved_from: list[int] = []
     for pid in pids:
         assert_public_province(pid, provinces, "transfer")
         owner = provinces[pid].get("nation_id")
-        if owner != from_id:
-            raise ValueError(f"province {pid} is owned by nation {owner}, not {from_id}")
+        if from_id is None:
+            if owner is None:
+                raise ValueError(f"province {pid} is unclaimed")
+            source = int(owner)
+            assert_public_nation(source, nations, "transfer --from")
+            if source == to_id:
+                raise ValueError("from and to nation must differ")
+        else:
+            source = from_id
+            if owner != source:
+                raise ValueError(f"province {pid} is owned by nation {owner}, not {source}")
+        resolved_from.append(source)
 
     to_name = nations[to_id]["name"]
-    from_n = nations[from_id]
+    owners = set(resolved_from)
+    for source in owners:
+        from_n = nations[source]
+        from_list = list(from_n.get("provinces") or [])
+        for pid, pid_source in zip(pids, resolved_from):
+            if pid_source == source and pid in from_list:
+                from_list.remove(pid)
+        from_list.sort()
+        from_n["provinces"] = from_list
+        from_n["province_count"] = len(from_list)
     to_n = nations[to_id]
-    from_list = list(from_n.get("provinces") or [])
     to_list = list(to_n.get("provinces") or [])
-
     for pid in pids:
         world["provinces"][str(pid)]["nation_id"] = to_id
-        if pid in from_list:
-            from_list.remove(pid)
         if pid not in to_list:
             to_list.append(pid)
-    from_list.sort()
     to_list.sort()
-    from_n["provinces"] = from_list
     to_n["provinces"] = to_list
-    from_n["province_count"] = len(from_list)
     to_n["province_count"] = len(to_list)
 
-    slots_path = DATA / "province_slots.json"
-    slots = json.loads(slots_path.read_text(encoding="utf-8"))
     slot_provs = slots.get("provinces") or {}
     for pid in pids:
         row = slot_provs.get(str(pid))
@@ -382,36 +421,56 @@ def cmd_transfer(args: argparse.Namespace) -> None:
             row["nation_id"] = to_id
             row["nation"] = to_name
 
-    control_path = DATA / "sector_control.csv"
-    header, body = read_csv_rows(control_path)
     if header != ["sector_id", "controller", "cycle"]:
         raise ValueError("sector_control.csv: header must be sector_id,controller,cycle")
-    cycle = str(int(args.cycle))
+    cycle_text = str(int(cycle))
     targets = {f"{pid}-{s}" for pid in pids for s in ("A", "B", "C")}
     for row in body:
         if row and row[0].strip() in targets:
             row[1] = str(to_id)
-            row[2] = cycle
+            row[2] = cycle_text
+
+
+def cmd_transfer(args: argparse.Namespace) -> None:
+    world, provinces, nations = load_world()
+    from_id = int(args.from_nation)
+    to_id = int(args.to_nation)
+    pids = [int(x) for x in args.provinces]
+    slots_path = DATA / "province_slots.json"
+    slots = json.loads(slots_path.read_text(encoding="utf-8"))
+    control_path = DATA / "sector_control.csv"
+    header, body = read_csv_rows(control_path)
+    apply_transfer(world, provinces, nations, slots, header, body, from_id, to_id, pids, args.cycle)
 
     world_text = dumps_json(world, DATA / "world.json")
     slots_text = dumps_json(slots, slots_path)
     control_text = write_csv_rows(control_path, header, body)
+    files = (
+        (DATA / "world.json", world_text),
+        (slots_path, slots_text),
+        (control_path, control_text),
+    )
+    changed_files: list[tuple[Path, str, str]] = []
+    for path, text in files:
+        old = path.read_bytes().decode("utf-8") if path.is_file() else ""
+        if text_changed(old, text):
+            changed_files.append((path, text, old))
+        else:
+            print("No changes.")
+    if not changed_files:
+        print("Nothing to write.")
+        return
 
     if args.dry_run:
-        diff_summary(DATA.joinpath("world.json").read_bytes().decode("utf-8"), world_text, "data/world.json")
-        diff_summary(slots_path.read_bytes().decode("utf-8"), slots_text, "data/province_slots.json")
-        diff_summary(control_path.read_bytes().decode("utf-8"), control_text, "data/sector_control.csv")
+        for path, text, old in changed_files:
+            diff_summary(old, text, path.relative_to(ROOT).as_posix())
         print("(dry-run: not writing)")
         return
 
     # Write in order; restore all on failure after first successful write.
     written: list[tuple[Path, Path | None]] = []
     try:
-        for path, text in (
-            (DATA / "world.json", world_text),
-            (slots_path, slots_text),
-            (control_path, control_text),
-        ):
+        for path, text, _old in changed_files:
             BACKUP_DIR.mkdir(parents=True, exist_ok=True)
             stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
             backup = None
@@ -429,7 +488,8 @@ def cmd_transfer(args: argparse.Namespace) -> None:
             if backup and backup.is_file():
                 shutil.copy2(backup, path)
         raise SystemExit(str(err)) from err
-    print("Wrote data/world.json, data/province_slots.json, data/sector_control.csv")
+    names = ", ".join(path.relative_to(ROOT).as_posix() for path, _text, _old in changed_files)
+    print(f"Wrote {names}")
 
 
 def cmd_limits_check(args: argparse.Namespace) -> None:
@@ -522,7 +582,7 @@ def _rollback(written: list[tuple[Path, Path | None]]) -> None:
 
 def safe_write_many(items: list[tuple[Path, str | bytes]], dry_run: bool) -> None:
     """Write several files with one diff, one backup pass, and one secrecy check."""
-    prepared: list[tuple[Path, bytes, bytes]] = []
+    prepared: list[tuple[Path, bytes, bytes, bool]] = []
     changed = False
     for path, data in items:
         new_b = data.encode("utf-8") if isinstance(data, str) else data
@@ -530,15 +590,21 @@ def safe_write_many(items: list[tuple[Path, str | bytes]], dry_run: bool) -> Non
         rel = path.relative_to(ROOT).as_posix()
         if isinstance(data, str):
             old_text = old_b.decode("utf-8") if old_b else ""
-            diff_summary(old_text, data, rel)
+            this_changed = text_changed(old_text, data)
+            if this_changed:
+                diff_summary(old_text, data, rel)
+            else:
+                print("No changes.")
         elif old_b == new_b:
+            this_changed = False
             print(f"No changes to {rel}.")
         else:
+            this_changed = True
             action = "replace" if path.is_file() else "add"
             print(f"Binary {rel}: {action} ({len(new_b)} bytes)")
-        if old_b != new_b:
+        if this_changed:
             changed = True
-        prepared.append((path, new_b, old_b))
+        prepared.append((path, new_b, old_b, this_changed))
     if not changed:
         print("Nothing to write.")
         return
@@ -549,8 +615,8 @@ def safe_write_many(items: list[tuple[Path, str | bytes]], dry_run: bool) -> Non
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     written: list[tuple[Path, Path | None]] = []
     try:
-        for path, new_b, old_b in prepared:
-            if path.is_file() and old_b == new_b:
+        for path, new_b, old_b, this_changed in prepared:
+            if not this_changed:
                 continue
             path.parent.mkdir(parents=True, exist_ok=True)
             backup = None
@@ -694,7 +760,12 @@ def _rename_settlement_fields(node: Any, old: str, new: str, nation_id: int) -> 
     return changed
 
 
-def _retarget_capital_routes(old: str, new: str, nation_id: int) -> list[tuple[Path, str]]:
+def _retarget_capital_routes(
+    old: str,
+    new: str,
+    nation_id: int,
+    pending: dict[Path, str] | None = None,
+) -> list[tuple[Path, str]]:
     """Keep trade endpoints that named this capital pointing at the new name."""
     if not old or old == new:
         return []
@@ -702,14 +773,24 @@ def _retarget_capital_routes(old: str, new: str, nation_id: int) -> list[tuple[P
     history = DATA / "history"
     if history.is_dir():
         paths.extend(sorted(history.glob("*.json")))
+    if pending:
+        for path in pending:
+            if path not in paths:
+                paths.append(path)
     found: list[tuple[Path, str]] = []
     for path in paths:
-        if not path.is_file():
+        if pending is not None and path in pending:
+            data = json.loads(pending[path])
+        elif path.is_file():
+            data = json.loads(path.read_text(encoding="utf-8"))
+        else:
             continue
-        data = json.loads(path.read_text(encoding="utf-8"))
         if not _rename_settlement_fields(data, old, new, nation_id):
             continue
-        found.append((path, dumps_json(data, path)))
+        text = dumps_json(data, path)
+        if pending is not None:
+            pending[path] = text
+        found.append((path, text))
     return found
 
 
@@ -809,209 +890,9 @@ def cmd_capital_move(args: argparse.Namespace) -> None:
     follow the move. Claims do not store a capital. --name is written to
     settlement_name_overrides.csv and to the capital row the page reads.
     """
-    world, provinces, nations = load_world()
-    nid = int(args.nation)
-    pid = int(args.province)
-    assert_public_nation(nid, nations, "capital move")
-    assert_public_province(pid, provinces, "capital move")
-    nation = nations[nid]
-    owner = provinces[pid].get("nation_id")
-    if owner != nid:
-        owner_text = "unclaimed" if owner is None else f"nation {owner}"
-        raise ValueError(
-            f"nation {nid} ({nation['short_name']}) does not own province {pid}; it is {owner_text}"
-        )
-    new_name = None
-    if args.name is not None:
-        new_name = str(args.name).strip()
-        if not new_name or new_name.lower() == "terillia":
-            raise ValueError("name is missing or reserved")
-        if any(ch in new_name for ch in ",\"\r\n"):
-            raise ValueError("capital name cannot contain commas or quotes (the map splits settlements.csv on commas)")
+    from batch_ops import run_capital_move
 
-    old_pid = int(nation["capital_province"])
-    settlements_path = DATA / "settlements.csv"
-    header, body = read_csv_rows(settlements_path)
-    if header != ["nation", "province", "name", "type", "port", "sector_id"]:
-        raise ValueError("settlements.csv: header must be nation,province,name,type,port,sector_id")
-    short = nation["short_name"]
-    capital_rows = [
-        index
-        for index, row in enumerate(body)
-        if len(row) >= 6 and row[0].strip() == short and row[3].strip().lower() == "capital"
-    ]
-    if len(capital_rows) != 1:
-        raise ValueError(f"nation {nid} has {len(capital_rows)} capital settlement rows")
-    old_row = body[capital_rows[0]]
-    old_capital_name = old_row[2]
-    if old_pid == pid and new_name is None:
-        print(f"Province {pid} is already the capital of nation {nid} ({short}).")
-        print("Nothing to write.")
-        return
-
-    target_sector = f"{pid}-A"
-    target_indexes = [index for index, row in enumerate(body) if len(row) >= 6 and row[5].strip() == target_sector]
-    created = False
-    if target_indexes:
-        target = body[target_indexes[0]]
-        if target[0].strip() != short:
-            raise ValueError(
-                f"{target_sector} belongs to {target[0].strip()!r}, not {short}"
-            )
-        source_name = target[2]
-        source_kind = target[3].strip().lower()
-    else:
-        city_rows = [
-            row
-            for row in body
-            if len(row) >= 6 and row[1].strip() == str(pid) and row[3].strip().lower() == "city" and row[0].strip() == short
-        ]
-        main_rows = [row for row in body if len(row) >= 6 and row[1].strip() == str(pid) and row[0].strip() == short]
-        source = city_rows[0] if city_rows else (main_rows[0] if main_rows else None)
-        if source is None:
-            raise ValueError(f"province {pid} has no city or settlement to turn into a capital")
-        source_name = source[2]
-        source_kind = source[3].strip().lower()
-        target = [short, str(pid), source_name, "capital", source[4].strip() or "no", target_sector]
-        body.append(target)
-        created = True
-
-    if not created:
-        target[3] = "capital"
-    if new_name:
-        target[2] = new_name
-    if old_pid != pid:
-        old_row[3] = "city"
-
-    infra_path = DATA / "infrastructure.json"
-    infra = json.loads(infra_path.read_text(encoding="utf-8"))
-    places = infra.setdefault("places", [])
-    if not isinstance(places, list):
-        raise ValueError("infrastructure.json places must be a list")
-    marker = _find_place(places, pid, source_name, "city") or _find_place(places, pid, source_name, source_kind)
-    marker_xy = _xy_pair([marker.get("x"), marker.get("y")]) if marker else None
-    if marker_xy is None:
-        marker_xy = _xy_pair(provinces[pid].get("xy"))
-    if marker_xy is None:
-        raise ValueError(f"province {pid} has no marker position in infrastructure.json")
-    if new_name and marker is not None:
-        marker["name"] = new_name
-
-    old_xy = _xy_pair(nation.get("capital_xy")) or marker_xy
-    added_place = None
-    if old_pid != pid and _find_place(places, old_pid, old_row[2], "city") is None:
-        place_id = f"city-{old_pid}"
-        taken = {str(place.get("id")) for place in places}
-        if place_id in taken:
-            place_id = f"city-{old_pid}-former-capital"
-        added_place = {
-            "id": place_id,
-            "type": "city",
-            "name": old_row[2],
-            "province": old_pid,
-            "x": old_xy[0],
-            "y": old_xy[1],
-            "cycle": 0,
-            "nation": nid,
-        }
-        places.append(added_place)
-
-    if old_pid != pid:
-        nation["capital_province"] = pid
-        nation["capital_xy"] = marker_xy
-
-    slots_path = DATA / "province_slots.json"
-    slots = json.loads(slots_path.read_text(encoding="utf-8")) if slots_path.is_file() else {"provinces": {}}
-    slot_provinces = slots.setdefault("provinces", {})
-    ledger_notes: list[str] = []
-    for slot_pid, is_capital, label in ((old_pid, False, "city"), (pid, True, "capital")):
-        if old_pid == pid and not is_capital:
-            continue
-        row = slot_provinces.get(str(slot_pid))
-        if not isinstance(row, dict):
-            continue
-        if row.get("capital") is not is_capital:
-            row["capital"] = is_capital
-            ledger_notes.append(f"ledger province {slot_pid}: capital {str(is_capital).lower()}")
-        for sector in row.get("sectors") or []:
-            if not isinstance(sector, dict):
-                continue
-            if str(sector.get("sector") or "") != f"{slot_pid}-A":
-                continue
-            if sector.get("map_label") != label:
-                sector["map_label"] = label
-                ledger_notes.append(f"ledger {slot_pid}-A: map_label {label}")
-            if is_capital and new_name and sector.get("name") != new_name:
-                sector["name"] = new_name
-                ledger_notes.append(f"ledger {slot_pid}-A: name {new_name}")
-
-    claims_path = DATA / "claims.json"
-    claims_note = None
-    if claims_path.is_file():
-        claims = json.loads(claims_path.read_text(encoding="utf-8"))
-        entry = claims.get(str(nid)) if isinstance(claims, dict) else None
-        if isinstance(entry, dict) and "capital" in entry and entry.get("capital") != pid:
-            entry["capital"] = pid
-            claims_note = f"claims {nid}: capital {pid}"
-        else:
-            claims = None
-    else:
-        claims = None
-
-    overrides_path = DATA / "settlement_name_overrides.csv"
-    override_text = None
-    if new_name:
-        if overrides_path.is_file():
-            ov_header, ov_body = read_csv_rows(overrides_path)
-        else:
-            ov_header, ov_body = ["sector_id", "name"], []
-        if ov_header != ["sector_id", "name"]:
-            raise ValueError("settlement_name_overrides.csv: header must be sector_id,name")
-        replaced = False
-        for ov in ov_body:
-            if ov and ov[0].strip() == target_sector:
-                ov[1] = new_name
-                replaced = True
-        if not replaced:
-            ov_body.append([target_sector, new_name])
-        override_text = write_csv_rows(overrides_path, ov_header, ov_body)
-
-    if old_pid != pid:
-        print(f"Capital of nation {nid} ({short}): province {old_pid} -> {pid}")
-        print(f"capital_xy {old_xy} -> {marker_xy}")
-        print(f"settlements {old_row[5].strip()}: type capital -> city ({old_row[2]})")
-    else:
-        print(f"Capital of nation {nid} ({short}) stays in province {pid}")
-    action = "create" if created else f"type {source_kind} -> capital"
-    shown = target[2]
-    print(f"settlements {target_sector}: {action} ({shown})")
-    if new_name and new_name != source_name:
-        print(f"name {source_name!r} -> {new_name!r} in settlements.csv and settlement_name_overrides.csv")
-    if added_place is not None:
-        print(f"infrastructure add {added_place['id']} at {old_xy}")
-    for note in ledger_notes:
-        print(note)
-    if claims_note:
-        print(claims_note)
-    else:
-        print("claims.json does not record a capital")
-
-    items: list[tuple[Path, str | bytes]] = [
-        (settlements_path, write_csv_rows(settlements_path, header, body)),
-        (DATA / "world.json", dumps_json(world, DATA / "world.json")),
-        (infra_path, dumps_json(infra, infra_path)),
-    ]
-    if slots_path.is_file() or ledger_notes:
-        items.append((slots_path, dumps_json(slots, slots_path)))
-    if override_text is not None:
-        items.append((overrides_path, override_text))
-    if claims is not None and claims_note:
-        items.append((claims_path, dumps_claims(claims)))
-    if new_name and new_name != source_name:
-        items.extend(_retarget_capital_routes(source_name, new_name, nid))
-    if new_name and old_capital_name != new_name and old_capital_name != source_name:
-        items.extend(_retarget_capital_routes(old_capital_name, new_name, nid))
-    safe_write_many(items, args.dry_run)
+    run_capital_move(args)
 
 
 def default_export_dir() -> Path:
@@ -1429,25 +1310,27 @@ def parse_religion_target(token: str, provinces: dict[int, dict], nations: dict[
     return kind, number
 
 
-def cmd_religion_set(args: argparse.Namespace) -> None:
-    """Map a nation or a province to a religion name. A province row overrides its nation."""
-    _, provinces, nations = load_world()
-    kind, number = parse_religion_target(str(args.target), provinces, nations)
-    religion = str(args.name).strip()
+def apply_religion(
+    header: list[str],
+    body: list[list[str]],
+    provinces: dict[int, dict],
+    nations: dict[int, dict],
+    target: str,
+    name: str,
+    color: str | None,
+) -> tuple[str, int, str]:
+    """Set one religion row. ``color`` None keeps an existing colour and leaves a new row blank."""
+    if header != ["target", "id", "religion", "color"]:
+        raise ValueError("religions.csv: header must be target,id,religion,color")
+    kind, number = parse_religion_target(str(target), provinces, nations)
+    religion = str(name).strip()
     if not religion or religion.lower() == "terillia":
         raise ValueError("religion name is missing or reserved")
     if any(ch in religion for ch in ",\"\r\n"):
         raise ValueError("religion name cannot contain commas or quotes")
-    color = (args.color or "").strip()
-    if color and not re.fullmatch(r"#[0-9A-Fa-f]{3}|#[0-9A-Fa-f]{6}", color):
+    given = None if color is None else str(color).strip()
+    if given and not re.fullmatch(r"#[0-9A-Fa-f]{3}|#[0-9A-Fa-f]{6}", given):
         raise ValueError("color must be a hex colour such as #2f6fbe")
-    path = DATA / "religions.csv"
-    if path.is_file():
-        header, body = read_csv_rows(path)
-    else:
-        header, body = ["target", "id", "religion", "color"], []
-    if header != ["target", "id", "religion", "color"]:
-        raise ValueError("religions.csv: header must be target,id,religion,color")
     replaced = False
     for row in body:
         while len(row) < 4:
@@ -1456,13 +1339,26 @@ def cmd_religion_set(args: argparse.Namespace) -> None:
             row[0] = kind
             row[1] = str(number)
             row[2] = religion
-            if args.color is not None:
-                row[3] = color
+            if given is not None:
+                row[3] = given
             replaced = True
             break
     if not replaced:
-        body.append([kind, str(number), religion, color])
-    print(f"Religion {kind} {number}: {religion}" + (f" {color}" if color else ""))
+        body.append([kind, str(number), religion, given or ""])
+    shown = given if given is not None else ""
+    return kind, number, shown
+
+
+def cmd_religion_set(args: argparse.Namespace) -> None:
+    """Map a nation or a province to a religion name. A province row overrides its nation."""
+    _, provinces, nations = load_world()
+    path = DATA / "religions.csv"
+    if path.is_file():
+        header, body = read_csv_rows(path)
+    else:
+        header, body = ["target", "id", "religion", "color"], []
+    kind, number, shown = apply_religion(header, body, provinces, nations, str(args.target), str(args.name), args.color)
+    print(f"Religion {kind} {number}: {args.name.strip()}" + (f" {shown}" if shown else ""))
     safe_write(path, write_csv_rows(path, header, body), args.dry_run)
 
 
@@ -1581,6 +1477,21 @@ def build_parser() -> argparse.ArgumentParser:
     religion_set.add_argument("name", help="Religion name. Nobu chooses the real names.")
     religion_set.add_argument("--color", default=None, help="Optional hex colour, such as #2f6fbe. Omit to keep or leave blank.")
     religion_set.set_defaults(func=cmd_religion_set)
+
+    from batch_ops import cmd_apply_batch
+
+    batch = sub.add_parser(
+        "apply-batch",
+        help="Apply a season batch of transfers, wars, capital moves, religions, and renames.",
+    )
+    batch.add_argument("file", help="CSV or JSON batch file.")
+    batch.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="batch_dry_run",
+        help="Print a JSON summary and do not write. Also accepted before the subcommand.",
+    )
+    batch.set_defaults(func=cmd_apply_batch)
 
     return parser
 

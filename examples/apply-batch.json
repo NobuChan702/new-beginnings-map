@@ -1,0 +1,10 @@
+{
+  "changes": [
+    {"op": "transfer", "province": 1202, "nation": 25, "from": 26, "cycle": 0},
+    {"op": "rename", "province": 894, "name": "Province of Khanbaliq"},
+    {"op": "religion", "target": "nation:25", "name": "Example Faith", "color": "#2f6fbe"},
+    {"op": "religion", "target": "province:878", "name": "Local Rite"},
+    {"op": "capital", "nation": 75, "province": 1333, "name": "Lighthollow"},
+    {"op": "war", "action": "start", "nation_a": 23, "nation_b": 25}
+  ]
+}
