@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
-"""Fail if a settlement marker sits outside its sector or too close to an edge.
+"""Fail if a stored settlement marker is outside its sector or too close to an edge.
 
-Icons follow the ledger level in province_slots.json (city, town, village).
-Open land (level "none") has no marker. A province missing from the ledger
-uses the start defaults: sector A is a village, a capital's sector A is a
-town (a city when the nation is major), and sectors B and C are open land.
-The generator map_label is not an icon.
+Positions live on the settlement, not in the browser. City, town, and village
+coordinates are the x,y of the matching place in data/infrastructure.json.
+A capital is the nation's capital_xy in data/world.json. The marker has to sit
+inside its sector polygon and its province polygon, on that province's land
+when the lookup has any, and at least --min-px from those borders and from water.
 
-Each marker is the centroid when that point lies inside with at least a
-quarter of the sector's inradius of clearance, otherwise the pole of
-inaccessibility. It must be on that province's land, inside the sector, and
-at least that far from the sector edge.
+PR #30 drew ledger icons from a sector centroid and did not move these coordinates.
+A ledger level of "none" was not redrawn, so towns such as Slika stayed on the edge.
 """
 
 from __future__ import annotations
 
+import argparse
+import csv
 import json
 import math
+import sys
 from pathlib import Path
 
 from PIL import Image
 
 ROOT = Path(__file__).resolve().parents[1]
-MARGIN = 0.25
 
 
 def fail(message: str) -> None:
@@ -86,174 +86,190 @@ def boundary_distance(x: float, y: float, geom: dict) -> float:
     return 0.0 if best is None else best
 
 
-def centroid_of(geom: dict) -> tuple[float, float]:
-    area = 0.0
-    sx = 0.0
-    sy = 0.0
-    for rings in rings_of(geom):
-        if not rings:
-            continue
-        ring = rings[0]
-        for i in range(len(ring) - 1):
-            x1, y1 = ring[i][0], ring[i][1]
-            x2, y2 = ring[i + 1][0], ring[i + 1][1]
-            cross = x1 * y2 - x2 * y1
-            area += cross
-            sx += (x1 + x2) * cross
-            sy += (y1 + y2) * cross
-    if abs(area) < 1e-9:
-        ring = rings_of(geom)[0][0]
-        return ring[0][0], ring[0][1]
-    area *= 0.5
-    return sx / (6.0 * area), sy / (6.0 * area)
+def rect_distance(x: float, y: float, x0: float, y0: float, x1: float, y1: float) -> float:
+    dx = 0.0 if x0 <= x <= x1 else min(abs(x - x0), abs(x - x1))
+    dy = 0.0 if y0 <= y <= y1 else min(abs(y - y0), abs(y - y1))
+    if dx == 0.0 and dy == 0.0:
+        return 0.0
+    return math.hypot(dx, dy)
 
 
-def bounds_of(geom: dict) -> tuple[float, float, float, float]:
-    minx = miny = math.inf
-    maxx = maxy = -math.inf
-    for rings in rings_of(geom):
-        for ring in rings:
-            for x, y in ring:
-                minx = min(minx, x)
-                miny = min(miny, y)
-                maxx = max(maxx, x)
-                maxy = max(maxy, y)
-    return minx, miny, maxx, maxy
-
-
-def pole_of(geom: dict, land) -> tuple[tuple[float, float], float]:
-    """Largest-clearance inland point, refined on a shrinking grid."""
-    minx, miny, maxx, maxy = bounds_of(geom)
-    span = max(maxx - minx, maxy - miny, 1.0)
-    step = span / 10.0
-    best = None
-    best_d = -1.0
-    window = (minx, miny, maxx, maxy)
-    for _ in range(5):
-        x0, y0, x1, y1 = window
-        x = x0
-        while x <= x1 + step * 0.01:
-            y = y0
-            while y <= y1 + step * 0.01:
-                if contains(x, y, geom) and land(x, y):
-                    dist = boundary_distance(x, y, geom)
-                    if dist > best_d:
-                        best_d = dist
-                        best = (x, y)
-                y += step
-            x += step
-        if best is None:
-            break
-        step = max(step / 3.0, 0.35)
-        window = (best[0] - step * 4, best[1] - step * 4, best[0] + step * 4, best[1] + step * 4)
-    if best is None:
-        return None, 0.0
-    return best, best_d
-
-
-def marker_point(geom: dict, land):
-    """Centroid when it is inland with clearance, otherwise the inland pole."""
-    pole, inradius = pole_of(geom, land)
-    if pole is None:
+def cell_id(raw: bytes, width: int, height: int, lx: int, ly: int) -> int | None:
+    if lx < 0 or ly < 0 or lx >= width or ly >= height:
         return None
-    centre = centroid_of(geom)
-    if land(centre[0], centre[1]) and contains(centre[0], centre[1], geom):
-        clearance = boundary_distance(centre[0], centre[1], geom)
-        if inradius <= 0 or clearance >= MARGIN * inradius:
-            return centre[0], centre[1], inradius
-    return pole[0], pole[1], inradius
+    offset = (ly * width + lx) * 3
+    cell = raw[offset : offset + 3]
+    return cell[0] + (cell[1] << 8)
 
 
-def levels_for(slots: dict, nations: dict, sectors: list[dict]) -> dict[str, str]:
-    out: dict[str, str] = {}
-    provinces = (slots or {}).get("provinces") or {}
-    for key, row in provinces.items():
-        for sector in (row or {}).get("sectors") or []:
-            sid = str(sector.get("sector") or "")
-            level = str(sector.get("level") or "none")
-            if sid:
-                out[sid] = level if level in ("city", "town", "village", "none") else "none"
-    capital_of = {}
-    tier_of = {}
-    for nation in nations.values():
-        capital_of[int(nation["capital_province"])] = nation
-        tier_of[int(nation["capital_province"])] = nation.get("tier")
-    for feature in sectors:
+def water_distance(x: float, y: float, province: int, raw: bytes, width: int, height: int, scale: int) -> float:
+    lx = int(x) // scale
+    ly = int(y) // scale
+    if cell_id(raw, width, height, lx, ly) != province:
+        return 0.0
+    best = 1e9
+    for radius in range(1, 48):
+        if (radius - 1) * scale >= best:
+            break
+        for dy in range(-radius, radius + 1):
+            span = range(-radius, radius + 1) if abs(dy) == radius else (-radius, radius)
+            for dx in span:
+                cx = lx + dx
+                cy = ly + dy
+                found = cell_id(raw, width, height, cx, cy)
+                if found == province:
+                    continue
+                if found is None:
+                    dist = min(x, y, width * scale - x, height * scale - y)
+                    dist = max(dist, 0.0)
+                else:
+                    dist = rect_distance(x, y, cx * scale, cy * scale, (cx + 1) * scale, (cy + 1) * scale)
+                if dist < best:
+                    best = dist
+    return best
+
+
+def load_stored_markers(root: Path) -> list[dict]:
+    world = json.loads((root / "data" / "world.json").read_text(encoding="utf-8"))
+    infra = json.loads((root / "data" / "infrastructure.json").read_text(encoding="utf-8"))
+    places = {}
+    for place in infra.get("places") or []:
+        places[(place.get("type"), place.get("province"), place.get("name"))] = place
+    capitals = {}
+    for nation in world["nations"]:
+        xy = nation.get("capital_xy") or [None, None]
+        capitals[int(nation["capital_province"])] = (xy[0], xy[1], nation.get("short_name"))
+    found = []
+    with (root / "data" / "settlements.csv").open(encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle):
+            sector = (row.get("sector_id") or "").strip()
+            kind = (row.get("type") or "").strip().lower()
+            name = (row.get("name") or "").strip()
+            if not sector or not str(row.get("province") or "").isdigit():
+                continue
+            province = int(row["province"])
+            if kind == "capital":
+                xy = capitals.get(province)
+                found.append(
+                    {
+                        "sector": sector,
+                        "province": province,
+                        "name": name,
+                        "kind": kind,
+                        "x": None if xy is None else xy[0],
+                        "y": None if xy is None else xy[1],
+                    }
+                )
+                continue
+            place = places.get((kind, province, name))
+            if place is None:
+                found.append({"sector": sector, "province": province, "name": name, "kind": kind, "x": None, "y": None})
+                continue
+            found.append(
+                {
+                    "sector": sector,
+                    "province": province,
+                    "name": name,
+                    "kind": kind,
+                    "x": place.get("x"),
+                    "y": place.get("y"),
+                }
+            )
+    return found
+
+
+def provinces_with_land(raw: bytes) -> set[int]:
+    found: set[int] = set()
+    for index in range(0, len(raw), 3):
+        province = raw[index] + (raw[index + 1] << 8)
+        if province:
+            found.add(province)
+    return found
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = argparse.ArgumentParser(description="Check stored settlement markers.")
+    parser.add_argument("--root", type=Path, default=ROOT)
+    parser.add_argument("--min-px", type=float, default=2.0, help="Flag markers closer than this to a border (default 2).")
+    parser.add_argument("--limit", type=int, default=40, help="How many problems to print.")
+    parser.add_argument("--sector", default=None, help="Check one sector instead of every marker.")
+    parser.add_argument("--xy", nargs=2, type=float, metavar=("X", "Y"), help="With --sector, check this point instead of the stored one.")
+    args = parser.parse_args(argv)
+    root = args.root
+    meta = json.loads((root / "data" / "meta.json").read_text(encoding="utf-8"))
+    sectors = {}
+    for feature in json.loads((root / "data" / "sectors.geojson").read_text(encoding="utf-8"))["features"]:
         props = feature.get("properties") or {}
         sid = str(props.get("id") or "")
-        if not sid or sid in out:
-            continue
-        letter = str(props.get("letter") or "")
-        pid = int(props.get("province") or 0)
-        if letter == "A" and pid in capital_of:
-            out[sid] = "city" if tier_of.get(pid) == "major" else "town"
-        elif letter == "A":
-            out[sid] = "village"
-        else:
-            out[sid] = "none"
-    return out
-
-
-def main() -> None:
-    meta = json.loads((ROOT / "data" / "meta.json").read_text(encoding="utf-8"))
-    world = json.loads((ROOT / "data" / "world.json").read_text(encoding="utf-8"))
-    slots = json.loads((ROOT / "data" / "province_slots.json").read_text(encoding="utf-8"))
-    sectors = json.loads((ROOT / "data" / "sectors.geojson").read_text(encoding="utf-8"))["features"]
-    nations = {int(nation["id"]): nation for nation in world["nations"]}
-    image = Image.open(ROOT / "data" / "lookup.png")
+        if sid:
+            sectors[sid] = feature.get("geometry") or {}
+    provinces = {}
+    flat = json.loads((root / "data" / "flat.geojson").read_text(encoding="utf-8"))
+    for feature in flat["features"]:
+        props = feature.get("properties") or {}
+        if props.get("kind") == "province":
+            provinces[int(props["id"])] = feature.get("geometry") or {}
+    image = Image.open(root / "data" / "lookup.png")
     raw = image.tobytes()
     width = image.width
+    height = image.height
     scale = int(meta["lookup_scale"])
-    levels = levels_for(slots, nations, sectors)
-    counts = {"city": 0, "town": 0, "village": 0, "none": 0}
+    has_land = provinces_with_land(raw)
+    problems = []
     checked = 0
-    omitted = 0
-    for feature in sectors:
-        props = feature.get("properties") or {}
-        sid = str(props.get("id") or "")
-        pid = int(props.get("province") or 0)
-        level = levels.get(sid, "none")
-        if level == "none":
-            counts["none"] += 1
+    markers = load_stored_markers(root)
+    if args.sector:
+        markers = [marker for marker in markers if marker["sector"] == args.sector]
+        if not markers:
+            fail(f"{args.sector}: no settlement")
+        if args.xy is not None:
+            for marker in markers:
+                marker["x"], marker["y"] = args.xy
+    for marker in markers:
+        where = f"{marker['sector']} {marker['kind']} {marker['name']}"
+        x, y = marker["x"], marker["y"]
+        province = marker["province"]
+        if not isinstance(x, (int, float)) or not isinstance(y, (int, float)) or isinstance(x, bool):
+            problems.append(f"{where}: no coordinates")
             continue
-        geom = feature.get("geometry") or {}
-
-        def on_land(px: float, py: float) -> bool:
-            lx = int(px) // scale
-            ly = int(py) // scale
-            if lx < 0 or ly < 0 or lx >= width or ly >= image.height:
-                return False
-            cell = raw[(ly * width + lx) * 3 : (ly * width + lx) * 3 + 3]
-            return cell[0] + (cell[1] << 8) == pid
-
-        placed = marker_point(geom, on_land)
-        if placed is None:
-            omitted += 1
+        sector_geom = sectors.get(marker["sector"])
+        province_geom = provinces.get(province)
+        if sector_geom is None:
+            problems.append(f"{where}: sector polygon is missing")
             continue
-        x, y, inradius = placed
-        counts[level] = counts.get(level, 0) + 1
+        if not contains(float(x), float(y), sector_geom):
+            problems.append(f"{where}: outside its sector ({x}, {y})")
+            continue
+        if province_geom is not None and not contains(float(x), float(y), province_geom):
+            problems.append(f"{where}: outside its province polygon")
+            continue
+        found = cell_id(raw, width, height, int(x) // scale, int(y) // scale)
+        if province in has_land:
+            if found == 0:
+                problems.append(f"{where}: in the water")
+                continue
+            if found != province:
+                problems.append(f"{where}: on province {found}, not {province}")
+                continue
+        elif found not in (None, 0, province):
+            problems.append(f"{where}: on province {found}, and province {province} has no land")
+            continue
+        clearance = boundary_distance(float(x), float(y), sector_geom)
+        if province_geom is not None:
+            clearance = min(clearance, boundary_distance(float(x), float(y), province_geom))
+        if province in has_land:
+            clearance = min(clearance, water_distance(float(x), float(y), province, raw, width, height, scale))
         checked += 1
-        where = f"{sid} ({level})"
-        if not contains(x, y, geom):
-            fail(f"{where}: marker is outside its sector")
-        clearance = boundary_distance(x, y, geom)
-        if inradius > 0 and clearance + 1e-6 < MARGIN * inradius:
-            fail(f"{where}: marker is too close to the sector edge ({clearance:.2f} < {MARGIN * inradius:.2f})")
-        lx = int(x) // scale
-        ly = int(y) // scale
-        if lx < 0 or ly < 0 or lx >= width or ly >= image.height:
-            fail(f"{where}: marker is off the lookup")
-        cell = raw[(ly * width + lx) * 3 : (ly * width + lx) * 3 + 3]
-        found = cell[0] + (cell[1] << 8)
-        if found == 0:
-            fail(f"{where}: marker is in the water")
-        if found != pid:
-            fail(f"{where}: marker is in province {found}, not {pid}")
-    print(
-        f"settlement icons city={counts.get('city', 0)} town={counts.get('town', 0)} "
-        f"village={counts.get('village', 0)} open_land={counts.get('none', 0)} "
-        f"checked={checked} omitted_no_land={omitted}"
-    )
+        if args.min_px > 0 and clearance + 1e-6 < args.min_px:
+            why = "this is as far inland as the sector's land allows" if clearance >= 1 else "on the border"
+            problems.append(f"{where}: {clearance:.2f}px from a border (minimum {args.min_px:g}; {why})")
+    print(f"checked {checked} settlement markers, flagged {len(problems)}")
+    for line in problems[: args.limit]:
+        print(line)
+    if len(problems) > args.limit:
+        print(f"... {len(problems) - args.limit} more")
+    if problems:
+        raise SystemExit(1)
 
 
 if __name__ == "__main__":

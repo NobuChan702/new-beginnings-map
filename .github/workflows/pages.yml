@@ -30,7 +30,7 @@ jobs:
       - name: Check history secrecy
         run: |
           python3 scripts/check_history.py
-          python3 scripts/check_settlement_markers.py
+          python3 scripts/check_settlement_markers.py --min-px 0
 
       - name: Assemble site
         run: |

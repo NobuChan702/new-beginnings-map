@@ -135,7 +135,21 @@ The capital's place name is not stored on the nation.
 
 `manifest.json` inside the zip has the base commit and one entry per path: `path`, `sha256`, and `status` (`added`, `modified`, or `deleted`). Added and modified hashes are the working-tree bytes, and those files are stored in the zip. A deleted path is listed with the SHA256 of the blob at `HEAD` and is not stored as file bytes. `--dry-run` (before `export`, or after it) runs the checks and prints that manifest, and does not create the zip.
 
-Run tests: `python3 -m unittest tests/test_nb.py`.
+#### Settlement markers
+
+Settlement markers are the rows in `data/settlements.csv`. A city, town, or village is drawn at the `x`,`y` of the matching place in `data/infrastructure.json`. A capital is drawn at that nation's `capital_xy` in `data/world.json`. Each of those points is the inland spot farthest from the sector edge, the province edge, and the water. The page uses the stored point. It does not recompute a centroid.
+
+`check markers` reports a marker that is outside its sector or province, in the water, or closer than `--min-px` to one of those borders. The default is 2 pixels. A sector whose land is thinner than that stays flagged, because the point is already as far inland as the land allows.
+
+```bash
+python3 tools/nb.py check markers
+python3 tools/nb.py check markers --min-px 1
+python3 tools/nb.py --dry-run settlement move 878-B --auto
+python3 tools/nb.py settlement move 878-B --xy 5405.5 1682.5
+python3 tools/nb.py settlement move --all --auto
+```
+
+Run tests: `python3 -m unittest tests/test_nb.py tests/test_marker_placement.py`.
 
 ## Infrastructure
 
