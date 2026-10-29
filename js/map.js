@@ -2087,9 +2087,79 @@ const claim = claimOf(nation);
     return [x, y];
   }
 
+  function roadEndIndex() {
+    const sig = String(state.infraStamp || 0);
+    if (state.roadEndIndex && state.roadEndIndexSig === sig) return state.roadEndIndex;
+    const byProvince = new Map();
+    settlementMarkerList().forEach(function (marker) {
+      if (marker.type !== "city" && marker.type !== "town" && marker.type !== "capital") return;
+      let list = byProvince.get(marker.province);
+      if (!list) {
+        list = [];
+        byProvince.set(marker.province, list);
+      }
+      list.push(marker);
+    });
+    state.roadEndIndex = byProvince;
+    state.roadEndIndexSig = sig;
+    return byProvince;
+  }
+
+  function nearestRoadMarker(x, y, provinceId, nation) {
+    const list = roadEndIndex().get(provinceId);
+    if (!list) return null;
+    let best = null;
+    let bestD = Infinity;
+    for (let i = 0; i < list.length; i++) {
+      const marker = list[i];
+      if (nation != null && marker.nation != null && Number(marker.nation) !== Number(nation)) continue;
+      const dist = Math.hypot(marker.x - x, marker.y - y);
+      if (dist < bestD) {
+        bestD = dist;
+        best = marker;
+      }
+    }
+    return best ? { marker: best, dist: bestD } : null;
+  }
+
+  function segmentInNation(a, b, nation) {
+    const dist = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    if (dist < 0.5) return true;
+    const steps = Math.max(1, Math.ceil(dist / 2));
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = a[0] + (b[0] - a[0]) * t;
+      const y = a[1] + (b[1] - a[1]) * t;
+      if (pointConcealed(x, y)) return false;
+      const pid = provinceAt(x, y);
+      if (!pid) return false;
+      const prov = state.provinces.get(pid);
+      const owner = prov && prov.nation_id != null && prov.nation_id !== "" ? prov.nation_id : null;
+      if (nation == null) {
+        if (owner != null) return false;
+      } else if (Number(owner) !== Number(nation)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Pull an end onto the city, town, or capital in its province when that
+  // segment stays on the nation's land. Ends already on the marker stay put.
+  function anchorRoadEnd(stops, index, provinceId, nation, limit) {
+    const found = nearestRoadMarker(stops[index][0], stops[index][1], provinceId, nation);
+    if (!found || found.dist > limit || found.dist <= 0.5) return;
+    const neighbor = stops[index === 0 ? 1 : stops.length - 2];
+    const next = [found.marker.x, found.marker.y];
+    if (!segmentInNation(neighbor, next, nation)) return;
+    stops[index] = next;
+  }
+
   function roadPoints(road) {
     const stops = [];
+    let provinceEnds = null;
     if (road.provinces && road.provinces.length >= 2) {
+      provinceEnds = [road.provinces[0], road.provinces[road.provinces.length - 1]];
       for (let i = 0; i < road.provinces.length; i++) {
         const id = road.provinces[i];
         const prov = state.provinces.get(id);
@@ -2102,6 +2172,18 @@ const claim = claimOf(nation);
       });
     } else {
       return null;
+    }
+    if (stops.length >= 2) {
+      const nation = road.nation == null || road.nation === "" ? null : road.nation;
+      if (provinceEnds) {
+        anchorRoadEnd(stops, 0, provinceEnds[0], nation, 400);
+        anchorRoadEnd(stops, stops.length - 1, provinceEnds[1], nation, 400);
+      } else {
+        const startProvince = provinceAt(stops[0][0], stops[0][1]);
+        const endProvince = provinceAt(stops[stops.length - 1][0], stops[stops.length - 1][1]);
+        if (startProvince) anchorRoadEnd(stops, 0, startProvince, nation, 120);
+        if (endProvince) anchorRoadEnd(stops, stops.length - 1, endProvince, nation, 120);
+      }
     }
     for (let i = 0; i < stops.length; i++) {
       if (pointConcealed(stops[i][0], stops[i][1])) return null;
