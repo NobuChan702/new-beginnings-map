@@ -27,6 +27,14 @@ jobs:
       - name: Configure Pages
         uses: actions/configure-pages@v5
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install Pillow
+        run: python -m pip install pillow
+
       - name: Check history secrecy
         run: |
           python3 scripts/check_history.py
