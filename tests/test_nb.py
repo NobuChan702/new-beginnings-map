@@ -1035,7 +1035,8 @@ class ArmiesCommandTests(unittest.TestCase):
         self.assertEqual(set(columns), {"nation", "type", "location", "status", "public"})
         self.assertEqual(batch_ops._force_label(rows[0]["Size/Status"]), "Large")
         self.assertEqual(batch_ops._force_type(rows[1]["Type"]), "fleet")
-        self.assertFalse(batch_ops._public_flag(rows[2]["Public"]))
+        self.assertEqual(rows[1]["Nation"], "Teriorsur")
+        self.assertTrue(batch_ops._public_flag(rows[2]["Public"]))
         self.assertNotIn("Men", columns.values())
 
 
