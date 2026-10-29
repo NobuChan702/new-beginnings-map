@@ -66,6 +66,23 @@ A nation may list old names in `former_names`. Search and a `#nation=` link stil
 
 Layers → Province IDs draws those same ids on the map once you are zoomed in. The zoom cutoff is `provinceLabelMinZoom` in `js/config.js`.
 
+## Province hover
+
+Moving the pointer over a published province opens a tooltip. It names the province and two building lines, read from that province's `mix` shares in `data/world.json` (the same pairs the click popup lists as Terrain).
+
+Hills and mountains are added together. Forest and jungle are added together. The cutoffs are named constants in `js/building_yields.js`: `MINE_HILLS_MOUNTAINS_MIN_PERCENT` and `LUMBER_FOREST_JUNGLE_MIN_PERCENT`, both 20. Exactly 20% qualifies.
+
+- `Mine: +2 iron (hills/mountains)` when hills plus mountains is at least 20%.
+- `Mine: +1 iron (bog iron)` otherwise. A mine can sit on any terrain.
+- `Lumber Camp: allowed (forest/jungle X%)` when forest plus jungle is at least 20%. X is that combined share.
+- `Lumber Camp: not allowed (needs 20% forest/jungle)` otherwise.
+
+`data/province_slots.json` states the same rule in `meta.rules`. `python3 tools/nb.py limits check` only compares each built count with that province's max. It does not score iron or lumber, so the tooltip does not call it. The click popup repeats the same two lines under the terrain shares.
+
+```bash
+node --test tests/building_yields.test.js
+```
+
 ## Claims
 
 Edit `data/claims.json`. Keys are nation ids as strings. `{}` means nothing is taken. `player` is the full name, shown as “Claimed by …” in the popup. `short` is the name in brackets after the nation on the map label, in the popup title, and in search. If `short` is left off, the page uses `player`, dropping a trailing parenthesis such as `(Grand Albion)`. A plain string still works and is treated as `player`.
@@ -149,7 +166,7 @@ python3 tools/nb.py settlement move 878-B --xy 5405.5 1682.5
 python3 tools/nb.py settlement move --all --auto
 ```
 
-Run tests: `python3 -m unittest tests/test_nb.py tests/test_marker_placement.py`.
+Run tests: `python3 -m unittest tests/test_nb.py tests/test_marker_placement.py` and `node --test tests/building_yields.test.js`.
 
 ## Infrastructure
 

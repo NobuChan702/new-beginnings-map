@@ -322,6 +322,20 @@ h1 {
   box-shadow: none;
 }
 
+.leaflet-tooltip.nb-province-tip {
+  padding: 6px 8px;
+}
+
+.nb-province-tip p {
+  margin: 0;
+  line-height: 1.35;
+}
+
+.nb-province-tip .nb-hover-title {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+
 .leaflet-tooltip-top.nb-tip::before { border-top-color: var(--navy); }
 
 #timeline {
