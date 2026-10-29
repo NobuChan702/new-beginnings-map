@@ -1478,7 +1478,7 @@ def build_parser() -> argparse.ArgumentParser:
     religion_set.add_argument("--color", default=None, help="Optional hex colour, such as #2f6fbe. Omit to keep or leave blank.")
     religion_set.set_defaults(func=cmd_religion_set)
 
-    from batch_ops import cmd_apply_batch
+    from batch_ops import cmd_apply_batch, cmd_armies
 
     batch = sub.add_parser(
         "apply-batch",
@@ -1492,6 +1492,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="Print a JSON summary and do not write. Also accepted before the subcommand.",
     )
     batch.set_defaults(func=cmd_apply_batch)
+
+    armies = sub.add_parser(
+        "armies",
+        help="Replace public army and fleet markers from the Armies & Fleets sheet.",
+    )
+    armies.add_argument("file", help="CSV export of the Armies & Fleets tab.")
+    armies.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="armies_dry_run",
+        help="Print a JSON summary and do not write. Also accepted before the subcommand.",
+    )
+    armies.set_defaults(func=cmd_armies)
 
     return parser
 

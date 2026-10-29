@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import csv
 import hashlib
 import io
 import json
@@ -883,6 +884,159 @@ class ApplyBatchTests(unittest.TestCase):
                 [op["op"] for op in ops],
                 ["transfer", "rename", "religion", "religion", "capital", "war"],
             )
+
+
+class ArmiesCommandTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp())
+        self.data = self.tmp / "data"
+        self.data.mkdir()
+        world = {
+            "nations": [
+                {
+                    "id": 75,
+                    "name": "Holy Order of Eternea (minor)",
+                    "short_name": "Holy Order of Eternea",
+                    "capital_province": 1315,
+                    "capital_xy": [5100.0, 2100.0],
+                    "bbox": [4000, 0, 5000, 500],
+                    "provinces": [1315, 1333],
+                },
+                {
+                    "id": 8,
+                    "name": "Other (minor)",
+                    "short_name": "Other",
+                    "capital_province": 50,
+                    "capital_xy": [4100.0, 40.0],
+                    "bbox": [4000, 0, 4200, 80],
+                    "provinces": [50],
+                },
+            ],
+            "provinces": {
+                "1315": {"nation_id": 75, "bbox": [4000, 0, 4300, 200], "xy": [4100, 80]},
+                "1333": {"nation_id": 75, "bbox": [4400, 0, 4800, 200], "xy": [4600, 80]},
+                "50": {"nation_id": 8, "bbox": [4000, 0, 4200, 80], "xy": [4100, 40]},
+            },
+        }
+        (self.data / "world.json").write_text(json.dumps(world), encoding="utf-8")
+        (self.data / "province_names.csv").write_bytes(b"province,name\n1333,Bright Shore\n50,Other Shore\n")
+        (self.data / "armies.csv").write_bytes(b"nation,type,province,label,x,y\n")
+        self.saved = (nb.ROOT, nb.DATA, nb.BACKUP_DIR, nb.CHECK_HISTORY)
+        nb.set_root(self.tmp)
+        self.points = [(5400.5, 2200.25), (4120.0, 60.0)]
+
+    def tearDown(self) -> None:
+        nb.ROOT, nb.DATA, nb.BACKUP_DIR, nb.CHECK_HISTORY = self.saved
+        shutil.rmtree(self.tmp)
+
+    def _sheet(self, text: str) -> Path:
+        path = self.tmp / "sheet.csv"
+        path.write_text(text, encoding="utf-8")
+        return path
+
+    def _locate(self, _root, province_ids):
+        return [self.points[index] for index in range(len(province_ids))]
+
+    def test_dry_run_keeps_only_public_labels_and_writes_nothing(self) -> None:
+        path = self._sheet(
+            "Nation,Type,Location,Size/Status,Public,Men\n"
+            "Holy Order of Eternea,Army,Bright Shore,Large (12000),yes,12000\n"
+            "Other,Fleet,50,Small,yes,4\n"
+            "8,Army,1315,Fighting,no,800\n"
+        )
+        before = (self.data / "armies.csv").read_bytes()
+        buf = io.StringIO()
+        with mock.patch("batch_ops.locate_markers", side_effect=self._locate), redirect_stdout(buf):
+            nb.main(["--dry-run", "armies", str(path)])
+        summary = json.loads(buf.getvalue())
+        self.assertEqual(summary["count"], 2)
+        self.assertEqual(summary["skipped_private"], 1)
+        self.assertEqual(summary["markers"][0]["label"], "Large")
+        self.assertEqual(summary["markers"][0]["type"], "army")
+        self.assertEqual(summary["markers"][0]["province"], 1333)
+        self.assertEqual(summary["markers"][1]["type"], "fleet")
+        self.assertEqual(summary["markers"][1]["x"], 4120.0)
+        self.assertEqual(summary["files"], ["data/armies.csv"])
+        self.assertNotIn("12000", json.dumps(summary["markers"]))
+        self.assertEqual((self.data / "armies.csv").read_bytes(), before)
+        buf = io.StringIO()
+        with mock.patch("batch_ops.locate_markers", side_effect=self._locate), redirect_stdout(buf):
+            nb.main(["armies", str(path), "--dry-run"])
+        self.assertEqual(json.loads(buf.getvalue())["count"], 2)
+        self.assertEqual((self.data / "armies.csv").read_bytes(), before)
+
+    def test_apply_replaces_markers_and_is_idempotent(self) -> None:
+        path = self._sheet(
+            "country,unit,province id,strength,visible\n"
+            "75,armies,Province 1333,large,Yes\n"
+            "Other,navy,Other Shore,small,Y\n"
+        )
+        with mock.patch("batch_ops.locate_markers", side_effect=self._locate), mock.patch.object(nb, "run_secrecy_check"):
+            nb.main(["armies", str(path)])
+        raw = (self.data / "armies.csv").read_bytes()
+        self.assertEqual(
+            raw,
+            b"nation,type,province,label,x,y\n"
+            b"75,army,1333,Large,5400.50,2200.25\n"
+            b"8,fleet,50,Small,4120.00,60.00\n",
+        )
+        self.assertNotIn(b"12000", raw)
+        quiet = io.StringIO()
+        with mock.patch("batch_ops.locate_markers", side_effect=self._locate), mock.patch.object(nb, "run_secrecy_check"), redirect_stdout(quiet):
+            nb.main(["armies", str(path)])
+        self.assertIn("Nothing to write.", quiet.getvalue())
+        self.assertEqual((self.data / "armies.csv").read_bytes(), raw)
+        replacement = self._sheet(
+            "Nation,Type,Location,Size/Status,Public\n"
+            "Other,Fleet,50,Fighting,yes\n"
+        )
+        with mock.patch("batch_ops.locate_markers", side_effect=self._locate), mock.patch.object(nb, "run_secrecy_check"):
+            nb.main(["armies", str(replacement)])
+        replaced = (self.data / "armies.csv").read_text(encoding="utf-8")
+        self.assertNotIn("1333", replaced)
+        self.assertIn("8,fleet,50,Fighting,5400.50,2200.25", replaced)
+
+    def test_bad_rows_are_listed_and_write_nothing(self) -> None:
+        (self.data / "province_names.csv").write_bytes(
+            b"province,name\n1333,Bright Shore\n50,Bright Shore\n1315,Hold\n"
+        )
+        before = (self.data / "armies.csv").read_bytes()
+        path = self._sheet(
+            "Nation,Type,Location,Status,Public\n"
+            "Nope,Army,1333,Large,yes\n"
+            "75,wagon,1333,Large,yes\n"
+            "75,Army,999999,Large,yes\n"
+            "75,Army,Hold,5000,yes\n"
+            "75,Army,Bright Shore,Large,yes\n"
+            "75,Army,1315,Small Large,yes\n"
+            "75,Army,1315,Fighting,maybe\n"
+        )
+        err = io.StringIO()
+        with mock.patch("batch_ops.locate_markers", side_effect=self._locate), redirect_stderr(err), self.assertRaises(SystemExit) as caught:
+            nb.main(["armies", str(path)])
+        self.assertEqual(caught.exception.code, 2)
+        text = err.getvalue()
+        self.assertIn("armies refused", text)
+        self.assertIn("not on the published map", text)
+        self.assertIn("army or fleet", text)
+        self.assertIn("999999", text)
+        self.assertIn("Small, Large, or Fighting", text)
+        self.assertIn("more than one", text)
+        self.assertIn("yes or no", text)
+        self.assertIn("more than one province", text)
+        self.assertEqual((self.data / "armies.csv").read_bytes(), before)
+
+    def test_example_headers_and_labels(self) -> None:
+        import batch_ops
+
+        text = (ROOT / "examples" / "armies.csv").read_text(encoding="utf-8")
+        rows = list(csv.DictReader(io.StringIO(text)))
+        columns = batch_ops._map_headers(list(csv.DictReader(io.StringIO(text)).fieldnames))
+        self.assertEqual(set(columns), {"nation", "type", "location", "status", "public"})
+        self.assertEqual(batch_ops._force_label(rows[0]["Size/Status"]), "Large")
+        self.assertEqual(batch_ops._force_type(rows[1]["Type"]), "fleet")
+        self.assertFalse(batch_ops._public_flag(rows[2]["Public"]))
+        self.assertNotIn("Men", columns.values())
 
 
 if __name__ == "__main__":

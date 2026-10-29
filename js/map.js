@@ -63,6 +63,7 @@
     workMarkers: null,
     fogLayer: null,
     battleLayer: null,
+    armies: [],
     infraRaw: null,
     tradeRaw: null,
     tradeLayer: null,
@@ -3805,6 +3806,91 @@ const claim = claimOf(nation);
     );
   }
 
+  function loadArmies(text) {
+    const rows = [];
+    String(text || "")
+      .split(/\r?\n/)
+      .forEach(function (line, index) {
+        if (!index || !line.trim()) return;
+        const parts = line.split(",");
+        if (parts.length < 6 || parts[0].trim() === "nation") return;
+        const nation = Number(parts[0]);
+        const type = parts[1].trim().toLowerCase();
+        const province = Number(parts[2]);
+        const label = parts[3].trim();
+        const x = Number(parts[4]);
+        const y = Number(parts[5]);
+        if ((type !== "army" && type !== "fleet") || !isFinite(nation) || !isFinite(province)) return;
+        if (label !== "Small" && label !== "Large" && label !== "Fighting") return;
+        if (!isFinite(x) || !isFinite(y)) return;
+        rows.push({ nation: nation, type: type, province: province, label: label, x: x, y: y });
+      });
+    return rows;
+  }
+
+  function shieldSvg(color) {
+    return (
+      '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="' +
+      color +
+      '" stroke="#0B1A4A" stroke-width="1" d="M8 1.2 13.6 3.1v5.2c0 3.1-2.2 5.2-5.6 6.5C4.6 13.5 2.4 11.4 2.4 8.3V3.1Z"/></svg>'
+    );
+  }
+
+  function shipSvg(color) {
+    return (
+      '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path fill="' +
+      color +
+      '" stroke="#0B1A4A" stroke-width="1" d="M1.6 10.2 8 7.4l6.4 2.8-1.5 2.4H3.1Z"/><path fill="none" stroke="#0B1A4A" stroke-width="1.1" stroke-linecap="round" d="M8 7.4V2.2M8 3.4h4.2L8 6.4"/></svg>'
+    );
+  }
+
+  function forceHtml(marker) {
+    const nation = state.nationsById.get(marker.nation);
+    const kind = marker.type === "fleet" ? "Fleet" : "Army";
+    return (
+      '<div class="nb-pop"><h2>' +
+      esc(kind) +
+      '</h2><p class="tier">' +
+      esc(marker.label) +
+      '</p><p class="meta">' +
+      esc(nation ? nationLabel(nation) : "nation " + marker.nation) +
+      '</p><p class="meta">' +
+      esc(provinceTitle(marker.province)) +
+      "</p></div>"
+    );
+  }
+
+  function addForceMarkers(layer) {
+    (state.armies || []).forEach(function (marker) {
+      if (markerHidden(marker) || isConcealed(marker.province)) return;
+      const width = 18 + Math.ceil(String(marker.label).length * 6.2);
+      const color = nationColor(marker.nation);
+      const pin = L.marker([marker.y, marker.x], {
+        icon: L.divIcon({
+          className: "nb-force-marker",
+          html:
+            '<span class="nb-force">' +
+            (marker.type === "fleet" ? shipSvg(color) : shieldSvg(color)) +
+            '<span class="nb-force-label">' +
+            esc(marker.label) +
+            "</span></span>",
+          iconSize: [width, 16],
+          iconAnchor: [7, 8],
+        }),
+        keyboard: true,
+        title: (marker.type === "fleet" ? "Fleet" : "Army") + " " + marker.label,
+        zIndexOffset: 680,
+      });
+      pin.on("click", function (event) {
+        L.DomEvent.stopPropagation(event);
+        clearHighlight();
+        setNationHash(null);
+        openPopup(event.latlng, forceHtml(marker));
+      });
+      pin.addTo(layer);
+    });
+  }
+
   function markerHtml(marker) {
     const owner = marker.owner && state.nationsById.get(marker.owner);
     const kind = marker.kind === "army" ? "Army" : "Battle";
@@ -4617,6 +4703,7 @@ const claim = claimOf(nation);
       });
       pin.addTo(state.battleLayer);
     });
+    addForceMarkers(state.battleLayer);
     if (state.overlays.markers) state.battleLayer.addTo(map);
     refreshWorkMarkers();
   }
@@ -4871,7 +4958,7 @@ const claim = claimOf(nation);
       .catch(function () {
         return null;
       });
-    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, religions, provinceNames, flags, slots, rivers, lut] = await Promise.all([
+    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, religions, armies, provinceNames, flags, slots, rivers, lut] = await Promise.all([
       fetch("data/world.json").then(function (res) {
         if (!res.ok) throw new Error("world");
         return res.json();
@@ -4939,6 +5026,13 @@ const claim = claimOf(nation);
         .catch(function () {
           return "";
         }),
+      fetch("data/armies.csv?t=" + stamp, { cache: "no-store" })
+        .then(function (res) {
+          return res.ok ? res.text() : "";
+        })
+        .catch(function () {
+          return "";
+        }),
       fetch("data/province_names.csv?t=" + stamp, { cache: "no-store" })
         .then(function (res) {
           return res.ok ? res.text() : "";
@@ -4977,6 +5071,7 @@ const claim = claimOf(nation);
     state.buildings = loadBuildings(buildings);
     state.alliances = loadAlliances(alliances);
     state.religions = loadReligions(religions);
+    state.armies = loadArmies(armies);
     state.provinceNames = loadProvinceNames(provinceNames);
     state.flags = loadFlags(flags);
     state.rivers = rivers && rivers.features ? rivers : { features: [] };

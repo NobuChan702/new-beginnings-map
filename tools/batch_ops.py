@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -23,9 +25,9 @@ OP_ALIASES = {
 
 
 class BatchRejected(ValueError):
-    def __init__(self, errors: list[str]):
+    def __init__(self, errors: list[str], label: str = "apply-batch refused"):
         self.errors = list(errors)
-        text = "apply-batch refused:\n" + "\n".join(f"- {item}" for item in self.errors)
+        text = label + ":\n" + "\n".join(f"- {item}" for item in self.errors)
         super().__init__(text)
 
 
@@ -748,3 +750,258 @@ def run_batch(path: Path, dry_run: bool) -> None:
 def cmd_apply_batch(args: Any) -> None:
     dry = bool(getattr(args, "dry_run", False) or getattr(args, "batch_dry_run", False))
     run_batch(Path(args.file).expanduser(), dry)
+
+
+ARMY_HEADER = ["nation", "type", "province", "label", "x", "y"]
+_HEADER_FIELDS = {
+    "nation": ("nation", "nation id", "country", "realm"),
+    "type": ("type", "kind", "unit", "unit type"),
+    "location": ("location", "province", "province id", "where"),
+    "status": ("size/status", "size / status", "size", "status", "strength", "condition"),
+    "public": ("public", "published", "visible"),
+}
+_YES = {"yes", "y", "true", "1"}
+_NO = {"no", "n", "false", "0"}
+_LABEL_WORDS = (("fighting", "Fighting"), ("large", "Large"), ("small", "Small"))
+
+
+def _norm_header(name: str) -> str:
+    text = name.strip().lower().replace("_", " ").replace("-", " ")
+    return re.sub(r"\s+", " ", text)
+
+
+def _map_headers(fieldnames: list[str]) -> dict[str, str]:
+    aliases = {}
+    for field, names in _HEADER_FIELDS.items():
+        for name in names:
+            aliases[_norm_header(name)] = field
+    found: dict[str, str] = {}
+    errors = []
+    for raw in fieldnames:
+        if raw is None:
+            continue
+        key = _norm_header(raw)
+        field = aliases.get(key)
+        if field is None:
+            continue
+        if field in found:
+            errors.append(f"two {field} columns ({found[field]!r} and {raw!r})")
+            continue
+        found[field] = raw
+    missing = [field for field in ("nation", "type", "location", "status", "public") if field not in found]
+    if missing:
+        errors.append("missing column(s): " + ", ".join(missing))
+    if errors:
+        raise ValueError("armies CSV: " + "; ".join(errors))
+    return found
+
+
+def _force_label(value: str) -> str:
+    text = value.strip()
+    hits = [label for word, label in _LABEL_WORDS if re.search(r"\b" + word + r"\b", text, re.IGNORECASE)]
+    if len(hits) == 1:
+        return hits[0]
+    if len(hits) > 1:
+        raise ValueError(f"status {value!r} names more than one of Small, Large, and Fighting")
+    raise ValueError("status must be Small, Large, or Fighting")
+
+
+def _force_type(value: str) -> str:
+    text = value.strip().lower()
+    if text in {"army", "armies"}:
+        return "army"
+    if text in {"fleet", "fleets", "navy", "ship", "ships"}:
+        return "fleet"
+    raise ValueError(f"type must be army or fleet, not {value!r}")
+
+
+def _public_flag(value: str) -> bool:
+    text = value.strip().lower()
+    if text in _YES:
+        return True
+    if text in _NO:
+        return False
+    raise ValueError(f"Public must be yes or no, not {value!r}")
+
+
+def _resolve_nation(nations: dict[int, dict], raw: str) -> int:
+    text = raw.strip()
+    if text.isdigit():
+        nid = int(text)
+        nb.assert_public_nation(nid, nations, "armies")
+        return nid
+    want = text.casefold()
+    matches = []
+    for nid, nation in nations.items():
+        names = {
+            str(nation.get("short_name") or "").casefold(),
+            str(nation.get("name") or "").casefold(),
+            re.sub(r"\s*\([^)]*\)\s*$", "", str(nation.get("name") or "")).strip().casefold(),
+        }
+        if want in names:
+            matches.append(nid)
+    if len(matches) == 1:
+        nb.assert_public_nation(matches[0], nations, "armies")
+        return matches[0]
+    if not matches:
+        raise ValueError(f"nation {raw!r} is not on the published map")
+    raise ValueError(f"nation {raw!r} matches more than one nation")
+
+
+def _resolve_province(provinces: dict[int, dict], names: dict[str, list[int]], raw: str) -> int:
+    text = raw.strip()
+    numbered = re.fullmatch(r"province\s+(\d+)", text, re.IGNORECASE)
+    if text.isdigit() or numbered:
+        pid = int(text if text.isdigit() else numbered.group(1))
+        nb.assert_public_province(pid, provinces, "armies")
+        return pid
+    matches = names.get(text.casefold()) or []
+    if len(matches) == 1:
+        nb.assert_public_province(matches[0], provinces, "armies")
+        return matches[0]
+    if not matches:
+        raise ValueError(f"location {raw!r} is not a province id or name")
+    raise ValueError(f"location {raw!r} matches more than one province")
+
+
+def _province_names() -> dict[str, list[int]]:
+    path = nb.DATA / "province_names.csv"
+    found: dict[str, list[int]] = {}
+    if not path.is_file():
+        return found
+    _header, body = nb.read_csv_rows(path)
+    for row in body:
+        if len(row) < 2 or not row[0].strip().isdigit():
+            continue
+        found.setdefault(row[1].strip().casefold(), []).append(int(row[0].strip()))
+    return found
+
+
+def locate_markers(root: Path, province_ids: list[int]) -> list[tuple[float, float]]:
+    """Inland points, clear of the province border and the water. One load of the map index."""
+    scripts = str(Path(root) / "scripts")
+    if scripts not in sys.path:
+        sys.path.insert(0, scripts)
+    from marker_placement import inland_province, load_index, round_point
+
+    index = load_index(Path(root))
+    avoid: dict[int, list[tuple[float, float]]] = {}
+    points = []
+    for pid in province_ids:
+        found = inland_province(index, pid, avoid.get(pid))
+        if found is None:
+            raise ValueError(f"province {pid} has no inland point clear of the border and the water")
+        x, y = round_point(found[0], found[1])
+        avoid.setdefault(pid, []).append((x, y))
+        points.append((x, y))
+    return points
+
+
+def _read_army_sheet(path: Path) -> tuple[list[dict[str, str]], dict[str, str]]:
+    text = path.read_text(encoding="utf-8-sig")
+    reader = csv.DictReader(io.StringIO(text))
+    if not reader.fieldnames:
+        raise ValueError(f"{path.name}: CSV header is missing")
+    columns = _map_headers(list(reader.fieldnames))
+    rows = []
+    for index, row in enumerate(reader, start=2):
+        if row is None or not any(str(value or "").strip() for value in row.values()):
+            continue
+        rows.append({"row": index, "raw": row})
+    return rows, columns
+
+
+def plan_armies(path: Path) -> tuple[list[dict[str, Any]], list[str], int]:
+    """Return public markers, errors, and the count of private rows. Does not write."""
+    if not path.is_file():
+        raise ValueError(f"armies file not found: {path}")
+    try:
+        sheet, columns = _read_army_sheet(path)
+    except ValueError as err:
+        return [], [str(err)], 0
+    _world, provinces, nations = nb.load_world()
+    names = _province_names()
+    errors: list[str] = []
+    parsed = []
+    private = 0
+    for item in sheet:
+        raw = item["raw"]
+        row_number = item["row"]
+        try:
+            nation = _resolve_nation(nations, str(raw.get(columns["nation"]) or ""))
+            kind = _force_type(str(raw.get(columns["type"]) or ""))
+            province = _resolve_province(provinces, names, str(raw.get(columns["location"]) or ""))
+            label = _force_label(str(raw.get(columns["status"]) or ""))
+            public = _public_flag(str(raw.get(columns["public"]) or ""))
+        except ValueError as err:
+            errors.append(f"row {row_number}: {err}")
+            continue
+        if not public:
+            private += 1
+            continue
+        parsed.append(
+            {"row": row_number, "nation": nation, "type": kind, "province": province, "label": label}
+        )
+    if errors:
+        return [], errors, private
+    if not parsed:
+        return [], [], private
+    try:
+        points = locate_markers(nb.ROOT, [item["province"] for item in parsed])
+    except ValueError as err:
+        return [], [str(err)], private
+    markers = []
+    for item, (x, y) in zip(parsed, points):
+        markers.append({**item, "x": x, "y": y})
+    return markers, [], private
+
+
+def armies_text(markers: list[dict[str, Any]]) -> str:
+    path = nb.DATA / "armies.csv"
+    body = [
+        [str(item["nation"]), item["type"], str(item["province"]), item["label"], f"{item['x']:.2f}", f"{item['y']:.2f}"]
+        for item in markers
+    ]
+    return nb.write_csv_rows(path, list(ARMY_HEADER), body)
+
+
+def run_armies(path: Path, dry_run: bool) -> None:
+    markers, errors, private = plan_armies(path)
+    if errors:
+        raise BatchRejected(errors, "armies refused")
+    text = armies_text(markers)
+    dest = nb.DATA / "armies.csv"
+    old = dest.read_text(encoding="utf-8") if dest.is_file() else ""
+    changed = nb.text_changed(old, text)
+    summary = {
+        "dry_run": dry_run,
+        "file": str(path),
+        "count": len(markers),
+        "skipped_private": private,
+        "markers": [
+            {
+                "row": item["row"],
+                "nation": item["nation"],
+                "type": item["type"],
+                "province": item["province"],
+                "label": item["label"],
+                "x": item["x"],
+                "y": item["y"],
+            }
+            for item in markers
+        ],
+        "files": ["data/armies.csv"] if changed else [],
+    }
+    if dry_run:
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
+        return
+    if not changed:
+        print("Nothing to write.")
+        return
+    nb.safe_write(dest, text, False)
+    print(f"Replaced army and fleet markers ({len(markers)}).")
+
+
+def cmd_armies(args: Any) -> None:
+    dry = bool(getattr(args, "dry_run", False) or getattr(args, "armies_dry_run", False))
+    run_armies(Path(args.file).expanduser(), dry)

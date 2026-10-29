@@ -163,6 +163,12 @@ python3 tools/nb.py --dry-run apply-batch season.json
 python3 tools/nb.py apply-batch season.json --dry-run
 ```
 
+`armies` replaces the public army and fleet markers from an Armies & Fleets sheet. The format is in [docs/apply-batch.md](docs/apply-batch.md). `examples/armies.csv` is a sample, not a live order.
+
+```bash
+python3 tools/nb.py --dry-run armies armies.csv
+```
+
 #### Export
 
 `export` does not commit or push. It runs `scripts/check_history.py` and `limits check` (built count against each province max, with no `--default-max`). If either check fails, it writes nothing. Otherwise it zips every file that differs from `HEAD`, plus untracked files under `data/` and `assets/`, into `DIR/map-<UTC stamp>.zip`. The default directory is `D:\NewBeginnings\sync\out` on Windows and `./sync/out` otherwise (`sync/` is gitignored).

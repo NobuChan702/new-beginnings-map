@@ -11,6 +11,33 @@ python3 tools/nb.py apply-batch season.csv --dry-run
 
 The summary has `dry_run`, `file`, `count`, `changes`, and `files`. `files` lists only paths whose contents would change. A trailing newline by itself is not a change.
 
+## Armies and fleets
+
+`python3 tools/nb.py armies FILE` replaces the public army and fleet markers from one export of the Game Sheet tab Armies & Fleets. The previous markers are dropped. Running the same file again writes nothing.
+
+```bash
+python3 tools/nb.py --dry-run armies armies.csv
+python3 tools/nb.py armies armies.csv --dry-run
+```
+
+The dry-run JSON has `count`, `skipped_private`, `markers`, and `files`. Each marker is `row`, `nation`, `type` (`army` or `fleet`), `province`, `label` (`Small`, `Large`, or `Fighting`), `x`, and `y`.
+
+Columns are matched by header, ignoring case, spaces, and underscores. Extra columns, such as a head-count, are ignored and are not stored.
+
+| field | accepted headers |
+| --- | --- |
+| nation | `Nation`, `nation id`, `country`, `realm` |
+| type | `Type`, `kind`, `unit`, `unit type` |
+| location | `Location`, `province`, `province id`, `where` |
+| size/status | `Size/Status`, `size`, `status`, `strength`, `condition` |
+| Public | `Public`, `published`, `visible` |
+
+`Public` is `yes` or `no` (`y`/`n`, `true`/`false`, `1`/`0`). Only `yes` rows are drawn. `no` rows are still checked. `type` is army or fleet (`navy` and `ship` count as fleet). `location` is a province id, `Province 1333`, or a name from `data/province_names.csv`. `nation` is an id or a nation name. The label keeps a single word, Small, Large, or Fighting, and drops any numbers in that cell. A cell that is only a number, or that names two of those words, is an error.
+
+Every bad row is listed, and nothing is written. A good row is placed inside its province, clear of the border and the water, the same way settlement markers are. A second marker in that province is moved off the first. The map draws them on Layers → Battles & armies: a shield for an army, a ship for a fleet, filled with the nation colour. The label is only that word.
+
+`data/armies.csv` is the stored list: `nation,type,province,label,x,y`. A sample sheet is [examples/armies.csv](../examples/armies.csv). It is not a live order.
+
 Each op uses the same rules as the matching `nb.py` command. A transfer updates `data/world.json`, `data/province_slots.json`, and `data/sector_control.csv`. A rename updates `data/province_names.csv`. A religion updates `data/religions.csv`. A capital move uses the capital-move logic. A war updates `data/wars.csv`.
 
 `data/wars.csv` did not exist before this command. It is the list of active wars. The header is `nation_a,nation_b,state`. `nation_a` is the lower nation id. `state` is `active`. Ending a war deletes that row. The map does not draw wars.

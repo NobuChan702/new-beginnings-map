@@ -221,17 +221,23 @@ def _water_distance(index: MapIndex, x: float, y: float, province: int) -> float
     return best
 
 
-def inland_pole(index: MapIndex, sector_id: str) -> tuple[float, float, float] | None:
-    """Return (x, y, clearance) farthest from sector, province, and water edges."""
-    if sector_id not in index.sectors:
-        return None
-    region, province = region_for(index, sector_id)
+def _separation(x: float, y: float, avoid: list[tuple[float, float]] | None) -> float:
+    if not avoid:
+        return 1e9
+    return min(math.hypot(x - ax, y - ay) for ax, ay in avoid)
+
+
+def _inland_in_region(
+    index: MapIndex,
+    region,
+    province: int,
+    avoid: list[tuple[float, float]] | None = None,
+) -> tuple[float, float, float] | None:
+    """Point farthest from the polygon edge, the water, and any points to avoid."""
     if region is None or region.is_empty:
         return None
     xs, ys = _candidate_points(index, region, province)
     if xs.size == 0:
-        # The province has no lookup land inside this sector (a sliver thinner
-        # than the lookup cell, or open water). Stay inside the polygon.
         part = region
         if part.geom_type == "MultiPolygon":
             part = max(part.geoms, key=lambda geom: geom.area)
@@ -243,10 +249,9 @@ def inland_pole(index: MapIndex, sector_id: str) -> tuple[float, float, float] |
             pole = polylabel(part, tolerance=0.4)
         except Exception:
             return None
-        return float(pole.x), float(pole.y), float(part.boundary.distance(pole))
-    # Coarse pick: prefer samples far from the polygon edge, then score water too.
+        clearance = min(float(part.boundary.distance(pole)), _separation(float(pole.x), float(pole.y), avoid))
+        return float(pole.x), float(pole.y), clearance
     edge = np.asarray(distance(np.array([Point(x, y) for x, y in zip(xs, ys)]), region.boundary), dtype=float)
-    # Keep the best few dozen polygon-clear samples. Water may pull the winner inland.
     order = np.argsort(edge)[::-1][:40]
     boundary = region.boundary
     best = None
@@ -254,13 +259,12 @@ def inland_pole(index: MapIndex, sector_id: str) -> tuple[float, float, float] |
     for index_at in order:
         x = float(xs[index_at])
         y = float(ys[index_at])
-        score = min(float(edge[index_at]), _water_distance(index, x, y, province))
+        score = min(float(edge[index_at]), _water_distance(index, x, y, province), _separation(x, y, avoid))
         if score > best_score:
             best_score = score
             best = (x, y, score)
     if best is None:
         return None
-    # One local step toward the polygon pole if it stays on land and improves clearance.
     try:
         from shapely.ops import polylabel
 
@@ -270,12 +274,34 @@ def inland_pole(index: MapIndex, sector_id: str) -> tuple[float, float, float] |
         if part.geom_type == "Polygon":
             pole = polylabel(part, tolerance=0.4)
             if index.land(pole.x, pole.y, province) and contains_xy(region, pole.x, pole.y):
-                score = min(float(boundary.distance(pole)), _water_distance(index, pole.x, pole.y, province))
+                score = min(
+                    float(boundary.distance(pole)),
+                    _water_distance(index, pole.x, pole.y, province),
+                    _separation(float(pole.x), float(pole.y), avoid),
+                )
                 if score > best[2]:
                     best = (float(pole.x), float(pole.y), score)
     except Exception:
         pass
     return best
+
+
+def inland_pole(index: MapIndex, sector_id: str) -> tuple[float, float, float] | None:
+    """Return (x, y, clearance) farthest from sector, province, and water edges."""
+    if sector_id not in index.sectors:
+        return None
+    region, province = region_for(index, sector_id)
+    return _inland_in_region(index, region, province)
+
+
+def inland_province(
+    index: MapIndex,
+    province_id: int,
+    avoid: list[tuple[float, float]] | None = None,
+) -> tuple[float, float, float] | None:
+    """Return (x, y, clearance) inside the province, clear of its border and the water."""
+    region = index.provinces.get(int(province_id))
+    return _inland_in_region(index, region, int(province_id), avoid)
 
 
 @dataclass
