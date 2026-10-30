@@ -198,7 +198,7 @@
         dashArray: look.dash || null,
         lineJoin: "round",
         fill: true,
-        fillColor: look.fill || props.color || "#8d8678",
+        fillColor: look.fill || provinceFillColor(props.id) || props.color || "#8d8678",
         fillOpacity: 1,
         interactive: false,
       };
@@ -296,7 +296,9 @@
     }
     refreshHistoryZoom();
     document.getElementById("depth-legend").hidden = state.mode !== "depth" || flat > 0.98;
-    syncVassalWash();
+    syncOwnerRecolor();
+    syncOwnerSeams();
+    syncUnionJuniors();
   }
 
   function syncClaimVisibility() {
@@ -391,9 +393,21 @@
     state.riverRenderer = L.canvas({ pane: "rivers", padding: 0.25 });
     map.createPane("vassal");
     const vassalPane = map.getPane("vassal");
-    vassalPane.style.zIndex = "345";
+    vassalPane.style.zIndex = "357";
     vassalPane.style.pointerEvents = "none";
     state.vassalRenderer = L.canvas({ pane: "vassal", padding: 0.5 });
+    // Same slot as the recolor, created after it so a same-colour stroke sits
+    // on the shared edge and covers the baked nation line.
+    map.createPane("seam");
+    const seamPane = map.getPane("seam");
+    seamPane.style.zIndex = "357";
+    seamPane.style.pointerEvents = "none";
+    state.seamRenderer = L.canvas({ pane: "seam", padding: 0.5 });
+    map.createPane("junior");
+    const juniorPane = map.getPane("junior");
+    juniorPane.style.zIndex = "364";
+    juniorPane.style.pointerEvents = "none";
+    state.juniorRenderer = L.svg({ pane: "junior", padding: 0.5 });
     map.createPane("flat");
     const flatPane = map.getPane("flat");
     flatPane.style.zIndex = "350";
@@ -429,12 +443,12 @@
     state.fogRenderer = L.svg({ pane: "fog", padding: 0.5 });
     map.createPane("alliance");
     const alliancePane = map.getPane("alliance");
-    alliancePane.style.zIndex = "352";
+    alliancePane.style.zIndex = "368";
     alliancePane.style.pointerEvents = "none";
     state.allianceRenderer = L.svg({ pane: "alliance", padding: 0.5 });
     map.createPane("religion");
     const religionPane = map.getPane("religion");
-    religionPane.style.zIndex = "351";
+    religionPane.style.zIndex = "366";
     religionPane.style.pointerEvents = "none";
     state.religionRenderer = L.svg({ pane: "religion", padding: 0.5 });
     map.createPane("photoBorders");
@@ -971,7 +985,6 @@
   }
 
   const ALLIANCE_COLORS = ["#2f6fbe", "#c45c26", "#1f8a70", "#8a4baf", "#b08900", "#a33b55", "#3d6b9a", "#6b7c3a", "#9a5b3c", "#3f6f8a"];
-  const VASSAL_TINT = 0.4;
 
   function allianceColor(bloc) {
     let hash = 0;
@@ -983,25 +996,26 @@
   function allianceOf(nation) {
     if (!nation || !state.alliances) return null;
     for (let i = 0; i < state.alliances.length; i++) {
-      if (state.alliances[i].nation === nation.short_name) return state.alliances[i];
+      const row = state.alliances[i];
+      if (row.nation === nation.short_name) return row;
+      const named = nationByName(row.nation);
+      if (named && named.id === nation.id) return row;
     }
     return null;
   }
 
-  // A vassal uses a lighter tint of its bloc leader. Provinces that belong to
-  // the leader, including land merged into that nation, keep the full colour.
-  function vassalTint(nation) {
+  // A vassal is still integrating: it keeps the leader's colour with stripes.
+  // Land the leader already owns, including an annexed nation, stays solid.
+  function unionLeader(nation) {
     const row = allianceOf(nation);
     if (!row || row.role !== "vassal") return null;
-    let leader = null;
     for (let i = 0; i < state.alliances.length; i++) {
       const other = state.alliances[i];
       if (other.bloc !== row.bloc || other.role !== "leader") continue;
-      leader = nationByName(other.nation);
-      break;
+      const leader = nationByName(other.nation);
+      if (leader && leader.id !== nation.id) return leader;
     }
-    if (!leader) return null;
-    return lighten(safeColor(leader.color), VASSAL_TINT);
+    return null;
   }
 
   function allianceLine(nation) {
@@ -1012,11 +1026,23 @@
   }
 
   function nationByName(name) {
-    const want = String(name || "");
+    const want = String(name || "").trim();
+    if (!want) return null;
+    let loose = null;
     for (let i = 0; i < state.nations.length; i++) {
-      if (state.nations[i].short_name === want) return state.nations[i];
+      const nation = state.nations[i];
+      if (nation.short_name === want) return nation;
+      if (loose) continue;
+      const full = String(nation.name || "");
+      const stripped = full.replace(/\s*\([^)]*\)\s*$/, "");
+      let matched = full === want || stripped === want;
+      const former = nation.former_names || [];
+      for (let j = 0; !matched && j < former.length; j++) {
+        if (String(former[j]) === want) matched = true;
+      }
+      if (matched) loose = nation;
     }
-    return null;
+    return loose;
   }
 
   function capitalPlaceName(nation) {
@@ -2233,13 +2259,16 @@ const claim = claimOf(nation);
       const id = layer.feature && layer.feature.properties && layer.feature.properties.id;
       if (id) state.flatById.set(id, layer);
     });
+    captureNationRings(collection);
     rebuildMarks();
     renderHistory();
     renderSectors();
     renderAlliances();
     renderReligions();
     restyleFlatForHistory();
-    renderVassalWash();
+    renderOwnerRecolor();
+    renderOwnerSeams();
+    renderUnionJuniors();
     applyMode();
   }
 
@@ -3694,7 +3723,22 @@ const claim = claimOf(nation);
   function nationColor(id) {
     const nation = id && state.nationsById.get(id);
     if (!nation) return "#E6E6EA";
-    return vassalTint(nation) || safeColor(nation.color);
+    const leader = unionLeader(nation);
+    return safeColor((leader || nation).color);
+  }
+
+  function provinceFillColor(id) {
+    const prov = id && state.provinces.get(id);
+    if (!prov) return null;
+    const owner = legalOwnerId(id, prov);
+    if (owner == null) return null;
+    return nationColor(owner);
+  }
+
+  function bakedProvinceColor(id) {
+    const layer = state.flatById && state.flatById.get(id);
+    const color = layer && layer.feature && layer.feature.properties && layer.feature.properties.color;
+    return color ? String(color).toLowerCase() : "";
   }
 
   function lighten(color, amount) {
@@ -3774,10 +3818,6 @@ const claim = claimOf(nation);
     if (hasOwnerOverride(id)) {
       const owner = state.historyView.owners[id];
       return { fill: owner == null ? "#E6E6EA" : nationColor(owner) };
-    }
-    const prov = state.provinces.get(id);
-    if (prov && prov.nation_id && vassalTint(state.nationsById.get(prov.nation_id))) {
-      return { fill: nationColor(prov.nation_id) };
     }
     return {};
   }
@@ -4107,20 +4147,32 @@ const claim = claimOf(nation);
     return members;
   }
 
-  function syncVassalWash() {
+  function politicalCover() {
     const map = state.map;
-    if (!map) return;
-    const pane = map.getPane("vassal");
+    if (!map) return 0;
+    if (state.mode !== "political" && state.mode !== "auto") return 0;
+    return 1 - flatAmount(map.getZoom());
+  }
+
+  function syncOwnerRecolor() {
+    const pane = state.map && state.map.getPane("vassal");
     if (!pane) return;
-    const zoom = map.getZoom();
-    const photo = 1 - flatAmount(zoom);
-    let opacity = 0;
-    if (state.mode === "political") opacity = photo;
-    else if (state.mode === "auto") opacity = politicalOpacity(zoom) * photo;
+    const opacity = politicalCover();
     pane.style.opacity = opacity > 0.01 ? String(opacity) : "0";
   }
 
-  function renderVassalWash() {
+  function syncUnionJuniors() {
+    const map = state.map;
+    const pane = map && map.getPane("junior");
+    if (!pane) return;
+    const flat = map ? flatAmount(map.getZoom()) : 0;
+    let opacity = 0;
+    if (state.mode === "political" || state.mode === "auto") opacity = Math.max(politicalCover(), flat);
+    else if (state.mode === "depth") opacity = flat;
+    pane.style.opacity = opacity > 0.01 ? String(opacity) : "0";
+  }
+
+  function renderOwnerRecolor() {
     const map = state.map;
     if (!map) return;
     dropLayer(state.vassalLayer);
@@ -4129,10 +4181,9 @@ const claim = claimOf(nation);
     const features = [];
     state.provinces.forEach(function (prov, id) {
       if (!provinceIsPublic(id, prov) || isConcealed(id) || colonyOf(id)) return;
-      const owner = legalOwnerId(id, prov);
-      const nation = owner && state.nationsById.get(owner);
-      const fill = vassalTint(nation);
-      if (!fill) return;
+      const fill = provinceFillColor(id);
+      const baked = bakedProvinceColor(id);
+      if (!fill || !baked || baked === fill.toLowerCase()) return;
       const feature = provinceFeature(id, { fill: fill });
       if (feature) features.push(feature);
     });
@@ -4156,7 +4207,218 @@ const claim = claimOf(nation);
       }
     );
     state.vassalLayer.addTo(map);
-    syncVassalWash();
+    syncOwnerRecolor();
+  }
+
+  function captureNationRings(collection) {
+    state.nationRings = [];
+    const features = (collection && collection.features) || [];
+    for (let i = 0; i < features.length; i++) {
+      const feature = features[i];
+      const props = feature.properties || {};
+      if (props.kind !== "nation" || !feature.geometry) continue;
+      state.nationRings = feature.geometry.coordinates || [];
+    }
+  }
+
+  function bakedNationId(id) {
+    const layer = state.flatById && state.flatById.get(id);
+    const props = layer && layer.feature && layer.feature.properties;
+    const nation = props && props.nation_id;
+    return nation == null || nation === "" ? 0 : Number(nation);
+  }
+
+  // Sample one step either side of a baked nation line. Returns the two
+  // province ids, or null when the segment is too short to have a side.
+  function borderSides(ax, ay, bx, by) {
+    const dx = bx - ax;
+    const dy = by - ay;
+    const len = Math.hypot(dx, dy);
+    if (len < 0.5) return null;
+    const nx = -dy / len;
+    const ny = dx / len;
+    const mx = (ax + bx) / 2;
+    const my = (ay + by) / 2;
+    const gap = 4;
+    return [provinceAt(mx + nx * gap, my + ny * gap), provinceAt(mx - nx * gap, my - ny * gap)];
+  }
+
+  // A baked nation line whose two sides now belong to one owner. Coasts and
+  // borders with a different nation stay. The width is in map pixels so the
+  // stroke keeps covering the painted line as the zoom changes.
+  function seamOwner(line) {
+    let owner = null;
+    let hits = 0;
+    for (let s = 0; s < 3; s++) {
+      const index = Math.min(line.length - 2, Math.max(0, Math.floor((line.length - 1) * (s + 1) / 4)));
+      const p = line[index];
+      const q = line[index + 1];
+      const sides = borderSides(p[0], p[1], q[0], q[1]);
+      if (!sides) continue;
+      const left = sides[0];
+      const right = sides[1];
+      if (!left || !right || left === right) continue;
+      if (isConcealed(left) || isConcealed(right)) return null;
+      if (bakedNationId(left) === bakedNationId(right)) return null;
+      const leftOwner = legalOwnerId(left);
+      const rightOwner = legalOwnerId(right);
+      if (leftOwner == null || leftOwner !== rightOwner) return null;
+      if (owner == null) owner = leftOwner;
+      else if (owner !== leftOwner) return null;
+      hits++;
+    }
+    return hits ? owner : null;
+  }
+
+  function seamWeight() {
+    const map = state.map;
+    const native = state.meta && state.meta.native_zoom;
+    if (!map || native == null) return 4;
+    return 5 * Math.pow(2, map.getZoom() - native);
+  }
+
+  function syncOwnerSeams() {
+    const map = state.map;
+    const pane = map && map.getPane("seam");
+    if (!pane) return;
+    let opacity = 0;
+    if (state.mode === "political" || state.mode === "auto") opacity = 1;
+    else if (state.mode === "depth") opacity = flatAmount(map.getZoom());
+    pane.style.opacity = opacity > 0.01 ? String(opacity) : "0";
+    if (state.seamLayer) state.seamLayer.setStyle({ weight: seamWeight() });
+  }
+
+  function renderOwnerSeams() {
+    const map = state.map;
+    if (!map) return;
+    dropLayer(state.seamLayer);
+    state.seamLayer = null;
+    const rings = state.nationRings || [];
+    if (!rings.length || !state.lut || !state.flatById) return;
+    const byColor = {};
+    for (let i = 0; i < rings.length; i++) {
+      const line = rings[i];
+      if (!line || line.length < 2) continue;
+      const owner = seamOwner(line);
+      if (owner == null) continue;
+      const color = nationColor(owner);
+      if (!byColor[color]) byColor[color] = [];
+      byColor[color].push(line);
+    }
+    const features = [];
+    Object.keys(byColor).forEach(function (color) {
+      features.push({
+        type: "Feature",
+        properties: { fill: color },
+        geometry: { type: "MultiLineString", coordinates: byColor[color] },
+      });
+    });
+    if (!features.length) return;
+    state.seamLayer = L.geoJSON(
+      { type: "FeatureCollection", features: features },
+      {
+        pane: "seam",
+        renderer: state.seamRenderer,
+        interactive: false,
+        smoothFactor: 0,
+        style: function (feature) {
+          return {
+            stroke: true,
+            color: feature.properties.fill,
+            weight: seamWeight(),
+            opacity: 1,
+            lineCap: "round",
+            lineJoin: "round",
+            fill: false,
+            interactive: false,
+          };
+        },
+      }
+    );
+    state.seamLayer.addTo(map);
+    syncOwnerSeams();
+  }
+
+  function juniorPatternId(color) {
+    return "nb-union-" + String(color || "").replace("#", "").toLowerCase();
+  }
+
+  function installJuniorPattern(color) {
+    const svg = document.querySelector(".leaflet-junior-pane svg");
+    if (!svg) return;
+    const id = juniorPatternId(color);
+    if (svg.querySelector("#" + id)) return;
+    const ns = "http://www.w3.org/2000/svg";
+    let defs = svg.querySelector("defs");
+    if (!defs) {
+      defs = document.createElementNS(ns, "defs");
+      svg.insertBefore(defs, svg.firstChild);
+    }
+    const rgb = hexToRgb(color);
+    const ink = rgb
+      .map(function (channel) {
+        return Math.round(channel * 0.45);
+      })
+      .join(",");
+    const pattern = document.createElementNS(ns, "pattern");
+    pattern.setAttribute("id", id);
+    pattern.setAttribute("patternUnits", "userSpaceOnUse");
+    pattern.setAttribute("width", "8");
+    pattern.setAttribute("height", "8");
+    pattern.setAttribute("patternTransform", "rotate(45)");
+    const stripe = document.createElementNS(ns, "path");
+    stripe.setAttribute("d", "M0 0 H8");
+    stripe.setAttribute("stroke", "rgb(" + ink + ")");
+    stripe.setAttribute("stroke-width", "3");
+    pattern.appendChild(stripe);
+    defs.appendChild(pattern);
+  }
+
+  function unionJuniorStyle(feature) {
+    const color = feature.properties.fill;
+    return {
+      stroke: false,
+      fill: true,
+      fillColor: "url(#" + juniorPatternId(color) + ")",
+      fillOpacity: 1,
+      interactive: false,
+    };
+  }
+
+  function renderUnionJuniors() {
+    const map = state.map;
+    if (!map) return;
+    dropLayer(state.juniorLayer);
+    state.juniorLayer = null;
+    if (!state.flatById) return;
+    const features = [];
+    const colors = [];
+    state.provinces.forEach(function (prov, id) {
+      if (!provinceIsPublic(id, prov) || isConcealed(id) || colonyOf(id)) return;
+      const owner = legalOwnerId(id, prov);
+      const nation = owner && state.nationsById.get(owner);
+      if (!unionLeader(nation)) return;
+      const fill = nationColor(owner);
+      const feature = provinceFeature(id, { fill: fill });
+      if (!feature) return;
+      features.push(feature);
+      if (colors.indexOf(fill) < 0) colors.push(fill);
+    });
+    if (!features.length) return;
+    state.juniorLayer = L.geoJSON(
+      { type: "FeatureCollection", features: features },
+      {
+        pane: "junior",
+        renderer: state.juniorRenderer,
+        interactive: false,
+        smoothFactor: 0,
+        style: unionJuniorStyle,
+      }
+    );
+    state.juniorLayer.addTo(map);
+    colors.forEach(installJuniorPattern);
+    state.juniorLayer.setStyle(unionJuniorStyle);
+    syncUnionJuniors();
   }
 
   function renderAlliances() {
@@ -4878,7 +5140,9 @@ const claim = claimOf(nation);
     renderAlliances();
     renderReligions();
     restyleFlatForHistory();
-    renderVassalWash();
+    renderOwnerRecolor();
+    renderOwnerSeams();
+    renderUnionJuniors();
     if (state.infraRaw) applyInfra();
     if (state.tradeRaw) renderTrade();
     const concealedKey = Object.keys((state.historyView && state.historyView.concealedProvinces) || {})
@@ -4954,7 +5218,7 @@ const claim = claimOf(nation);
         return null;
       });
     const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, religions, provinceNames, flags, slots, rivers, lut] = await Promise.all([
-      fetch("data/world.json").then(function (res) {
+      fetch("data/world.json?t=" + stamp, { cache: "no-store" }).then(function (res) {
         if (!res.ok) throw new Error("world");
         return res.json();
       }),
