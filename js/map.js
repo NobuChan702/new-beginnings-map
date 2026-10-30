@@ -296,6 +296,7 @@
     }
     refreshHistoryZoom();
     document.getElementById("depth-legend").hidden = state.mode !== "depth" || flat > 0.98;
+    syncVassalWash();
   }
 
   function syncClaimVisibility() {
@@ -388,6 +389,11 @@
     riverPane.style.zIndex = "348";
     riverPane.style.pointerEvents = "none";
     state.riverRenderer = L.canvas({ pane: "rivers", padding: 0.25 });
+    map.createPane("vassal");
+    const vassalPane = map.getPane("vassal");
+    vassalPane.style.zIndex = "345";
+    vassalPane.style.pointerEvents = "none";
+    state.vassalRenderer = L.canvas({ pane: "vassal", padding: 0.5 });
     map.createPane("flat");
     const flatPane = map.getPane("flat");
     flatPane.style.zIndex = "350";
@@ -965,6 +971,7 @@
   }
 
   const ALLIANCE_COLORS = ["#2f6fbe", "#c45c26", "#1f8a70", "#8a4baf", "#b08900", "#a33b55", "#3d6b9a", "#6b7c3a", "#9a5b3c", "#3f6f8a"];
+  const VASSAL_TINT = 0.4;
 
   function allianceColor(bloc) {
     let hash = 0;
@@ -979,6 +986,22 @@
       if (state.alliances[i].nation === nation.short_name) return state.alliances[i];
     }
     return null;
+  }
+
+  // A vassal uses a lighter tint of its bloc leader. Provinces that belong to
+  // the leader, including land merged into that nation, keep the full colour.
+  function vassalTint(nation) {
+    const row = allianceOf(nation);
+    if (!row || row.role !== "vassal") return null;
+    let leader = null;
+    for (let i = 0; i < state.alliances.length; i++) {
+      const other = state.alliances[i];
+      if (other.bloc !== row.bloc || other.role !== "leader") continue;
+      leader = nationByName(other.nation);
+      break;
+    }
+    if (!leader) return null;
+    return lighten(safeColor(leader.color), VASSAL_TINT);
   }
 
   function allianceLine(nation) {
@@ -1159,7 +1182,7 @@
       '<div class="nb-pop"><h2>' +
       flagHtml(nation) +
       '<i style="background:' +
-      esc(safeColor(nation.color)) +
+      esc(nationColor(nation.id)) +
       '"></i>' +
       esc(nationLabel(nation)) +
       "</h2>" +
@@ -1342,7 +1365,7 @@
 
   function provinceFill(prov) {
     if (prov.nation_id && state.nationsById.has(prov.nation_id)) {
-      return hexToRgb(state.nationsById.get(prov.nation_id).color);
+      return hexToRgb(nationColor(prov.nation_id));
     }
     return [230, 230, 234];
   }
@@ -1356,7 +1379,7 @@
     const nation = colony
       ? state.nationsById.get(colony.owner)
       : owner && state.nationsById.get(owner);
-    showHighlight([id], nation ? hexToRgb(nation.color) : provinceFill(prov));
+    showHighlight([id], nation ? hexToRgb(nationColor(nation.id)) : provinceFill(prov));
     setNationHash(null);
     if (options.fly) flyToBox(prov.bbox, 6);
     if (options.popup) {
@@ -1425,7 +1448,7 @@
   function selectNation(nation, options) {
     options = options || {};
     state.activeNationId = nation.id;
-    showHighlight(nation.provinces, hexToRgb(nation.color));
+    showHighlight(nation.provinces, hexToRgb(nationColor(nation.id)));
     if (options.hash !== false) setNationHash(nation);
     if (options.fly) flyToNation(nation);
     if (options.popup) {
@@ -1720,7 +1743,7 @@ if (entry.kind === "work") {
       setNationHash(null);
       const ownerId = colony ? colony.owner : legalOwnerId(id, prov);
       const nation = ownerId && state.nationsById.get(ownerId);
-      showHighlight([id], nation ? hexToRgb(nation.color) : [230, 230, 234]);
+      showHighlight([id], nation ? hexToRgb(nationColor(nation.id)) : [230, 230, 234]);
       openPopup(event.latlng, nation ? nationHtml(nation, id) : unclaimedHtml(id, prov));
       return;
     }
@@ -2216,6 +2239,7 @@ const claim = claimOf(nation);
     renderAlliances();
     renderReligions();
     restyleFlatForHistory();
+    renderVassalWash();
     applyMode();
   }
 
@@ -3669,7 +3693,8 @@ const claim = claimOf(nation);
 
   function nationColor(id) {
     const nation = id && state.nationsById.get(id);
-    return nation ? safeColor(nation.color) : "#E6E6EA";
+    if (!nation) return "#E6E6EA";
+    return vassalTint(nation) || safeColor(nation.color);
   }
 
   function lighten(color, amount) {
@@ -3749,6 +3774,10 @@ const claim = claimOf(nation);
     if (hasOwnerOverride(id)) {
       const owner = state.historyView.owners[id];
       return { fill: owner == null ? "#E6E6EA" : nationColor(owner) };
+    }
+    const prov = state.provinces.get(id);
+    if (prov && prov.nation_id && vassalTint(state.nationsById.get(prov.nation_id))) {
+      return { fill: nationColor(prov.nation_id) };
     }
     return {};
   }
@@ -4076,6 +4105,58 @@ const claim = claimOf(nation);
       members.set(nation.id, { bloc: row.bloc, role: row.role, color: colors[row.bloc] });
     });
     return members;
+  }
+
+  function syncVassalWash() {
+    const map = state.map;
+    if (!map) return;
+    const pane = map.getPane("vassal");
+    if (!pane) return;
+    const zoom = map.getZoom();
+    const photo = 1 - flatAmount(zoom);
+    let opacity = 0;
+    if (state.mode === "political") opacity = photo;
+    else if (state.mode === "auto") opacity = politicalOpacity(zoom) * photo;
+    pane.style.opacity = opacity > 0.01 ? String(opacity) : "0";
+  }
+
+  function renderVassalWash() {
+    const map = state.map;
+    if (!map) return;
+    dropLayer(state.vassalLayer);
+    state.vassalLayer = null;
+    if (!state.flatById) return;
+    const features = [];
+    state.provinces.forEach(function (prov, id) {
+      if (!provinceIsPublic(id, prov) || isConcealed(id) || colonyOf(id)) return;
+      const owner = legalOwnerId(id, prov);
+      const nation = owner && state.nationsById.get(owner);
+      const fill = vassalTint(nation);
+      if (!fill) return;
+      const feature = provinceFeature(id, { fill: fill });
+      if (feature) features.push(feature);
+    });
+    if (!features.length) return;
+    state.vassalLayer = L.geoJSON(
+      { type: "FeatureCollection", features: features },
+      {
+        pane: "vassal",
+        renderer: state.vassalRenderer,
+        interactive: false,
+        smoothFactor: 0,
+        style: function (feature) {
+          return {
+            stroke: false,
+            fill: true,
+            fillColor: feature.properties.fill,
+            fillOpacity: 1,
+            interactive: false,
+          };
+        },
+      }
+    );
+    state.vassalLayer.addTo(map);
+    syncVassalWash();
   }
 
   function renderAlliances() {
@@ -4797,6 +4878,7 @@ const claim = claimOf(nation);
     renderAlliances();
     renderReligions();
     restyleFlatForHistory();
+    renderVassalWash();
     if (state.infraRaw) applyInfra();
     if (state.tradeRaw) renderTrade();
     const concealedKey = Object.keys((state.historyView && state.historyView.concealedProvinces) || {})
