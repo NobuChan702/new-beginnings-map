@@ -30,6 +30,7 @@
     buildings: null,
     alliances: null,
     religions: null,
+    religionDetails: {},
     provinceNames: new Map(),
     flags: new Map(),
     mode: "auto",
@@ -1204,6 +1205,19 @@
     return named ? named + " (Province " + id + ")" : "Province " + id;
   }
 
+  function religionLine(provinceId, prov) {
+    if (!state.overlays.religion) return "";
+    const row = religionOfProvince(provinceId, prov);
+    if (!row) return "";
+    const details = state.religionDetails && state.religionDetails[row.name];
+    let html = '<p class="meta">Religion: ' + esc(row.name) + "</p>";
+    if (details) {
+      if (details.perk) html += '<p class="meta">Perk: ' + esc(details.perk) + "</p>";
+      if (details.debuff) html += '<p class="meta">Debuff: ' + esc(details.debuff) + "</p>";
+    }
+    return html;
+  }
+
   function nationHtml(nation, provinceId) {
     const shownId = state.provinces.has(provinceId) ? provinceId : nation.capital_province;
     const prov = state.provinces.get(shownId);
@@ -1224,6 +1238,7 @@
       esc(labelTier(nation.tier)) +
       "</p>" +
       allianceLine(nation) +
+      religionLine(shownId, prov) +
       '<p class="meta">' +
       nation.province_count +
       " provinces · " +
@@ -5226,7 +5241,7 @@ const claim = claimOf(nation);
       .catch(function () {
         return null;
       });
-    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, religions, provinceNames, flags, slots, rivers, lut] = await Promise.all([
+    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, religions, religionDetails, provinceNames, flags, slots, rivers, lut] = await Promise.all([
       fetch("data/world.json?t=" + stamp, { cache: "no-store" }).then(function (res) {
         if (!res.ok) throw new Error("world");
         return res.json();
@@ -5294,6 +5309,13 @@ const claim = claimOf(nation);
         .catch(function () {
           return "";
         }),
+      fetch("data/religion-details.json?t=" + stamp, { cache: "no-store" })
+        .then(function (res) {
+          return res.ok ? res.json() : {};
+        })
+        .catch(function () {
+          return {};
+        }),
       fetch("data/province_names.csv?t=" + stamp, { cache: "no-store" })
         .then(function (res) {
           return res.ok ? res.text() : "";
@@ -5332,6 +5354,7 @@ const claim = claimOf(nation);
     state.buildings = loadBuildings(buildings);
     state.alliances = loadAlliances(alliances);
     state.religions = loadReligions(religions);
+    state.religionDetails = religionDetails || {};
     state.provinceNames = loadProvinceNames(provinceNames);
     state.flags = loadFlags(flags);
     state.rivers = rivers && rivers.features ? rivers : { features: [] };
