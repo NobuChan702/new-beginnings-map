@@ -279,27 +279,28 @@
       showPhoto(outlines, borders ? amount : 0);
     }
     stackRasters();
-    // In Terrain view, history/alliance/religion/sector fills must not block
-    // the terrain underneath. Fade those panes to 0.4 in Terrain mode only;
-    // in Political/Auto they stay solid, as before. Vassal/junior panes are
-    // already 0 in Terrain mode via syncOwnerRecolor/syncUnionJuniors.
+    // In Terrain view, ownership overlays must not block terrain at all,
+    // just as the baked political tiles and vassal/junior panes are already
+    // hidden in Terrain mode. A 0.4 fade still showed political colour, so
+    // hide history/alliance/religion/sector fills, the claim raster and the
+    // claimed hatch entirely in Terrain mode; solid in Political/Auto.
     (function () {
       const terrain = state.mode === "terrain";
-      const op = terrain ? "0.4" : "1";
+      const op = terrain ? "0" : "1";
       ["history", "alliance", "religion", "sector"].forEach(function (name) {
         const pane = map.getPane(name);
         if (pane) pane.style.opacity = op;
       });
     })();
-    if (state.claimLayer && map.hasLayer(state.claimLayer)) state.claimLayer.setOpacity(photo);
+    if (state.claimLayer && map.hasLayer(state.claimLayer)) state.claimLayer.setOpacity(state.mode === "terrain" ? 0 : photo);
     if (state.highlightLayer && map.hasLayer(state.highlightLayer)) state.highlightLayer.setOpacity(photo);
     const flatOn = state.mode !== "terrain" && flat > 0.02;
     const pane = map.getPane("flat");
     if (pane) pane.style.opacity = flatOn ? String(flat) : "0";
     setOn(state.flatLayer, flatOn);
     const marks = map.getPane("marks");
-    if (marks) marks.style.opacity = flat > 0.02 ? String(flat) : "0";
-    setOn(state.markLayer, state.overlays.claims && flat > 0.02);
+    if (marks) marks.style.opacity = state.mode === "terrain" ? "0" : flat > 0.02 ? String(flat) : "0";
+    setOn(state.markLayer, state.mode !== "terrain" && state.overlays.claims && flat > 0.02);
     if (state.overlays.claims && flat > 0.02) installHatchPattern();
     if (state.flatLayer && state.flatBorderOn !== borders) {
       state.flatLayer.setStyle(flatStyle);
