@@ -4038,7 +4038,7 @@ const claim = claimOf(nation);
       opacity: 0.95,
       fill: true,
       fillColor: "url(#" + occPatternId(owner, occupier) + ")",
-      fillOpacity: 1,
+      fillOpacity: 0.6,
       interactive: false,
     };
   }
@@ -4189,7 +4189,10 @@ const claim = claimOf(nation);
   function syncOwnerRecolor() {
     const pane = state.map && state.map.getPane("vassal");
     if (!pane) return;
-    const opacity = politicalCover();
+    const map = state.map;
+    const zoom = map ? map.getZoom() : 0;
+    const flat = map ? flatAmount(zoom) : 0;
+    const opacity = politicalOpacity(zoom) * (1 - flat);
     pane.style.opacity = opacity > 0.01 ? String(opacity) : "0";
   }
 
@@ -4199,7 +4202,7 @@ const claim = claimOf(nation);
     if (!pane) return;
     const flat = map ? flatAmount(map.getZoom()) : 0;
     let opacity = 0;
-    if (state.mode === "political" || state.mode === "auto") opacity = Math.max(politicalCover(), flat);
+    if (state.mode === "political" || state.mode === "auto") opacity = Math.max(politicalOpacity(map ? map.getZoom() : 0) * (1 - flat), flat);
     else if (state.mode === "depth") opacity = flat;
     pane.style.opacity = opacity > 0.01 ? String(opacity) : "0";
   }
