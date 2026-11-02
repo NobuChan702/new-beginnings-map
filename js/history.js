@@ -319,6 +319,7 @@
     var tradeRoutes = {};
     var tradeRemoved = {};
   var renames = {};
+  var alliances = [];
 
     for (var i = 0; i <= end; i++) {
       var snap = list[i] || {};
@@ -339,6 +340,15 @@
           });
         }
       })();
+
+      if (has(snap, "alliances")) {
+        var nextAll = [];
+        (snap.alliances || []).forEach(function (row) {
+          if (!row || !row.nation || !row.bloc) return;
+          nextAll.push({ bloc: String(row.bloc), nation: String(row.nation), role: String(row.role || "ally").toLowerCase() });
+        });
+        alliances = nextAll;
+      }
 
       (snap.transfers || []).forEach(function (row) {
         if (!row) return;
@@ -496,6 +506,7 @@
       war: war,
       owners: owners,
       renames: renames,
+      alliances: alliances,
       occupations: occupations,
       colonies: colonies,
       revealedProvinces: revealedProvinces,

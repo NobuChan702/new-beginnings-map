@@ -50,5 +50,37 @@
   ],
   "renames": {
     "229": "Terrillia"
-  }
+  },
+  "alliances": [
+    {
+      "bloc": "Verillian Empire",
+      "nation": "Verillian Empire",
+      "role": "leader"
+    },
+    {
+      "bloc": "Verillian Empire",
+      "nation": "Ulgaltel",
+      "role": "vassal"
+    },
+    {
+      "bloc": "Basileia Rhomania",
+      "nation": "Basileia Rhomania",
+      "role": "leader"
+    },
+    {
+      "bloc": "Basileia Rhomania",
+      "nation": "Ethitham",
+      "role": "vassal"
+    },
+    {
+      "bloc": "Basileia Rhomania",
+      "nation": "Quaamryn",
+      "role": "vassal"
+    },
+    {
+      "bloc": "Basileia Rhomania",
+      "nation": "Zaniorzan",
+      "role": "vassal"
+    }
+  ]
 }

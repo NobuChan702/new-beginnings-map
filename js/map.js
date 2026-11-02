@@ -769,11 +769,14 @@
 
   function paintClaims() {
     const ids = [];
-    state.nations.forEach(function (nation) {
-      if (!state.claims.has(String(nation.id))) return;
-      nation.provinces.forEach(function (id) {
-        if (!isConcealed(id)) ids.push(id);
-      });
+    const claimed = new Set();
+    state.claims.forEach(function (_name, id) {
+      const nation = state.nationsById.get(Number(id));
+      if (nation) claimed.add(nation.id);
+    });
+    state.provinces.forEach(function (prov, id) {
+      if (!claimed.has(legalOwnerId(id, prov))) return;
+      if (!isConcealed(id)) ids.push(id);
     });
     claimCanvas.width = state.meta.lookup_width;
     claimCanvas.height = state.meta.lookup_height;
@@ -994,10 +997,15 @@
     return ALLIANCE_COLORS[hash % ALLIANCE_COLORS.length];
   }
 
+  function currentAlliances() {
+    if (state.historyView) return state.historyView.alliances || [];
+    return state.alliances || [];
+  }
+
   function allianceOf(nation) {
-    if (!nation || !state.alliances) return null;
-    for (let i = 0; i < state.alliances.length; i++) {
-      const row = state.alliances[i];
+    if (!nation) return null;
+    for (let i = 0; i < currentAlliances().length; i++) {
+      const row = currentAlliances()[i];
       if (row.nation === nation.short_name) return row;
       const named = nationByName(row.nation);
       if (named && named.id === nation.id) return row;
@@ -1010,8 +1018,8 @@
   function unionLeader(nation) {
     const row = allianceOf(nation);
     if (!row || row.role !== "vassal") return null;
-    for (let i = 0; i < state.alliances.length; i++) {
-      const other = state.alliances[i];
+    for (let i = 0; i < currentAlliances().length; i++) {
+      const other = currentAlliances()[i];
       if (other.bloc !== row.bloc || other.role !== "leader") continue;
       const leader = nationByName(other.nation);
       if (leader && leader.id !== nation.id) return leader;
@@ -1947,6 +1955,7 @@ const claim = claimOf(nation);
         },
       }
     );
+    if (state.overlays.claims) state.markLayer.addTo(map);
   }
 
   function kindLabel(kind) {
@@ -4161,7 +4170,7 @@ const claim = claimOf(nation);
   function allianceMembers() {
     const members = new Map();
     const colors = {};
-    (state.alliances || []).forEach(function (row) {
+    (currentAlliances() || []).forEach(function (row) {
       const nation = nationByName(row.nation);
       if (!nation) return;
       if (!colors[row.bloc]) colors[row.bloc] = allianceColor(row.bloc);
@@ -4461,7 +4470,7 @@ const claim = claimOf(nation);
       ":" +
       (state.overlays.borders ? "b" : "o") +
       ":" +
-      String((state.alliances || []).length);
+      String((currentAlliances() || []).length);
     const pad = state.alliancePad;
     if (pad && pad.sig === sig && pad.bounds.contains(view) && (state.allianceLayer || pad.empty)) return;
     dropLayer(state.allianceLayer);
@@ -5167,6 +5176,7 @@ const claim = claimOf(nation);
     renderOwnerSeams();
     renderUnionJuniors();
     rebuildMarks();
+    paintClaims();
     if (state.infraRaw) applyInfra();
     if (state.tradeRaw) renderTrade();
     const concealedKey = Object.keys((state.historyView && state.historyView.concealedProvinces) || {})
