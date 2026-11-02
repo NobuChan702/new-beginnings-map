@@ -457,12 +457,17 @@
     state.fogRenderer = L.svg({ pane: "fog", padding: 0.5 });
     map.createPane("alliance");
     const alliancePane = map.getPane("alliance");
-    alliancePane.style.zIndex = "368";
+    // Above history (380) so bloc colour is not buried under the transfer/
+    // occupation fills for annexed/occupied member provinces. When Alliances
+    // is OFF this layer is removed, so history mint/pattern shows again.
+    alliancePane.style.zIndex = "382";
     alliancePane.style.pointerEvents = "none";
     state.allianceRenderer = L.svg({ pane: "alliance", padding: 0.5 });
     map.createPane("religion");
     const religionPane = map.getPane("religion");
-    religionPane.style.zIndex = "366";
+    // Above history for the same reason as alliances: religion colour must
+    // show on annexed provinces, not be covered by the transfer fill.
+    religionPane.style.zIndex = "384";
     religionPane.style.pointerEvents = "none";
     state.religionRenderer = L.svg({ pane: "religion", padding: 0.5 });
     map.createPane("photoBorders");
