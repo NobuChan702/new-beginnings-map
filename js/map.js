@@ -3959,6 +3959,7 @@ const claim = claimOf(nation);
 
   function changeStyle(feature) {
     const props = feature.properties || {};
+    if (state.mode === "terrain") return { stroke: false, fill: true, fillColor: props.owner == null ? "#E6E6EA" : nationColor(props.owner), fillOpacity: 0, opacity: 0, interactive: false };
     const cover = 1 - flatAmount(state.map ? state.map.getZoom() : 0);
     if (props.role === "colony") {
       const color = nationColor(props.owner);
@@ -3988,6 +3989,7 @@ const claim = claimOf(nation);
 
   function workStyle(feature) {
     const props = feature.properties || {};
+    if (state.mode === "terrain") return { stroke: false, fill: true, fillColor: nationColor(props.owner), fillOpacity: 0, opacity: 0, interactive: false };
     const screen = workScreen(props);
     const building = props.status === "building";
     return {
@@ -4042,6 +4044,7 @@ const claim = claimOf(nation);
 
   function occStyle(feature) {
     const props = feature.properties || {};
+    if (state.mode === "terrain") return { stroke: false, fill: true, fillColor: "url(#" + occPatternId(nationColor(props.owner), nationColor(props.occupier)) + ")", fillOpacity: 0, opacity: 0, interactive: false };
     const owner = nationColor(props.owner);
     const occupier = nationColor(props.occupier);
     return {
@@ -4670,7 +4673,7 @@ const claim = claimOf(nation);
       stroke: false,
       fill: true,
       fillColor: props.controller == null ? "#E6E6EA" : nationColor(props.controller),
-      fillOpacity: flat > 0.85 ? 0 : 0.58,
+      fillOpacity: state.mode === "terrain" ? 0 : flat > 0.85 ? 0 : 0.58,
       interactive: true,
     };
   }
@@ -5049,6 +5052,7 @@ const claim = claimOf(nation);
   function refreshHistoryZoom() {
     if (state.changeLayer) state.changeLayer.setStyle(changeStyle);
     if (state.workLayer) state.workLayer.setStyle(workStyle);
+    if (state.occLayer) state.occLayer.setStyle(occStyle);
     if (state.occPairs && state.occPairs.length) installOccPatterns(state.occPairs);
     refreshWorkMarkers();
   }
