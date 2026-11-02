@@ -318,10 +318,27 @@
     var infraRemoved = {};
     var tradeRoutes = {};
     var tradeRemoved = {};
+  var renames = {};
 
     for (var i = 0; i <= end; i++) {
       var snap = list[i] || {};
       if (has(snap, "war")) war = snap.war ? String(snap.war) : null;
+
+      (function () {
+        var ren = snap.renames || {};
+        if (Array.isArray(ren)) {
+          ren.forEach(function (row) {
+            if (!row) return;
+            var nid = num(row.nation != null ? row.nation : row.id);
+            if (nid != null && row.name) renames[nid] = String(row.name);
+          });
+        } else {
+          Object.keys(ren).forEach(function (key) {
+            var nid = num(key);
+            if (nid != null && ren[key]) renames[nid] = String(ren[key]);
+          });
+        }
+      })();
 
       (snap.transfers || []).forEach(function (row) {
         if (!row) return;
@@ -478,6 +495,7 @@
       round: isFinite(round) ? round : null,
       war: war,
       owners: owners,
+      renames: renames,
       occupations: occupations,
       colonies: colonies,
       revealedProvinces: revealedProvinces,

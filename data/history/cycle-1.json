@@ -47,5 +47,8 @@
       "occupier": 23,
       "war": "Sanbreque-Telmorela"
     }
-  ]
+  ],
+  "renames": {
+    "229": "Terrillia"
+  }
 }

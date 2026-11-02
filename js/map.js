@@ -1051,11 +1051,18 @@
     return named || nation.short_name;
   }
 
+  function displayShortName(nation) {
+    if (!nation) return "";
+    const view = state.historyView;
+    if (view && view.renames && view.renames[nation.id]) return view.renames[nation.id];
+    return nation.short_name;
+  }
+
   function nationLabel(nation) {
     if (!nation) return "";
     const claim = claimOf(nation);
-    if (!claim) return nation.short_name;
-    return nation.short_name + " (" + claim.short + ")";
+    if (!claim) return displayShortName(nation);
+    return displayShortName(nation) + " (" + claim.short + ")";
   }
 
   function buildLedger() {
@@ -1488,7 +1495,7 @@
   }
 
   function nationAliases(nation) {
-    const names = [nation.short_name, nation.name, capitalPlaceName(nation)].concat(nation.former_names || []);
+    const names = [nation.short_name, displayShortName(nation), nation.name, capitalPlaceName(nation)].concat(nation.former_names || []);
     const claim = claimOf(nation);
     if (claim) names.push(claim.short, claim.player, nationLabel(nation));
     return names;
@@ -1900,7 +1907,8 @@ const claim = claimOf(nation);
     const features = [];
     state.flatCollection.features.forEach(function (feature) {
       const props = feature.properties || {};
-      if (props.kind === "province" && claimed.has(props.nation_id) && !isConcealed(props.id)) {
+      const owner = legalOwnerId(props.id);
+      if (props.kind === "province" && claimed.has(owner) && !isConcealed(props.id)) {
         features.push({ type: "Feature", properties: { role: "claim" }, geometry: feature.geometry });
       }
     });
@@ -5143,6 +5151,7 @@ const claim = claimOf(nation);
     renderOwnerRecolor();
     renderOwnerSeams();
     renderUnionJuniors();
+    rebuildMarks();
     if (state.infraRaw) applyInfra();
     if (state.tradeRaw) renderTrade();
     const concealedKey = Object.keys((state.historyView && state.historyView.concealedProvinces) || {})
