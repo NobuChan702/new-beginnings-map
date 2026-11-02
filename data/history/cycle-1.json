@@ -82,5 +82,23 @@
       "nation": "Zaniorzan",
       "role": "vassal"
     }
+  ],
+  "markers": [
+    {
+      "kind": "army",
+      "x": 5250.6,
+      "y": 1656.4,
+      "name": "Great Yuan Army",
+      "text": "Besieging Zanmar, dug in around the city, about half strength at Cycle 1.",
+      "owner": 156
+    },
+    {
+      "kind": "army",
+      "x": 11072.1,
+      "y": 2536.2,
+      "name": "Sanbreque Army",
+      "text": "Occupying Tellare / Lamore in Telmorela (provinces 1642 and 1616).",
+      "owner": 23
+    }
   ]
 }
