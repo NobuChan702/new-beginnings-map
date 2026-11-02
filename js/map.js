@@ -293,7 +293,7 @@
       });
     })();
     if (state.claimLayer && map.hasLayer(state.claimLayer)) state.claimLayer.setOpacity(state.mode === "terrain" ? 0 : photo);
-    if (state.highlightLayer && map.hasLayer(state.highlightLayer)) state.highlightLayer.setOpacity(photo);
+    if (state.highlightLayer && map.hasLayer(state.highlightLayer)) state.highlightLayer.setOpacity(state.mode === "terrain" ? 0 : photo);
     const flatOn = state.mode !== "terrain" && flat > 0.02;
     const pane = map.getPane("flat");
     if (pane) pane.style.opacity = flatOn ? String(flat) : "0";
@@ -742,7 +742,7 @@
         const url = URL.createObjectURL(blob);
         if (kind === "highlight") {
           if (!state.highlightLayer) {
-            state.highlightLayer = L.imageOverlay(url, state.imageBounds, { interactive: false, opacity: 1, zIndex: 3 });
+            state.highlightLayer = L.imageOverlay(url, state.imageBounds, { interactive: false, opacity: state.mode === "terrain" ? 0 : 1, zIndex: 3 });
             state.highlightLayer.addTo(state.map);
           } else {
             state.highlightLayer.setUrl(url);
