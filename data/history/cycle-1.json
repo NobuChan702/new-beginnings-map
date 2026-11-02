@@ -1,0 +1,51 @@
+{
+  "id": "cycle-1",
+  "cycle": 1,
+  "label": "Cycle 1 (1100)",
+  "transfers": [
+    {
+      "province": 2200,
+      "owner": 21
+    },
+    {
+      "province": 2254,
+      "owner": 21
+    },
+    {
+      "province": 2206,
+      "owner": 21
+    },
+    {
+      "province": 2218,
+      "owner": 21
+    },
+    {
+      "province": 2230,
+      "owner": 21
+    },
+    {
+      "province": 2252,
+      "owner": 21
+    },
+    {
+      "province": 2263,
+      "owner": 21
+    },
+    {
+      "province": 2286,
+      "owner": 21
+    }
+  ],
+  "occupations": [
+    {
+      "province": 1642,
+      "occupier": 23,
+      "war": "Sanbreque-Telmorela"
+    },
+    {
+      "province": 1616,
+      "occupier": 23,
+      "war": "Sanbreque-Telmorela"
+    }
+  ]
+}
