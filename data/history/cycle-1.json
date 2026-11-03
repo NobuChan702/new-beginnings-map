@@ -102,16 +102,16 @@
     },
     {
       "kind": "army",
-      "x": 9447.9,
-      "y": 3864.4,
+      "x": 9442.8,
+      "y": 4144.3,
       "name": "Verillian Army",
       "text": "Fighting Vosur, field win in Autumn, war continues, no province taken.",
       "owner": 21
     },
     {
       "kind": "army",
-      "x": 9599.3,
-      "y": 3470.1,
+      "x": 9721.4,
+      "y": 3514.7,
       "name": "Verillian Aid Force",
       "text": "Aiding Terrillia against Zanhalter, field win in Autumn, war continues, no province taken.",
       "owner": 21
