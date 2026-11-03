@@ -99,6 +99,22 @@
       "name": "Sanbreque Army",
       "text": "Occupying Tellare / Lamore in Telmorela (provinces 1642 and 1616).",
       "owner": 23
+    },
+    {
+      "kind": "army",
+      "x": 9447.9,
+      "y": 3864.4,
+      "name": "Verillian Army",
+      "text": "Fighting Vosur, field win in Autumn, war continues, no province taken.",
+      "owner": 21
+    },
+    {
+      "kind": "army",
+      "x": 9599.3,
+      "y": 3470.1,
+      "name": "Verillian Aid Force",
+      "text": "Aiding Terrillia against Zanhalter, field win in Autumn, war continues, no province taken.",
+      "owner": 21
     }
   ]
 }
