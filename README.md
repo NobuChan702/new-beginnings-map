@@ -323,7 +323,7 @@ The bar at the bottom of the map is the timeline. Dates live in `data/history/`.
 ["cycle-0.json", "cycle-1.json"]
 ```
 
-`cycle-0.json` is the published map as it stands today. It has no transfers, occupations, colonies, or works. Later files are one date each. Copy the pattern, add the file name to `index.json`, commit, and push. A tile rebuild is not required.
+`cycle-0.json` is the start of the slider. A transfer there is the painted original owner of a province a later snapshot gives away, not the current owner. Later files are one date each and list only what changes. Copy the pattern, add the file name to `index.json`, commit, and push. Do not rebuild the political tiles to the latest owner. The checklist is `docs/history-maintenance.md`.
 
 ```json
 {
@@ -368,7 +368,7 @@ The bar at the bottom of the map is the timeline. Dates live in `data/history/`.
 
 These fields accumulate as the slider moves forward:
 
-- `transfers` change who owns a province. `owner` is a nation id. `null` makes it unclaimed. Ownership stays until a later transfer. Occupation does not change the owner.
+- `transfers` change who owns a province. `owner` is a nation id. `null` makes it unclaimed. Ownership accumulates until a later transfer. The page falls back to `world.json` for a province that has never been listed, and that file is the latest owner, so the first change has to be paired with a Cycle 0 row for the owner painted in `data/flat.geojson`. `python3 scripts/check_history.py` rejects a missing or current-owner baseline. Occupation does not change the owner.
 - `reveals.provinces` and `reveals.seas` lift fog. Once revealed, a province or sea stays revealed.
 - `works` add man-made land. A later snapshot can update the same id. `"status": "removed"` takes it off the map.
 - `infrastructure.places` and `infrastructure.roads` add forts, ports, roads, and the other works from Infrastructure. An entry with no `cycle` starts on this snapshot's date. The same `id` in a later snapshot updates it. `infrastructure.remove` lists ids to take off the map from that date on, including a capital star (`capital-25` is Basileia Rhomania's).
@@ -378,7 +378,7 @@ These fields accumulate as the slider moves forward:
 
 These fields replace the active list when the snapshot includes the key, and stay as they were when the key is absent. Use `[]` to clear them.
 
-- `occupations` are provinces held in a war. The owner does not change. Players can hide the stripes with Layers → Occupied territory. The popup reads `Owned by X, occupied by Y (war: name)`.
+- `occupations` are provinces held in a war. The owner does not change. Players can hide the stripes with Layers → Occupied territory. The popup reads `Owned by X, occupied by Y (war: name)`. A snapshot that includes this key replaces the whole list, so occupations that continue have to be copied forward. Leave the key out to keep the previous list.
 - `markers` are battles and armies. `kind` is `battle` or `army`. `x` and `y` are map pixels. `text` is the popup. Layers → Battles & armies toggles them.
 
 A colony `stage` is `outpost`, `colony`, `integrated`, or `abandoned`. An outpost is a light tint and a dotted outline in the colonizer's color. A colony is the same treatment, a little stronger. `integrated` becomes normal ownership and keeps that owner. `abandoned` removes the colony.

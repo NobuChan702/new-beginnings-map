@@ -1,0 +1,81 @@
+/* Selected-turn political fill for provinces whose owner has changed.
+   The baked political paint (flat.geojson and the political tiles) stays the
+   cycle-0 picture. This module decides how the page covers that paint.
+   Claims hatching and occupation stripes are other layers; they are not inputs. */
+(function (root, factory) {
+  var api = factory();
+  if (typeof module === "object" && module.exports) module.exports = api;
+  if (root) root.NB_FILL = api;
+})(typeof globalThis !== "undefined" ? globalThis : this, function () {
+  function normColor(color) {
+    return String(color || "").toLowerCase();
+  }
+
+  function asId(value) {
+    if (value == null || value === "") return null;
+    var n = Number(value);
+    return isFinite(n) ? n : null;
+  }
+
+  function sameId(a, b) {
+    return asId(a) === asId(b);
+  }
+
+  // Folded transfers win. A province with no transfer yet keeps world.json,
+  // which is the latest owner in that file, not the painted original owner.
+  function resolvedOwner(historyOwners, provinceId, worldOwner) {
+    var owners = historyOwners || {};
+    if (Object.prototype.hasOwnProperty.call(owners, provinceId) || Object.prototype.hasOwnProperty.call(owners, String(provinceId))) {
+      var stored = owners[provinceId];
+      if (stored === undefined) stored = owners[String(provinceId)];
+      return stored == null || stored === "" ? null : stored;
+    }
+    return worldOwner == null || worldOwner === "" ? null : worldOwner;
+  }
+
+  function provincePaint(spec) {
+    spec = spec || {};
+    var owner = spec.owner == null || spec.owner === "" ? null : spec.owner;
+    var own = spec.ownColor || null;
+    var paint = spec.paintColor || own;
+    var bakedColor = spec.bakedColor || "";
+    var mode = spec.mode || "auto";
+    var flat = Number(spec.flat);
+    if (!isFinite(flat)) flat = 0;
+    if (flat < 0) flat = 0;
+    if (flat > 1) flat = 1;
+    var politicalOpacity = Number(spec.politicalOpacity);
+    if (!isFinite(politicalOpacity)) politicalOpacity = 1;
+    var show = mode === "political" || mode === "auto";
+    var annexed = owner != null && !sameId(owner, spec.bakedNationId);
+    var plate = annexed && !!own;
+    var wash = false;
+    if (paint) {
+      if (plate && own && normColor(paint) !== normColor(own)) wash = true;
+      if (!plate && bakedColor && normColor(paint) !== normColor(bakedColor)) wash = true;
+    }
+    var plateOpacity = 0;
+    if (show && plate) plateOpacity = flat >= 0.98 ? 0 : 1;
+    var washOpacity = 0;
+    if (show && wash) washOpacity = politicalOpacity * (1 - flat);
+    if (washOpacity < 0) washOpacity = 0;
+    return {
+      owner: owner,
+      ownColor: own,
+      paintColor: paint,
+      annexed: annexed,
+      plate: plate,
+      wash: wash,
+      plateOpacity: plateOpacity,
+      washOpacity: washOpacity,
+      hidesBaked: plateOpacity >= 0.99,
+      claimsChangeFill: false,
+      occupationChangesOwner: false,
+    };
+  }
+
+  return {
+    resolvedOwner: resolvedOwner,
+    provincePaint: provincePaint,
+  };
+});
