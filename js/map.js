@@ -5116,13 +5116,11 @@ const claim = claimOf(nation);
       if (view.colonies[id] || view.concealedProvinces[id]) return;
       const prov = state.provinces.get(id);
       const nextOwner = view.owners[id];
-      // Differing from the baked nation is drawn as an opaque plate on the
-      // vassal pane, under wash, stripes, and occupation. A fill on this
-      // pane would cover that plate and could keep the old political colour
-      // or substitute the bloc leader's colour.
-      if (Number(nextOwner) !== bakedNationId(id)) return;
-      const original = prov && prov.nation_id ? prov.nation_id : null;
-      if (nextOwner === original) return;
+      // The photo already has the baked colour. Painting it again on the
+      // history pane covers Auto terrain with a flat NPC fill whenever
+      // world.json has moved on but this turn still shows the original owner.
+      const worldOwner = prov && prov.nation_id ? prov.nation_id : null;
+      if (!window.NB_FILL || !window.NB_FILL.shouldPaintHistoryOwnerFill(nextOwner, bakedNationId(id), worldOwner)) return;
       const feature = provinceFeature(id, { role: "transfer", id: id, owner: nextOwner });
       if (feature) changes.push(feature);
     });
