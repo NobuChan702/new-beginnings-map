@@ -2,5 +2,71 @@
   "id": "cycle-0",
   "cycle": 0,
   "label": "Start (Cycle 0)",
+  "transfers": [
+    {
+      "province": 2200,
+      "owner": 276
+    },
+    {
+      "province": 2254,
+      "owner": 276
+    },
+    {
+      "province": 2206,
+      "owner": 210
+    },
+    {
+      "province": 2218,
+      "owner": 210
+    },
+    {
+      "province": 2230,
+      "owner": 210
+    },
+    {
+      "province": 2252,
+      "owner": 210
+    },
+    {
+      "province": 2263,
+      "owner": 210
+    },
+    {
+      "province": 2286,
+      "owner": 210
+    },
+    {
+      "province": 2117,
+      "owner": 368
+    },
+    {
+      "province": 2120,
+      "owner": 368
+    },
+    {
+      "province": 2123,
+      "owner": 368
+    },
+    {
+      "province": 2124,
+      "owner": 368
+    },
+    {
+      "province": 2125,
+      "owner": 368
+    },
+    {
+      "province": 2127,
+      "owner": 368
+    },
+    {
+      "province": 2129,
+      "owner": 368
+    },
+    {
+      "province": 2353,
+      "owner": 368
+    }
+  ],
   "alliances": []
 }
