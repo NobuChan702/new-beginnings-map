@@ -400,6 +400,13 @@
     });
     state.map = map;
     window.nbMap = map;
+    // Above the political photo and below rivers, so an Auto tint blends like
+    // the political tiles and rivers stay on top of both.
+    map.createPane("annexTint");
+    const annexTintPane = map.getPane("annexTint");
+    annexTintPane.style.zIndex = "210";
+    annexTintPane.style.pointerEvents = "none";
+    state.annexTintRenderer = L.canvas({ pane: "annexTint", padding: 0.5 });
     map.createPane("rivers");
     const riverPane = map.getPane("rivers");
     riverPane.style.zIndex = "348";
@@ -484,6 +491,7 @@
     state.layers.terrain = makeTileLayer("terrain", "assets/empty.webp");
     state.layers.terrain.setUrl("tiles/terrain/{z}/{x}/{y}.webp?v=3");
     state.layers.political = makeTileLayer("political", "assets/empty.webp");
+    installPoliticalHoles(state.layers.political);
     state.layers.depth = makeTileLayer("depth", "assets/empty.webp");
     state.layers.outlines = makeTileLayer("outlines", "assets/blank.webp", "photoBorders");
     L.control.scale({ imperial: false, metric: true, position: "bottomright", maxWidth: 160 }).addTo(map);
@@ -4233,6 +4241,95 @@ const claim = claimOf(nation);
     return 1 - flatAmount(map.getZoom());
   }
 
+  function installPoliticalHoles(layer) {
+    layer._nbCreateTile = layer.createTile.bind(layer);
+    const native = state.meta.native_zoom;
+    const size = state.meta.tile_size;
+    layer.createTile = function (coords, done) {
+      const geoms = state.mode === "auto" ? state.annexGeoms : null;
+      if (!geoms || !geoms.length) return layer._nbCreateTile(coords, done);
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const img = new Image();
+      img.onload = function () {
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, size, size);
+        const scale = Math.pow(2, coords.z - native);
+        const ox = coords.x * size;
+        const oy = coords.y * size;
+        ctx.globalCompositeOperation = "destination-out";
+        ctx.beginPath();
+        geoms.forEach(function (rings) {
+          rings.forEach(function (ring) {
+            for (let i = 0; i < ring.length; i++) {
+              const px = ring[i][0] * scale - ox;
+              const py = ring[i][1] * scale - oy;
+              if (i) ctx.lineTo(px, py);
+              else ctx.moveTo(px, py);
+            }
+            ctx.closePath();
+          });
+        });
+        ctx.fill("evenodd");
+        done(null, canvas);
+      };
+      img.onerror = function () {
+        done(null, canvas);
+      };
+      img.src = layer.getTileUrl(coords);
+      return canvas;
+    };
+  }
+
+  function annexTintStyle(feature) {
+    const zoom = state.map ? state.map.getZoom() : 0;
+    const tint = state.mode === "auto" ? politicalOpacity(zoom) * (1 - flatAmount(zoom)) : 0;
+    return {
+      stroke: false,
+      fill: true,
+      fillColor: feature.properties.fill,
+      fillOpacity: tint,
+      interactive: false,
+    };
+  }
+
+  function rememberAnnexGeoms(plates) {
+    const geoms = [];
+    plates.forEach(function (feature) {
+      const geometry = feature.geometry;
+      if (!geometry) return;
+      if (geometry.type === "Polygon") geoms.push(geometry.coordinates);
+      else if (geometry.type === "MultiPolygon") {
+        geometry.coordinates.forEach(function (poly) {
+          geoms.push(poly);
+        });
+      }
+    });
+    const sig = plates.map(function (feature) {
+      return feature.properties.id;
+    }).join(",");
+    state.annexGeoms = geoms;
+    state.annexGeomSig = sig;
+  }
+
+  function syncAnnexTint() {
+    const map = state.map;
+    if (!map) return;
+    const show = state.mode === "auto" && state.annexTintLayer;
+    setOn(state.annexTintLayer, !!show);
+    if (show) state.annexTintLayer.setStyle(annexTintStyle);
+    const wantHoles = state.mode === "auto" && state.annexGeoms && state.annexGeoms.length ? "1" : "0";
+    const sig = wantHoles + ":" + (state.annexGeomSig || "");
+    const layer = state.layers.political;
+    if (sig !== state.holeSig && layer && map.hasLayer(layer)) {
+      state.holeSig = sig;
+      layer.redraw();
+    } else if (sig !== state.holeSig) {
+      state.holeSig = sig;
+    }
+  }
+
   function ownerRecolorStyle(feature) {
     const props = (feature && feature.properties) || {};
     const spec = paintSpec(props.id);
@@ -4256,6 +4353,7 @@ const claim = claimOf(nation);
     const show = state.mode === "political" || state.mode === "auto";
     pane.style.opacity = show ? "1" : "0";
     if (state.vassalLayer) state.vassalLayer.setStyle(ownerRecolorStyle);
+    syncAnnexTint();
   }
 
   function syncUnionJuniors() {
@@ -4273,8 +4371,14 @@ const claim = claimOf(nation);
     const map = state.map;
     if (!map) return;
     dropLayer(state.vassalLayer);
+    dropLayer(state.annexTintLayer);
     state.vassalLayer = null;
-    if (!state.flatById || !window.NB_FILL) return;
+    state.annexTintLayer = null;
+    if (!state.flatById || !window.NB_FILL) {
+      rememberAnnexGeoms([]);
+      syncAnnexTint();
+      return;
+    }
     const plates = [];
     const washes = [];
     state.provinces.forEach(function (prov, id) {
@@ -4290,8 +4394,24 @@ const claim = claimOf(nation);
         if (wash) washes.push(wash);
       }
     });
+    rememberAnnexGeoms(plates);
+    if (plates.length) {
+      state.annexTintLayer = L.geoJSON(
+        { type: "FeatureCollection", features: plates },
+        {
+          pane: "annexTint",
+          renderer: state.annexTintRenderer,
+          interactive: false,
+          smoothFactor: 0,
+          style: annexTintStyle,
+        }
+      );
+    }
     const features = plates.concat(washes);
-    if (!features.length) return;
+    if (!features.length) {
+      syncAnnexTint();
+      return;
+    }
     state.vassalLayer = L.geoJSON(
       { type: "FeatureCollection", features: features },
       {

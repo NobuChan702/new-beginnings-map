@@ -54,10 +54,19 @@
       if (plate && own && normColor(paint) !== normColor(own)) wash = true;
       if (!plate && bakedColor && normColor(paint) !== normColor(bakedColor)) wash = true;
     }
+    // Political view keeps an opaque plate over the old paint. Auto view must
+    // use the same alpha as the political photo (terrain shows through) and
+    // remove that photo underneath. A translucent plate on top of the old
+    // paint would bring the previous owner back.
+    var photo = 1 - flat;
     var plateOpacity = 0;
-    if (show && plate) plateOpacity = flat >= 0.98 ? 0 : 1;
+    var autoTintOpacity = 0;
+    if (mode === "political" && plate) plateOpacity = flat >= 0.98 ? 0 : 1;
+    if (mode === "auto" && plate && flat < 0.98) autoTintOpacity = politicalOpacity * photo;
+    if (autoTintOpacity < 0) autoTintOpacity = 0;
+    var maskBaked = mode === "auto" && plate && autoTintOpacity > 0.01 && autoTintOpacity < 0.99;
     var washOpacity = 0;
-    if (show && wash) washOpacity = politicalOpacity * (1 - flat);
+    if (show && wash) washOpacity = politicalOpacity * photo;
     if (washOpacity < 0) washOpacity = 0;
     return {
       owner: owner,
@@ -67,8 +76,10 @@
       plate: plate,
       wash: wash,
       plateOpacity: plateOpacity,
+      autoTintOpacity: autoTintOpacity,
+      maskBaked: maskBaked,
       washOpacity: washOpacity,
-      hidesBaked: plateOpacity >= 0.99,
+      hidesBaked: plateOpacity >= 0.99 || autoTintOpacity >= 0.99 || maskBaked,
       claimsChangeFill: false,
       occupationChangesOwner: false,
     };

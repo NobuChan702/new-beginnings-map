@@ -190,8 +190,37 @@ test("claim and occupation toggles do not change the political fill", function (
   assert.equal(occupiedOff.plate, false);
 });
 
+test("auto uses the political tint and still blocks the baked paint", function () {
+  const faded = decision(2, 2200, { mode: "auto", flat: 0, politicalOpacity: 0.28 });
+  assert.equal(faded.plateOpacity, 0);
+  assert.equal(faded.autoTintOpacity, 0.28);
+  assert.equal(faded.maskBaked, true);
+  assert.equal(faded.hidesBaked, true);
+  const home = decision(2, HOME.verillian, { mode: "auto", flat: 0, politicalOpacity: 0.28 });
+  assert.equal(home.plate, false);
+  assert.equal(home.autoTintOpacity, 0);
+  assert.equal(home.maskBaked, false);
+  assert.equal(faded.autoTintOpacity, 0.28);
+  const solid = decision(2, 2200, { mode: "auto", flat: 0, politicalOpacity: 1 });
+  assert.equal(solid.plateOpacity, 0);
+  assert.equal(solid.autoTintOpacity, 1);
+  assert.equal(solid.maskBaked, false);
+  assert.equal(solid.hidesBaked, true);
+  const political = decision(2, 2200, { mode: "political", flat: 0, politicalOpacity: 0.28 });
+  assert.equal(political.plateOpacity, 1);
+  assert.equal(political.autoTintOpacity, 0);
+  assert.equal(political.maskBaked, false);
+  assert.equal(political.hidesBaked, true);
+  const mid = decision(2, 2127, { mode: "auto", flat: 0.25, politicalOpacity: 0.5 });
+  assert.equal(mid.autoTintOpacity, 0.375);
+  assert.equal(mid.maskBaked, true);
+  assert.equal(mid.plateOpacity, 0);
+  assert.equal(mid.washOpacity, 0.375);
+});
+
 test("terrain and depth hide the plate; the flat board takes over up close", function () {
   assert.equal(decision(2, 2200, { mode: "terrain" }).plateOpacity, 0);
+  assert.equal(decision(2, 2200, { mode: "terrain" }).autoTintOpacity, 0);
   assert.equal(decision(2, 2200, { mode: "depth" }).plateOpacity, 0);
   assert.equal(decision(2, 2127, { mode: "terrain" }).hidesBaked, false);
   assert.equal(decision(2, 2200, { mode: "auto", flat: 0 }).hidesBaked, true);
