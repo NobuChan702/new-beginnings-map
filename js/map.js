@@ -3833,8 +3833,34 @@ const claim = claimOf(nation);
 
   function legalOwnerId(id, prov) {
     prov = prov || state.provinces.get(id);
+    // History transfers accumulate. A province that has never been listed
+    // falls through to world.json, which stores the latest owner.
     if (hasOwnerOverride(id)) return state.historyView.owners[id];
     return prov && prov.nation_id ? prov.nation_id : null;
+  }
+
+  function ownNationColor(id) {
+    const nation = id && state.nationsById.get(id);
+    if (!nation) return "#E6E6EA";
+    return safeColor(nation.color);
+  }
+
+  function paintSpec(id, prov) {
+    prov = prov || state.provinces.get(id);
+    const owner = legalOwnerId(id, prov);
+    const zoom = state.map ? state.map.getZoom() : 0;
+    const api = window.NB_FILL;
+    if (!api) return null;
+    return api.provincePaint({
+      owner: owner,
+      bakedNationId: bakedNationId(id),
+      bakedColor: bakedProvinceColor(id),
+      ownColor: owner == null ? null : ownNationColor(owner),
+      paintColor: owner == null ? null : provinceFillColor(id),
+      mode: state.mode,
+      flat: flatAmount(zoom),
+      politicalOpacity: politicalOpacity(zoom),
+    });
   }
 
   function colonyOf(id) {
@@ -4207,14 +4233,29 @@ const claim = claimOf(nation);
     return 1 - flatAmount(map.getZoom());
   }
 
+  function ownerRecolorStyle(feature) {
+    const props = (feature && feature.properties) || {};
+    const spec = paintSpec(props.id);
+    const opacity = !spec ? 0 : props.role === "plate" ? spec.plateOpacity : spec.washOpacity;
+    return {
+      stroke: false,
+      fill: true,
+      fillColor: props.fill,
+      fillOpacity: opacity,
+      interactive: false,
+    };
+  }
+
   function syncOwnerRecolor() {
     const pane = state.map && state.map.getPane("vassal");
     if (!pane) return;
-    const map = state.map;
-    const zoom = map ? map.getZoom() : 0;
-    const flat = map ? flatAmount(zoom) : 0;
-    const opacity = politicalOpacity(zoom) * (1 - flat);
-    pane.style.opacity = opacity > 0.01 ? String(opacity) : "0";
+    // Opaque plates have to sit above the political photo at full strength.
+    // Fading this pane with the political tint lets the previous nation's
+    // paint show through. Terrain and depth hide the pane; the plate style
+    // is also zero there.
+    const show = state.mode === "political" || state.mode === "auto";
+    pane.style.opacity = show ? "1" : "0";
+    if (state.vassalLayer) state.vassalLayer.setStyle(ownerRecolorStyle);
   }
 
   function syncUnionJuniors() {
@@ -4233,16 +4274,23 @@ const claim = claimOf(nation);
     if (!map) return;
     dropLayer(state.vassalLayer);
     state.vassalLayer = null;
-    if (!state.flatById) return;
-    const features = [];
+    if (!state.flatById || !window.NB_FILL) return;
+    const plates = [];
+    const washes = [];
     state.provinces.forEach(function (prov, id) {
       if (!provinceIsPublic(id, prov) || isConcealed(id) || colonyOf(id)) return;
-      const fill = provinceFillColor(id);
-      const baked = bakedProvinceColor(id);
-      if (!fill || !baked || baked === fill.toLowerCase()) return;
-      const feature = provinceFeature(id, { fill: fill });
-      if (feature) features.push(feature);
+      const spec = paintSpec(id, prov);
+      if (!spec) return;
+      if (spec.plate) {
+        const plate = provinceFeature(id, { role: "plate", id: id, fill: spec.ownColor });
+        if (plate) plates.push(plate);
+      }
+      if (spec.wash) {
+        const wash = provinceFeature(id, { role: "wash", id: id, fill: spec.paintColor });
+        if (wash) washes.push(wash);
+      }
     });
+    const features = plates.concat(washes);
     if (!features.length) return;
     state.vassalLayer = L.geoJSON(
       { type: "FeatureCollection", features: features },
@@ -4251,15 +4299,7 @@ const claim = claimOf(nation);
         renderer: state.vassalRenderer,
         interactive: false,
         smoothFactor: 0,
-        style: function (feature) {
-          return {
-            stroke: false,
-            fill: true,
-            fillColor: feature.properties.fill,
-            fillOpacity: 1,
-            interactive: false,
-          };
-        },
+        style: ownerRecolorStyle,
       }
     );
     state.vassalLayer.addTo(map);
@@ -4881,6 +4921,11 @@ const claim = claimOf(nation);
       if (view.colonies[id] || view.concealedProvinces[id]) return;
       const prov = state.provinces.get(id);
       const nextOwner = view.owners[id];
+      // Differing from the baked nation is drawn as an opaque plate on the
+      // vassal pane, under wash, stripes, and occupation. A fill on this
+      // pane would cover that plate and could keep the old political colour
+      // or substitute the bloc leader's colour.
+      if (Number(nextOwner) !== bakedNationId(id)) return;
       const original = prov && prov.nation_id ? prov.nation_id : null;
       if (nextOwner === original) return;
       const feature = provinceFeature(id, { role: "transfer", id: id, owner: nextOwner });

@@ -745,6 +745,87 @@ def check_infra_block(block, where, width, height, province_id):
             fail(f"{where}: remove ids must be strings or numbers")
 
 
+def baked_province_nations():
+    """Nation id painted on each province in the political vectors.
+
+    flat.geojson is the cycle-0 picture. Later conquests must not be baked
+    back into it, or earlier turns lose their colours.
+    """
+    path = ROOT / "data" / "flat.geojson"
+    if not path.is_file():
+        fail("missing data/flat.geojson")
+    baked = {}
+    for feature in load(path).get("features") or []:
+        props = (feature or {}).get("properties") or {}
+        if props.get("kind") != "province":
+            continue
+        pid = props.get("id")
+        if isinstance(pid, bool) or not isinstance(pid, int):
+            continue
+        nation = props.get("nation_id")
+        if nation in (None, ""):
+            baked[pid] = None
+        elif isinstance(nation, bool) or not isinstance(nation, int):
+            fail(f"flat.geojson province {pid} has a bad nation_id")
+        else:
+            baked[pid] = nation
+    return baked
+
+
+def check_transfer_baselines(snapshots, baked_nations):
+    """Transfers accumulate. Cycle 0 must name the painted original owner.
+
+    A later snapshot only lists the provinces that change hands on that date.
+    Provinces absent from the folded owner map fall back to world.json, which
+    is the latest owner, so a missing cycle-0 row paints the conquest onto
+    earlier turns. The baseline owner has to match the baked political map,
+    not the current world.json owner.
+    """
+    if not snapshots:
+        return
+    baseline = {}
+    for row in (snapshots[0] or {}).get("transfers") or []:
+        if not isinstance(row, dict):
+            continue
+        pid = row.get("province", row.get("id"))
+        if isinstance(pid, bool) or not isinstance(pid, int):
+            continue
+        owner = row.get("owner")
+        if isinstance(owner, bool) or not isinstance(owner, int):
+            fail(f"cycle-0 baseline for province {pid} needs an integer owner")
+        baseline[pid] = owner
+    later = []
+    seen = set()
+    for snap in snapshots[1:]:
+        for row in (snap or {}).get("transfers") or []:
+            if not isinstance(row, dict):
+                continue
+            pid = row.get("province", row.get("id"))
+            if isinstance(pid, bool) or not isinstance(pid, int) or pid in seen:
+                continue
+            seen.add(pid)
+            later.append(pid)
+    missing = [pid for pid in later if pid not in baseline]
+    if missing:
+        listed = ", ".join(str(pid) for pid in missing)
+        fail(
+            "cycle-0.json is missing the original owner for transferred province "
+            + listed
+            + ". Add a cycle-0 transfer for the painted owner before the later delta. "
+            + "Do not copy the current world.json owner into cycle 0."
+        )
+    for pid in later:
+        if pid not in baked_nations:
+            fail(f"transferred province {pid} is not on the baked political map")
+        baked = baked_nations[pid]
+        if baseline[pid] != baked:
+            fail(
+                f"cycle-0 baseline for province {pid} is owner {baseline[pid]} "
+                f"but the baked political map shows nation {baked}. "
+                "Record the painted original owner, not the current owner, and do not rebuild the political tiles to erase that paint."
+            )
+
+
 def main():
     meta = load(ROOT / "data" / "meta.json")
     global WEST
@@ -800,6 +881,7 @@ def main():
     check_religions(provinces, nations)
     check_wars(nations)
 
+    snaps = []
     for name in files:
         if not isinstance(name, str) or "/" in name or "\\" in name or name.startswith("."):
             fail(f"bad history file name: {name}")
@@ -807,6 +889,7 @@ def main():
         if not path.is_file():
             fail(f"missing {path}")
         snap = load(path)
+        snaps.append(snap)
         for row in snap.get("transfers") or []:
             province_id(row.get("province", row.get("id")), f"{name} transfer")
         for row in snap.get("occupations") or []:
@@ -842,6 +925,7 @@ def main():
             check_infra_block(snap.get("infrastructure"), f"{name} infrastructure", width, height, province_id)
         if "trade" in snap:
             check_trade_block(snap.get("trade"), f"{name} trade", nations, width, height)
+    check_transfer_baselines(snaps, baked_province_nations())
     print(f"history secrecy ok ({len(files)} snapshots)")
 
 
