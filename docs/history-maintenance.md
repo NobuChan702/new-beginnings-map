@@ -24,7 +24,7 @@ node --test tests/political_fill.test.js tests/building_yields.test.js
 python3 -m unittest tests/test_history_baseline.py tests/test_nb.py
 ```
 
-Reload with `js/map.js?v=10` and `js/political_fill.js?v=2` in `index.html`. Bump those query strings when the fill rules change. A tile rebuild is not required and would erase the Cycle 0 paint.
+Reload with `js/map.js?v=11` and `js/political_fill.js?v=3` in `index.html`. Bump those query strings when the fill rules change. A tile rebuild is not required and would erase the Cycle 0 paint.
 
 ## What the player sees
 
@@ -33,7 +33,7 @@ Reload with `js/map.js?v=10` and `js/political_fill.js?v=2` in `index.html`. Bum
 - Cycle 0 keeps the baked colours. Moving the slider back removes the plate.
 - Occupied, not annexed, land keeps the owner's colour. Stripes are the occupation layer (Layers → Occupied territory). Sanbreque's hold on Telmorela (1642, 1616) and Verillian's hold on Vosur (2242) stay occupations.
 - The red claims hatch follows the history owner and is not the political fill. Turning claims off removes the hatch only.
-- Terrain and depth hide the ownership colour. Political view covers annexed land with an opaque plate in the owner's own colour. Auto view uses that colour at the same strength as the political photo, and the baked political pixels are removed underneath, so annexed land blends with terrain the same way as land that owner already held. A translucent plate painted on top of the old political photo would show the previous owner. Up close, the flat board takes over and uses the same history owner.
+- Terrain and depth hide the ownership colour. Political view covers annexed land with an opaque plate in the owner's own colour. Auto view shows that same colour at the same strength as the political photo. The photo pixels are recolored, including the fringe where a low-zoom tile smears the old colour past the province outline. That fringe is recolored only when it still matches the baked colour, and it stops at another province, so the sea and neighbours stay put. A translucent plate painted on top of the old political photo would show the previous owner. Up close, the flat board takes over and uses the same history owner.
 
 ## Do not
 

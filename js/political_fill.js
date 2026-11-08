@@ -85,8 +85,21 @@
     };
   }
 
-  return {
-    resolvedOwner: resolvedOwner,
-    provincePaint: provincePaint,
-  };
+    // A pixel in the fringe around an annexed polygon is recolored only when
+    // it still looks like the baked owner. Ocean and a neighbouring nation
+    // stay as they are. The province interior is always recolored.
+    function recolorTilePixel(rgb, baked, interior, inHalo) {
+      if (interior) return true;
+      if (!inHalo || !baked || !rgb) return false;
+      var dr = rgb[0] - baked[0];
+      var dg = rgb[1] - baked[1];
+      var db = rgb[2] - baked[2];
+      return dr * dr + dg * dg + db * db <= 100 * 100;
+    }
+
+    return {
+      resolvedOwner: resolvedOwner,
+      provincePaint: provincePaint,
+      recolorTilePixel: recolorTilePixel,
+    };
 });

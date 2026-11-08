@@ -4246,32 +4246,94 @@ const claim = claimOf(nation);
     const native = state.meta.native_zoom;
     const size = state.meta.tile_size;
     layer.createTile = function (coords, done) {
-      const geoms = state.mode === "auto" ? state.annexGeoms : null;
-      if (!geoms || !geoms.length) return layer._nbCreateTile(coords, done);
+      const groups = state.annexGroups;
+      if (!groups || !groups.length) return layer._nbCreateTile(coords, done);
       const canvas = document.createElement("canvas");
       canvas.width = size;
       canvas.height = size;
       const img = new Image();
-      img.onload = function () {
-        const ctx = canvas.getContext("2d");
-        ctx.drawImage(img, 0, 0, size, size);
-        const scale = Math.pow(2, coords.z - native);
-        const ox = coords.x * size;
-        const oy = coords.y * size;
-        ctx.globalCompositeOperation = "destination-out";
+      const scale = Math.pow(2, coords.z - native);
+      const ox = coords.x * size;
+      const oy = coords.y * size;
+      // Low zoom tiles are pre-filtered, so the old colour smears past the
+      // vector coast. Cover that fringe, but only where the pixel still
+      // matches the baked colour and is not inside another province.
+      const radius = Math.max(4, Math.ceil(6 * scale));
+      function trace(ctx, polys) {
         ctx.beginPath();
-        geoms.forEach(function (rings) {
+        polys.forEach(function (rings) {
           rings.forEach(function (ring) {
             for (let i = 0; i < ring.length; i++) {
-              const px = ring[i][0] * scale - ox;
-              const py = ring[i][1] * scale - oy;
-              if (i) ctx.lineTo(px, py);
-              else ctx.moveTo(px, py);
+              const x = ring[i][0] * scale - ox;
+              const y = ring[i][1] * scale - oy;
+              if (i) ctx.lineTo(x, y);
+              else ctx.moveTo(x, y);
             }
             ctx.closePath();
           });
         });
-        ctx.fill("evenodd");
+      }
+      img.onload = function () {
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, size, size);
+        const image = ctx.getImageData(0, 0, size, size);
+        const data = image.data;
+        const tileMinX = ox / scale;
+        const tileMinY = oy / scale;
+        const tileMaxX = (ox + size) / scale;
+        const tileMaxY = (oy + size) / scale;
+        const outlines = provinceOutlines();
+        groups.forEach(function (group) {
+          const mask = document.createElement("canvas");
+          mask.width = size;
+          mask.height = size;
+          const m = mask.getContext("2d");
+          trace(m, group.polys);
+          m.fillStyle = "#ffffff";
+          m.fill("evenodd");
+          const interior = m.getImageData(0, 0, size, size).data;
+          m.lineWidth = radius * 2;
+          m.strokeStyle = "#ffffff";
+          m.lineJoin = "round";
+          m.stroke();
+          m.globalCompositeOperation = "destination-out";
+          m.beginPath();
+          outlines.forEach(function (prov) {
+            if (group.ids[prov.id]) return;
+            const box = prov.bbox;
+            if (box[2] < tileMinX || box[0] > tileMaxX || box[3] < tileMinY || box[1] > tileMaxY) return;
+            prov.polys.forEach(function (rings) {
+              rings.forEach(function (ring) {
+                for (let i = 0; i < ring.length; i++) {
+                  const x = ring[i][0] * scale - ox;
+                  const y = ring[i][1] * scale - oy;
+                  if (i) m.lineTo(x, y);
+                  else m.moveTo(x, y);
+                }
+                m.closePath();
+              });
+            });
+          });
+          m.fill("evenodd");
+          const halo = m.getImageData(0, 0, size, size).data;
+          const fill = hexToRgb(group.fill);
+          const baked = hexToRgb(group.baked);
+          for (let p = 0, i = 0; p < size * size; p++, i += 4) {
+            if (halo[i + 3] < 128) continue;
+            const inside = interior[i + 3] > 128;
+            if (!window.NB_FILL.recolorTilePixel(
+              [data[i], data[i + 1], data[i + 2]],
+              baked,
+              inside,
+              !inside
+            )) continue;
+            data[i] = fill[0];
+            data[i + 1] = fill[1];
+            data[i + 2] = fill[2];
+            data[i + 3] = 255;
+          }
+        });
+        ctx.putImageData(image, 0, 0);
         done(null, canvas);
       };
       img.onerror = function () {
@@ -4282,45 +4344,70 @@ const claim = claimOf(nation);
     };
   }
 
-  function annexTintStyle(feature) {
-    const zoom = state.map ? state.map.getZoom() : 0;
-    const tint = state.mode === "auto" ? politicalOpacity(zoom) * (1 - flatAmount(zoom)) : 0;
-    return {
-      stroke: false,
-      fill: true,
-      fillColor: feature.properties.fill,
-      fillOpacity: tint,
-      interactive: false,
-    };
+  function provinceOutlines() {
+    if (state.provinceOutlines) return state.provinceOutlines;
+    const list = [];
+    if (state.flatById) {
+      state.flatById.forEach(function (layer, id) {
+        const feature = layer.feature;
+        const props = feature && feature.properties;
+        if (!props || props.kind !== "province" || !feature.geometry) return;
+        const geom = feature.geometry;
+        const polys = geom.type === "MultiPolygon" ? geom.coordinates : geom.type === "Polygon" ? [geom.coordinates] : [];
+        if (!polys.length) return;
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        polys.forEach(function (rings) {
+          (rings[0] || []).forEach(function (pt) {
+            if (pt[0] < minX) minX = pt[0];
+            if (pt[1] < minY) minY = pt[1];
+            if (pt[0] > maxX) maxX = pt[0];
+            if (pt[1] > maxY) maxY = pt[1];
+          });
+        });
+        list.push({ id: Number(id), bbox: [minX, minY, maxX, maxY], polys: polys });
+      });
+    }
+    state.provinceOutlines = list;
+    return list;
   }
 
   function rememberAnnexGeoms(plates) {
-    const geoms = [];
+    const groups = {};
+    const order = [];
     plates.forEach(function (feature) {
       const geometry = feature.geometry;
-      if (!geometry) return;
-      if (geometry.type === "Polygon") geoms.push(geometry.coordinates);
-      else if (geometry.type === "MultiPolygon") {
-        geometry.coordinates.forEach(function (poly) {
-          geoms.push(poly);
-        });
+      const props = feature.properties || {};
+      if (!geometry || !props.fill || !props.baked) return;
+      const polys = geometry.type === "MultiPolygon" ? geometry.coordinates : geometry.type === "Polygon" ? [geometry.coordinates] : [];
+      if (!polys.length) return;
+      const key = props.fill.toLowerCase() + "|" + props.baked.toLowerCase();
+      if (!groups[key]) {
+        groups[key] = { fill: props.fill, baked: props.baked, polys: [], ids: {} };
+        order.push(key);
       }
+      polys.forEach(function (rings) {
+        groups[key].polys.push(rings);
+      });
+      groups[key].ids[props.id] = true;
     });
-    const sig = plates.map(function (feature) {
-      return feature.properties.id;
+    state.annexGroups = order.map(function (key) {
+      return groups[key];
+    });
+    state.annexGeomSig = plates.map(function (feature) {
+      return feature.properties.id + ":" + feature.properties.fill + ":" + feature.properties.baked;
     }).join(",");
-    state.annexGeoms = geoms;
-    state.annexGeomSig = sig;
   }
 
   function syncAnnexTint() {
     const map = state.map;
     if (!map) return;
-    const show = state.mode === "auto" && state.annexTintLayer;
-    setOn(state.annexTintLayer, !!show);
-    if (show) state.annexTintLayer.setStyle(annexTintStyle);
-    const wantHoles = state.mode === "auto" && state.annexGeoms && state.annexGeoms.length ? "1" : "0";
-    const sig = wantHoles + ":" + (state.annexGeomSig || "");
+    // The political photo itself is recolored, including the low-zoom fringe.
+    // A second tint on top would darken annexed land relative to older land.
+    setOn(state.annexTintLayer, false);
+    const sig = state.annexGeomSig || "";
     const layer = state.layers.political;
     if (sig !== state.holeSig && layer && map.hasLayer(layer)) {
       state.holeSig = sig;
@@ -4386,7 +4473,7 @@ const claim = claimOf(nation);
       const spec = paintSpec(id, prov);
       if (!spec) return;
       if (spec.plate) {
-        const plate = provinceFeature(id, { role: "plate", id: id, fill: spec.ownColor });
+        const plate = provinceFeature(id, { role: "plate", id: id, fill: spec.ownColor, baked: bakedProvinceColor(id) });
         if (plate) plates.push(plate);
       }
       if (spec.wash) {
@@ -4395,18 +4482,6 @@ const claim = claimOf(nation);
       }
     });
     rememberAnnexGeoms(plates);
-    if (plates.length) {
-      state.annexTintLayer = L.geoJSON(
-        { type: "FeatureCollection", features: plates },
-        {
-          pane: "annexTint",
-          renderer: state.annexTintRenderer,
-          interactive: false,
-          smoothFactor: 0,
-          style: annexTintStyle,
-        }
-      );
-    }
     const features = plates.concat(washes);
     if (!features.length) {
       syncAnnexTint();

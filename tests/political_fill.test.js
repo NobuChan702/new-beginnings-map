@@ -190,6 +190,18 @@ test("claim and occupation toggles do not change the political fill", function (
   assert.equal(occupiedOff.plate, false);
 });
 
+test("coast fringe recolors old paint and leaves the sea and neighbours", function () {
+  const kavoter = [205, 10, 147];
+  const ocean = [52, 129, 151];
+  const mint = [62, 254, 201];
+  const fringe = [174, 49, 98];
+  assert.equal(fill.recolorTilePixel(kavoter, kavoter, true, false), true);
+  assert.equal(fill.recolorTilePixel(fringe, kavoter, false, true), true);
+  assert.equal(fill.recolorTilePixel(ocean, kavoter, false, true), false);
+  assert.equal(fill.recolorTilePixel(mint, kavoter, false, true), false);
+  assert.equal(fill.recolorTilePixel(fringe, kavoter, false, false), false);
+});
+
 test("auto uses the political tint and still blocks the baked paint", function () {
   const faded = decision(2, 2200, { mode: "auto", flat: 0, politicalOpacity: 0.28 });
   assert.equal(faded.plateOpacity, 0);
