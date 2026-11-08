@@ -1407,7 +1407,7 @@
 
   function setNationHash(nation) {
     if (nation) {
-      const next = "#nation=" + encodeURIComponent(nation.short_name);
+      const next = "#nation=" + encodeURIComponent(displayShortName(nation));
       if (location.hash !== next) history.replaceState(null, "", next);
     } else if (location.hash.indexOf("#nation=") === 0) {
       history.replaceState(null, "", location.pathname + location.search);

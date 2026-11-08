@@ -2406,22 +2406,22 @@ Katordor,1254,Kator,town,no,1254-B
 Katordor,1254,Dorka,village,no,1254-C
 Kavodor,2194,Kavodor,capital,yes,2194-A
 Kavodor,2194,Dorka,town,no,2194-B
-Kavoter,2206,Kavoter,capital,yes,2206-A
-Kavoter,2206,Kavo,town,no,2206-B
-Kavoter,2206,Katervo,village,no,2206-C
-Kavoter,2218,Katerka,city,no,2218-A
-Kavoter,2218,Terka,town,no,2218-B
-Kavoter,2218,Vokavo,village,no,2218-C
-Kavoter,2230,Kater,city,no,2230-A
-Kavoter,2230,Voka,town,no,2230-B
-Kavoter,2252,Voter,city,no,2252-A
-Kavoter,2252,Vo,town,no,2252-B
-Kavoter,2252,Vokater,village,no,2252-C
-Kavoter,2263,Tervo,city,no,2263-A
-Kavoter,2263,Ka,town,no,2263-B
-Kavoter,2286,Kavoka,city,no,2286-A
-Kavoter,2286,Ter,town,no,2286-B
-Kavoter,2286,Voterka,village,no,2286-C
+Verillian Empire,2206,Kavoter,capital,yes,2206-A
+Verillian Empire,2206,Kavo,town,no,2206-B
+Verillian Empire,2206,Katervo,village,no,2206-C
+Verillian Empire,2218,Katerka,city,no,2218-A
+Verillian Empire,2218,Terka,town,no,2218-B
+Verillian Empire,2218,Vokavo,village,no,2218-C
+Verillian Empire,2230,Kater,city,no,2230-A
+Verillian Empire,2230,Voka,town,no,2230-B
+Verillian Empire,2252,Voter,city,no,2252-A
+Verillian Empire,2252,Vo,town,no,2252-B
+Verillian Empire,2252,Vokater,village,no,2252-C
+Verillian Empire,2263,Tervo,city,no,2263-A
+Verillian Empire,2263,Ka,town,no,2263-B
+Verillian Empire,2286,Kavoka,city,no,2286-A
+Verillian Empire,2286,Ter,town,no,2286-B
+Verillian Empire,2286,Voterka,village,no,2286-C
 Lidenphe,2897,Lipheli,city,no,2897-A
 Lidenphe,2897,Denphe,town,no,2897-B
 Lidenphe,2897,Denli,village,no,2897-C
@@ -2835,12 +2835,12 @@ Marrusur,2732,Marru,village,no,2732-C
 Marrusur,2735,Surru,city,no,2735-A
 Marrusur,2735,Marsur,town,no,2735-B
 Marrusur,2735,Sur,village,no,2735-C
-Martellun,2200,Martel,city,no,2200-A
-Martellun,2200,Telmar,town,no,2200-B
-Martellun,2200,Tellun,village,no,2200-C
-Martellun,2254,Martellun,capital,yes,2254-A
-Martellun,2254,Marlun,town,no,2254-B
-Martellun,2254,Lunmar,village,no,2254-C
+Verillian Empire,2200,Martel,city,no,2200-A
+Verillian Empire,2200,Telmar,town,no,2200-B
+Verillian Empire,2200,Tellun,village,no,2200-C
+Verillian Empire,2254,Martellun,capital,yes,2254-A
+Verillian Empire,2254,Marlun,town,no,2254-B
+Verillian Empire,2254,Lunmar,village,no,2254-C
 Mirabresha,1234,Rabre,city,no,1234-A
 Mirabresha,1234,Rami,town,no,1234-B
 Mirabresha,1234,Ramisha,village,no,1234-C
@@ -5728,29 +5728,29 @@ Zaneth,1510,Zanethneth,village,no,1510-C
 Zaneth,1513,Zaza,city,no,1513-A
 Zaneth,1513,Zazazaza,town,no,1513-B
 Zaneth,1513,Nethnethzaneth,village,no,1513-C
-Zanhalter,2117,Zanterzan,city,no,2117-A
-Zanhalter,2117,Ter,town,no,2117-B
-Zanhalter,2117,Halterhal,village,no,2117-C
-Zanhalter,2120,Zanhal,city,no,2120-A
-Zanhalter,2120,Halzan,town,no,2120-B
-Zanhalter,2120,Terzanhal,village,no,2120-C
-Zanhalter,2123,Halter,city,no,2123-A
-Zanhalter,2123,Zan,town,no,2123-B
-Zanhalter,2123,Terzanter,village,no,2123-C
-Zanhalter,2124,Terzan,city,no,2124-A
-Zanhalter,2124,Hal,town,no,2124-B
-Zanhalter,2124,Terhalzan,village,no,2124-C
-Zanhalter,2125,Terhal,city,no,2125-A
-Zanhalter,2125,Zanter,town,no,2125-B
-Zanhalter,2125,Terhalter,village,no,2125-C
-Zanhalter,2127,Zanterhal,city,no,2127-A
-Zanhalter,2127,Zanhalzan,town,no,2127-B
-Zanhalter,2127,Zanhalzanhal,village,no,2127-C
-Zanhalter,2129,Zanhalter,capital,yes,2129-A
-Zanhalter,2129,Halzanhal,town,no,2129-B
-Zanhalter,2129,Zanhalzanter,village,no,2129-C
-Zanhalter,2353,Halzanter,city,no,2353-A
-Zanhalter,2353,Halterzan,town,no,2353-B
+Ulgaltel,2117,Zanterzan,city,no,2117-A
+Ulgaltel,2117,Ter,town,no,2117-B
+Ulgaltel,2117,Halterhal,village,no,2117-C
+Ulgaltel,2120,Zanhal,city,no,2120-A
+Ulgaltel,2120,Halzan,town,no,2120-B
+Ulgaltel,2120,Terzanhal,village,no,2120-C
+Ulgaltel,2123,Halter,city,no,2123-A
+Ulgaltel,2123,Zan,town,no,2123-B
+Ulgaltel,2123,Terzanter,village,no,2123-C
+Ulgaltel,2124,Terzan,city,no,2124-A
+Ulgaltel,2124,Hal,town,no,2124-B
+Ulgaltel,2124,Terhalzan,village,no,2124-C
+Ulgaltel,2125,Terhal,city,no,2125-A
+Ulgaltel,2125,Zanter,town,no,2125-B
+Ulgaltel,2125,Terhalter,village,no,2125-C
+Ulgaltel,2127,Zanterhal,city,no,2127-A
+Ulgaltel,2127,Zanhalzan,town,no,2127-B
+Ulgaltel,2127,Zanhalzanhal,village,no,2127-C
+Ulgaltel,2129,Zanhalter,capital,yes,2129-A
+Ulgaltel,2129,Halzanhal,town,no,2129-B
+Ulgaltel,2129,Zanhalzanter,village,no,2129-C
+Ulgaltel,2353,Halzanter,city,no,2353-A
+Ulgaltel,2353,Halterzan,town,no,2353-B
 Zaniorzan,489,Zazannior,city,no,489-A
 Zaniorzan,489,Niorzan,town,no,489-B
 Zaniorzan,489,Za,village,no,489-C
