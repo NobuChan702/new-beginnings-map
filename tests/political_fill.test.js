@@ -190,6 +190,18 @@ test("claim and occupation toggles do not change the political fill", function (
   assert.equal(occupiedOff.plate, false);
 });
 
+test("baseline NPC colour is not a solid history fill over Auto", function () {
+  // Cycle 0 Kavoter: photo is still Kavoter, world.json is already Verillian.
+  assert.equal(fill.shouldPaintHistoryOwnerFill(210, 210, 21), false);
+  // Cycle 1 Zanhalter: not conquered yet, world.json is already Terrillia.
+  assert.equal(fill.shouldPaintHistoryOwnerFill(368, 368, 229), false);
+  // Cycle 0 Martellun beige, world already Verillian.
+  assert.equal(fill.shouldPaintHistoryOwnerFill(276, 276, 21), false);
+  // After conquest the photo is recolored; this overlay stays off.
+  assert.equal(fill.shouldPaintHistoryOwnerFill(21, 210, 21), false);
+  assert.equal(fill.shouldPaintHistoryOwnerFill(229, 368, 229), false);
+});
+
 test("coast fringe recolors old paint and leaves the sea and neighbours", function () {
   const kavoter = [205, 10, 147];
   const ocean = [52, 129, 151];

@@ -97,9 +97,21 @@
       return dr * dr + dg * dg + db * db <= 100 * 100;
     }
 
+    // The political photo already shows the baked nation. A history-pane fill
+    // is not used to repaint that colour. world.json may already name a later
+    // owner; that mismatch must not lay a solid NPC fill over Auto terrain.
+    // Conquest is recolored in the photo, not by this overlay.
+    function shouldPaintHistoryOwnerFill(selectedOwner, bakedNation, worldNation) {
+      void selectedOwner;
+      void bakedNation;
+      void worldNation;
+      return false;
+    }
+
     return {
       resolvedOwner: resolvedOwner,
       provincePaint: provincePaint,
       recolorTilePixel: recolorTilePixel,
+      shouldPaintHistoryOwnerFill: shouldPaintHistoryOwnerFill,
     };
 });
