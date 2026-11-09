@@ -275,8 +275,8 @@ h1 {
   z-index: 640;
   left: max(12px, env(safe-area-inset-left));
   top: calc(var(--header-h) + 96px);
-  width: 280px;
-  max-width: min(320px, calc(100vw - 24px));
+  width: min(360px, calc(100vw - 24px));
+  max-width: min(420px, calc(100vw - 24px));
   background: var(--navy, #0b1a4a);
   color: var(--silver, #e6e6ea);
   border: 1px solid rgba(230, 230, 234, 0.35);
@@ -652,11 +652,11 @@ input:focus-visible,
 @media (max-width: 720px) {
   h1 { font-size: 1rem; white-space: normal; }
   .nb-flag-card {
-    width: 96px;
-    top: calc(var(--header-h) + 78px);
+    width: min(260px, calc(100vw - 20px));
+    top: calc(var(--header-h) + 8px);
   }
-  .nb-flag-card.is-expanded { width: min(240px, calc(100vw - 16px)); }
-  .nb-flag-card p { font-size: 0.72rem; padding: 4px 26px 4px 6px; }
+  .nb-flag-card.is-expanded { width: min(340px, calc(100vw - 16px)); }
+  .nb-flag-card p { font-size: 0.95rem; padding: 6px 30px 6px 8px; }
   .nb-flag-card-close { width: 24px; height: 24px; font-size: 18px; line-height: 24px; }
   .leaflet-popup-content { min-width: 0; }
   .nb-pop h2 { font-size: 1.05rem; }
