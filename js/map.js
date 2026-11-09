@@ -179,33 +179,35 @@
     return fade(zoom, start, end, 0, 1);
   }
 
-  function flatStyle(feature) {
+  function flatStyle(feature, lines) {
     const props = (feature && feature.properties) || {};
     const kind = props.kind;
     const borders = state.overlays.borders;
     if (kind === "sea" || kind === "fog") {
-      return { stroke: false, fill: true, fillColor: props.color || "#0B1A4A", fillOpacity: 1, interactive: false };
+      return { stroke: false, fill: !lines, fillColor: props.color || "#0B1A4A", fillOpacity: lines ? 0 : 1, interactive: false };
     }
     if (kind === "province") {
       const look = historyLook(props.id);
       if (look.fog) {
-        return { stroke: false, fill: true, fillColor: fogColor(), fillOpacity: 1, interactive: false };
+        return { stroke: false, fill: !lines, fillColor: fogColor(), fillOpacity: lines ? 0 : 1, interactive: false };
       }
       return {
-        stroke: !!borders,
+        // The fill lives under the ownership plates. The line is drawn again
+        // above those plates so a cover cannot erase the province border.
+        stroke: !!(lines && borders),
         color: look.stroke || "#16140f",
         weight: borders ? look.weight || 1 : 0,
         opacity: 0.95,
         dashArray: look.dash || null,
         lineJoin: "round",
-        fill: true,
+        fill: !lines,
         fillColor: look.fill || provinceFillColor(props.id) || props.color || "#8d8678",
-        fillOpacity: 1,
+        fillOpacity: lines ? 0 : 1,
         interactive: false,
       };
     }
     return {
-      stroke: !!borders,
+      stroke: !!(lines && borders),
       color: "#E6E6EA",
       weight: borders ? 2.5 : 0,
       opacity: 1,
@@ -303,10 +305,16 @@
     setOn(state.markLayer, state.mode !== "terrain" && state.overlays.claims && flat > 0.02);
     if (state.overlays.claims && flat > 0.02) installHatchPattern();
     if (state.flatLayer && state.flatBorderOn !== borders) {
-      state.flatLayer.setStyle(flatStyle);
+      state.flatLayer.setStyle(function (feature) { return flatStyle(feature, false); });
+      if (state.borderLayer) state.borderLayer.setStyle(function (feature) { return flatStyle(feature, true); });
       state.flatBorderOn = borders;
       state.historyStyled = null;
       restyleFlatForHistory();
+    }
+    const linePane = map.getPane("flatBorders");
+    if (linePane) {
+      const showLines = borders && state.mode !== "terrain" && flat > 0.02;
+      linePane.style.opacity = showLines ? String(flat) : "0";
     }
     refreshHistoryZoom();
     document.getElementById("depth-legend").hidden = state.mode !== "depth" || flat > 0.98;
@@ -479,8 +487,18 @@
     state.religionRenderer = L.svg({ pane: "religion", padding: 0.5 });
     map.createPane("photoBorders");
     const photoBorders = map.getPane("photoBorders");
-    photoBorders.style.zIndex = "356";
+    // Above plates, vassal stripes, occupation, alliances, and religion.
+    // The outline tiles are the same light borders every other nation uses.
+    const borderZ = window.NB_FILL && window.NB_FILL.borderPaneZ ? window.NB_FILL.borderPaneZ() : 386;
+    photoBorders.style.zIndex = String(borderZ);
     photoBorders.style.pointerEvents = "none";
+    map.createPane("flatBorders");
+    const flatBorders = map.getPane("flatBorders");
+    const flatBorderZ = window.NB_FILL && window.NB_FILL.flatBorderPaneZ ? window.NB_FILL.flatBorderPaneZ() : 387;
+    flatBorders.style.zIndex = String(flatBorderZ);
+    flatBorders.style.pointerEvents = "none";
+    flatBorders.style.opacity = "0";
+    state.borderRenderer = L.canvas({ pane: "flatBorders", padding: 0.5 });
     map.createPane("marks");
     const marksPane = map.getPane("marks");
     marksPane.style.zIndex = "360";
@@ -2309,13 +2327,28 @@ const claim = claimOf(nation);
       smoothFactor: 0,
       interactive: false,
       bubblingMouseEvents: false,
-      style: flatStyle,
+      style: function (feature) { return flatStyle(feature, false); },
     });
+    if (state.borderLayer) state.map.removeLayer(state.borderLayer);
+    state.borderLayer = L.geoJSON(collection, {
+      pane: "flatBorders",
+      renderer: state.borderRenderer,
+      smoothFactor: 0,
+      interactive: false,
+      bubblingMouseEvents: false,
+      style: function (feature) { return flatStyle(feature, true); },
+    });
+    state.borderLayer.addTo(state.map);
     state.flatBorderOn = state.overlays.borders;
     state.flatById = new Map();
     state.flatLayer.eachLayer(function (layer) {
       const id = layer.feature && layer.feature.properties && layer.feature.properties.id;
       if (id) state.flatById.set(id, layer);
+    });
+    state.borderById = new Map();
+    state.borderLayer.eachLayer(function (layer) {
+      const id = layer.feature && layer.feature.properties && layer.feature.properties.id;
+      if (id) state.borderById.set(id, layer);
     });
     captureNationRings(collection);
     rebuildMarks();
@@ -5321,15 +5354,17 @@ const claim = claimOf(nation);
       });
     }
     const prev = state.historyStyled || new Set();
+    function paintFlat(id) {
+      const layer = state.flatById.get(id);
+      if (layer) layer.setStyle(flatStyle(layer.feature, false));
+      const line = state.borderById && state.borderById.get(id);
+      if (line) line.setStyle(flatStyle(line.feature, true));
+    }
     prev.forEach(function (id) {
       if (next.has(id)) return;
-      const layer = state.flatById.get(id);
-      if (layer) layer.setStyle(flatStyle(layer.feature));
+      paintFlat(id);
     });
-    next.forEach(function (id) {
-      const layer = state.flatById.get(id);
-      if (layer) layer.setStyle(flatStyle(layer.feature));
-    });
+    next.forEach(paintFlat);
     state.historyStyled = next;
   }
 

@@ -190,6 +190,18 @@ test("claim and occupation toggles do not change the political fill", function (
   assert.equal(occupiedOff.plate, false);
 });
 
+test("borders sit above ownership, vassal, and occupation fills", function () {
+  const photo = fill.borderPaneZ();
+  const close = fill.flatBorderPaneZ();
+  [357, 364, 380, 382, 384].forEach(function (cover) {
+    assert.ok(photo > cover);
+    assert.ok(close > cover);
+  });
+  assert.ok(close > photo);
+  assert.ok(photo < 390);
+  assert.ok(close < 390);
+});
+
 test("baseline NPC colour is not a solid history fill over Auto", function () {
   // Cycle 0 Kavoter: photo is still Kavoter, world.json is already Verillian.
   assert.equal(fill.shouldPaintHistoryOwnerFill(210, 210, 21), false);
