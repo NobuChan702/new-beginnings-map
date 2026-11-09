@@ -311,16 +311,26 @@
       state.historyStyled = null;
       restyleFlatForHistory();
     }
-    const linePane = map.getPane("flatBorders");
-    if (linePane) {
-      const showLines = borders && state.mode !== "terrain" && flat > 0.02;
-      linePane.style.opacity = showLines ? String(flat) : "0";
-    }
+    syncFlatBorders();
     refreshHistoryZoom();
     document.getElementById("depth-legend").hidden = state.mode !== "depth" || flat > 0.98;
     syncOwnerRecolor();
     syncOwnerSeams();
     syncUnionJuniors();
+  }
+
+  // Province lines live on their own pane so they stay above ownership plates.
+  // The pane is fully transparent until the flat board fades in, and a mounted
+  // layer would still be projected and stroked on every pan. Mount it only
+  // while it can actually be seen.
+  function syncFlatBorders() {
+    const map = state.map;
+    if (!map) return;
+    const flat = flatAmount(map.getZoom());
+    const showLines = !!(state.overlays.borders && state.mode !== "terrain" && flat > 0.02 && state.borderLayer);
+    const linePane = map.getPane("flatBorders");
+    if (linePane) linePane.style.opacity = showLines ? String(flat) : "0";
+    setOn(state.borderLayer, showLines);
   }
 
   function syncClaimVisibility() {
@@ -2338,7 +2348,6 @@ const claim = claimOf(nation);
       bubblingMouseEvents: false,
       style: function (feature) { return flatStyle(feature, true); },
     });
-    state.borderLayer.addTo(state.map);
     state.flatBorderOn = state.overlays.borders;
     state.flatById = new Map();
     state.flatLayer.eachLayer(function (layer) {
@@ -4278,13 +4287,16 @@ const claim = claimOf(nation);
     layer._nbCreateTile = layer.createTile.bind(layer);
     const native = state.meta.native_zoom;
     const size = state.meta.tile_size;
+    const cache = new Map();
+    layer._nbHoleCache = cache;
+    function outside(box, minX, minY, maxX, maxY, pad) {
+      if (!box || box[0] === Infinity) return false;
+      return box[2] + pad < minX || box[0] - pad > maxX || box[3] + pad < minY || box[1] - pad > maxY;
+    }
     layer.createTile = function (coords, done) {
       const groups = state.annexGroups;
+      const sig = state.annexGeomSig || "";
       if (!groups || !groups.length) return layer._nbCreateTile(coords, done);
-      const canvas = document.createElement("canvas");
-      canvas.width = size;
-      canvas.height = size;
-      const img = new Image();
       const scale = Math.pow(2, coords.z - native);
       const ox = coords.x * size;
       const oy = coords.y * size;
@@ -4292,6 +4304,38 @@ const claim = claimOf(nation);
       // vector coast. Cover that fringe, but only where the pixel still
       // matches the baked colour and is not inside another province.
       const radius = Math.max(4, Math.ceil(6 * scale));
+      // One extra tile pixel covers the antialiased edge of the stroke.
+      const pad = (radius + 2) / scale;
+      const tileMinX = ox / scale;
+      const tileMinY = oy / scale;
+      const tileMaxX = (ox + size) / scale;
+      const tileMaxY = (oy + size) / scale;
+      const key = sig + "|" + coords.z + "/" + coords.x + "/" + coords.y;
+      const cached = cache.get(key);
+      if (cached) {
+        cache.delete(key);
+        cache.set(key, cached);
+        const copy = document.createElement("canvas");
+        copy.width = size;
+        copy.height = size;
+        copy.getContext("2d").drawImage(cached, 0, 0);
+        Promise.resolve().then(function () {
+          done(null, copy);
+        });
+        return copy;
+      }
+      let touching = false;
+      for (let g = 0; g < groups.length; g++) {
+        if (!outside(groups[g].bbox, tileMinX, tileMinY, tileMaxX, tileMaxY, pad)) {
+          touching = true;
+          break;
+        }
+      }
+      if (!touching) return layer._nbCreateTile(coords, done);
+      const canvas = document.createElement("canvas");
+      canvas.width = size;
+      canvas.height = size;
+      const img = new Image();
       function trace(ctx, polys) {
         ctx.beginPath();
         polys.forEach(function (rings) {
@@ -4307,20 +4351,22 @@ const claim = claimOf(nation);
         });
       }
       img.onload = function () {
-        const ctx = canvas.getContext("2d");
+        const ctx = canvas.getContext("2d", { willReadFrequently: true });
         ctx.drawImage(img, 0, 0, size, size);
         const image = ctx.getImageData(0, 0, size, size);
         const data = image.data;
-        const tileMinX = ox / scale;
-        const tileMinY = oy / scale;
-        const tileMaxX = (ox + size) / scale;
-        const tileMaxY = (oy + size) / scale;
         const outlines = provinceOutlines();
-        groups.forEach(function (group) {
-          const mask = document.createElement("canvas");
-          mask.width = size;
-          mask.height = size;
-          const m = mask.getContext("2d");
+        const mask = document.createElement("canvas");
+        mask.width = size;
+        mask.height = size;
+        const m = mask.getContext("2d", { willReadFrequently: true });
+        for (let g = 0; g < groups.length; g++) {
+          const group = groups[g];
+          if (outside(group.bbox, tileMinX, tileMinY, tileMaxX, tileMaxY, pad)) continue;
+          m.setTransform(1, 0, 0, 1, 0, 0);
+          m.globalAlpha = 1;
+          m.globalCompositeOperation = "source-over";
+          m.clearRect(0, 0, size, size);
           trace(m, group.polys);
           m.fillStyle = "#ffffff";
           m.fill("evenodd");
@@ -4331,12 +4377,18 @@ const claim = claimOf(nation);
           m.stroke();
           m.globalCompositeOperation = "destination-out";
           m.beginPath();
-          outlines.forEach(function (prov) {
-            if (group.ids[prov.id]) return;
+          const near = group.bbox;
+          for (let n = 0; n < outlines.length; n++) {
+            const prov = outlines[n];
+            if (group.ids[prov.id]) continue;
             const box = prov.bbox;
-            if (box[2] < tileMinX || box[0] > tileMaxX || box[3] < tileMinY || box[1] > tileMaxY) return;
-            prov.polys.forEach(function (rings) {
-              rings.forEach(function (ring) {
+            if (box[2] < tileMinX || box[0] > tileMaxX || box[3] < tileMinY || box[1] > tileMaxY) continue;
+            if (near && near[0] !== Infinity && (box[2] < near[0] - pad || box[0] > near[2] + pad || box[3] < near[1] - pad || box[1] > near[3] + pad)) continue;
+            const polys = prov.polys;
+            for (let p = 0; p < polys.length; p++) {
+              const rings = polys[p];
+              for (let r = 0; r < rings.length; r++) {
+                const ring = rings[r];
                 for (let i = 0; i < ring.length; i++) {
                   const x = ring[i][0] * scale - ox;
                   const y = ring[i][1] * scale - oy;
@@ -4344,9 +4396,9 @@ const claim = claimOf(nation);
                   else m.moveTo(x, y);
                 }
                 m.closePath();
-              });
-            });
-          });
+              }
+            }
+          }
           m.fill("evenodd");
           const halo = m.getImageData(0, 0, size, size).data;
           const fill = hexToRgb(group.fill);
@@ -4365,8 +4417,14 @@ const claim = claimOf(nation);
             data[i + 2] = fill[2];
             data[i + 3] = 255;
           }
-        });
+        }
         ctx.putImageData(image, 0, 0);
+        const stored = document.createElement("canvas");
+        stored.width = size;
+        stored.height = size;
+        stored.getContext("2d").drawImage(canvas, 0, 0);
+        cache.set(key, stored);
+        if (cache.size > 80) cache.delete(cache.keys().next().value);
         done(null, canvas);
       };
       img.onerror = function () {
@@ -4418,20 +4476,36 @@ const claim = claimOf(nation);
       if (!polys.length) return;
       const key = props.fill.toLowerCase() + "|" + props.baked.toLowerCase();
       if (!groups[key]) {
-        groups[key] = { fill: props.fill, baked: props.baked, polys: [], ids: {} };
+        groups[key] = { fill: props.fill, baked: props.baked, polys: [], ids: {}, bbox: [Infinity, Infinity, -Infinity, -Infinity] };
         order.push(key);
       }
+      const box = groups[key].bbox;
       polys.forEach(function (rings) {
         groups[key].polys.push(rings);
+        rings.forEach(function (ring) {
+          for (let i = 0; i < ring.length; i++) {
+            const x = ring[i][0];
+            const y = ring[i][1];
+            if (x < box[0]) box[0] = x;
+            if (y < box[1]) box[1] = y;
+            if (x > box[2]) box[2] = x;
+            if (y > box[3]) box[3] = y;
+          }
+        });
       });
       groups[key].ids[props.id] = true;
     });
+    const sig = plates.map(function (feature) {
+      return feature.properties.id + ":" + feature.properties.fill + ":" + feature.properties.baked;
+    }).join(",");
+    if (sig !== state.annexGeomSig) {
+      const political = state.layers && state.layers.political;
+      if (political && political._nbHoleCache) political._nbHoleCache.clear();
+    }
     state.annexGroups = order.map(function (key) {
       return groups[key];
     });
-    state.annexGeomSig = plates.map(function (feature) {
-      return feature.properties.id + ":" + feature.properties.fill + ":" + feature.properties.baked;
-    }).join(",");
+    state.annexGeomSig = sig;
   }
 
   function syncAnnexTint() {
@@ -4472,7 +4546,22 @@ const claim = claimOf(nation);
     // is also zero there.
     const show = state.mode === "political" || state.mode === "auto";
     pane.style.opacity = show ? "1" : "0";
-    if (state.vassalLayer) state.vassalLayer.setStyle(ownerRecolorStyle);
+    // Zoom changes every plate and wash by the same amount, so restyle only
+    // when that amount changes. flyTo still reports each frame, but identical
+    // frames no longer redraw the ownership canvas.
+    const zoom = state.map.getZoom();
+    const flat = flatAmount(zoom);
+    const photo = 1 - flat;
+    const plate = state.mode === "political" && flat < 0.98 ? 1 : 0;
+    let wash = show ? politicalOpacity(zoom) * photo : 0;
+    if (wash < 0) wash = 0;
+    const key = state.mode + ":" + plate + ":" + wash;
+    if (state.vassalLayer && key !== state.ownerOpacityKey) {
+      state.ownerOpacityKey = key;
+      state.vassalLayer.setStyle(ownerRecolorStyle);
+    } else if (!state.vassalLayer) {
+      state.ownerOpacityKey = key;
+    }
     syncAnnexTint();
   }
 
@@ -4494,6 +4583,7 @@ const claim = claimOf(nation);
     dropLayer(state.annexTintLayer);
     state.vassalLayer = null;
     state.annexTintLayer = null;
+    state.ownerOpacityKey = null;
     if (!state.flatById || !window.NB_FILL) {
       rememberAnnexGeoms([]);
       syncAnnexTint();
@@ -4609,7 +4699,11 @@ const claim = claimOf(nation);
     if (state.mode === "political" || state.mode === "auto") opacity = 1;
     else if (state.mode === "depth") opacity = flatAmount(map.getZoom());
     pane.style.opacity = opacity > 0.01 ? String(opacity) : "0";
-    if (state.seamLayer) state.seamLayer.setStyle({ weight: seamWeight() });
+    if (!state.seamLayer) return;
+    const weight = seamWeight();
+    if (weight === state.seamWeightApplied) return;
+    state.seamWeightApplied = weight;
+    state.seamLayer.setStyle({ weight: weight });
   }
 
   function renderOwnerSeams() {
