@@ -108,10 +108,24 @@
       return false;
     }
 
+    // Photo borders and the close-up vector borders have to sit above every
+    // fill that repaints a province: ownership plates (357), vassal stripes
+    // (364), occupation (380), alliance (382), and religion (384).
+    // Infrastructure stays above the lines at 390.
+    function borderPaneZ() {
+      return 386;
+    }
+
+    function flatBorderPaneZ() {
+      return 387;
+    }
+
     return {
       resolvedOwner: resolvedOwner,
       provincePaint: provincePaint,
       recolorTilePixel: recolorTilePixel,
       shouldPaintHistoryOwnerFill: shouldPaintHistoryOwnerFill,
+      borderPaneZ: borderPaneZ,
+      flatBorderPaneZ: flatBorderPaneZ,
     };
 });
