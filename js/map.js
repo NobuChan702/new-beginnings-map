@@ -1339,7 +1339,17 @@
     );
   }
 
+  function turnNation(provinceId) {
+    const id = Number(provinceId);
+    if (!id) return null;
+    const prov = state.provinces.get(id);
+    const owner = legalOwnerId(id, prov);
+    if (owner == null || owner === "") return null;
+    return state.nationsById.get(Number(owner)) || null;
+  }
+
   function hideFlagCard() {
+    state.flagProvinceId = null;
     const card = document.getElementById("flag-card");
     if (!card) return;
     card.hidden = true;
@@ -1386,10 +1396,15 @@
     apply(best);
   }
 
-  function showFlagCard(nation) {
+  function showFlagCard(nation, provinceId) {
+    if (arguments.length > 1) state.flagProvinceId = provinceId ? Number(provinceId) : null;
     const src = flagSrc(nation);
     if (!src) {
-      hideFlagCard();
+      const card = document.getElementById("flag-card");
+      if (card) {
+        card.hidden = true;
+        card.classList.remove("is-expanded");
+      }
       return;
     }
     let card = document.getElementById("flag-card");
@@ -1421,10 +1436,26 @@
     window.setTimeout(placeFlagCard, 280);
   }
 
-  function openPlacePopup(latlng, html, nationId) {
+  function refreshFlagCard() {
+    if (state.flagProvinceId) {
+      showFlagCard(turnNation(state.flagProvinceId), state.flagProvinceId);
+      return;
+    }
+    const card = document.getElementById("flag-card");
+    if (!card || card.hidden) return;
+    const nation = state.nationsById.get(Number(card.getAttribute("data-nation")));
+    if (!nation || !flagSrc(nation)) {
+      hideFlagCard();
+      return;
+    }
+    card.querySelector("p").textContent = nationLabel(nation);
+  }
+
+  function openPlacePopup(latlng, html, nationId, provinceId) {
     openPopup(latlng, html);
-    const nation = nationId == null || nationId === "" ? null : state.nationsById.get(Number(nationId));
-    showFlagCard(nation);
+    const fromTurn = provinceId ? turnNation(provinceId) : null;
+    const fallback = nationId == null || nationId === "" ? null : state.nationsById.get(Number(nationId));
+    showFlagCard(fromTurn || fallback, provinceId || null);
   }
 
   function openPopup(latlng, html) {
@@ -1495,6 +1526,7 @@
     if (options.popup) {
       const latlng = L.latLng(prov.xy[1], prov.xy[0]);
       openPopup(latlng, nation ? nationHtml(nation, id) : unclaimedHtml(id, prov));
+      showFlagCard(nation, id);
     }
   }
 
@@ -1568,6 +1600,8 @@
       const latlng = options.latlng || L.latLng(xy[1], xy[0]);
       const provinceId = options.provinceId || provinceAt(latlng.lng, latlng.lat) || nation.capital_province;
       openPopup(latlng, nationHtml(nation, provinceId));
+      const owner = turnNation(provinceId);
+      showFlagCard(owner || nation, provinceId);
     }
   }
 
@@ -1811,12 +1845,14 @@ if (entry.kind === "work") {
     if (x < meta.hidden_west_of) {
       clearHighlight();
       setNationHash(null);
+      hideFlagCard();
       openPopup(event.latlng, unexploredHtml(true));
       return;
     }
     if (concealedSeaAt(x, y)) {
       clearHighlight();
       setNationHash(null);
+      hideFlagCard();
       openPopup(event.latlng, unexploredHtml(false));
       return;
     }
@@ -1824,6 +1860,7 @@ if (entry.kind === "work") {
     if (id && isConcealed(id)) {
       clearHighlight();
       setNationHash(null);
+      hideFlagCard();
       openPopup(event.latlng, unexploredHtml(false));
       return;
     }
@@ -1831,6 +1868,7 @@ if (entry.kind === "work") {
     if (work) {
       clearHighlight();
       setNationHash(null);
+      hideFlagCard();
       openPopup(event.latlng, workHtml(work));
       return;
     }
@@ -1838,10 +1876,12 @@ if (entry.kind === "work") {
     if (sector && sector.occupied) {
       clearHighlight();
       setNationHash(null);
+      hideFlagCard();
       openPopup(event.latlng, sectorHtml(sector));
       return;
     }
     if (!id) {
+      hideFlagCard();
       state.map.closePopup();
       return;
     }
@@ -1855,6 +1895,7 @@ if (entry.kind === "work") {
       const nation = ownerId && state.nationsById.get(ownerId);
       showHighlight([id], nation ? hexToRgb(nationColor(nation.id)) : [230, 230, 234]);
       openPopup(event.latlng, nation ? nationHtml(nation, id) : unclaimedHtml(id, prov));
+      showFlagCard(nation, id);
       return;
     }
     if (prov && prov.nation_id && state.nationsById.has(prov.nation_id)) {
@@ -1864,6 +1905,7 @@ if (entry.kind === "work") {
     }
     state.activeNationId = null;
     setNationHash(null);
+    hideFlagCard();
     showHighlight([id], [230, 230, 234]);
     openPopup(event.latlng, unclaimedHtml(id, prov));
   }
@@ -2749,7 +2791,7 @@ const claim = claimOf(nation);
           level === "village"
             ? villageHtml({ name: name, nation: nationId, province: provinceId })
             : infraHtml({ type: iconType, name: name, nation: nationId, province: provinceId });
-        openPlacePopup(event.latlng, html, nationId);
+        openPlacePopup(event.latlng, html, nationId, provinceId);
       });
       markerIcon.addTo(group);
     });
@@ -2939,7 +2981,7 @@ const claim = claimOf(nation);
       });
       marker.on("click", function (event) {
         L.DomEvent.stopPropagation(event);
-        openPlacePopup(event.latlng, infraHtml(place), place.nation);
+        openPlacePopup(event.latlng, infraHtml(place), place.nation, place.province);
       });
       marker.addTo(group);
     });
@@ -5580,6 +5622,7 @@ const claim = claimOf(nation);
     }
     refreshProvinceLabels();
     if (!options.silent && state.map) state.map.closePopup();
+    refreshFlagCard();
   }
 
   function installTimeline() {
@@ -5779,7 +5822,6 @@ const claim = claimOf(nation);
     });
     state.map.on("popupclose", function () {
       state.popupOpen = false;
-      hideFlagCard();
     });
     if (state.concealedKey == null) {
       state.concealedKey = "";
