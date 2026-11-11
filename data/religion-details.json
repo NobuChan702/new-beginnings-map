@@ -8,5 +8,15 @@
     "description": "Provisional Verillian religion, based on Blake's Empress-led nation and its warrior society/order: veneration of the Empress as living sovereign, upheld by a martial order. Name chosen by Andora on Blake's 'do what you need to do' instruction, 1 Nov 2026 \u2014 Blake can rename it with one data edit, no rebuild.",
     "perk": "+10% morale when defending a province of your own religion; warrior order gives +10% morale in holy/defensive wars (do not stack with a trait giving the same bonus in the same situation)",
     "debuff": "-1 stability in provinces of a different religion, unless tolerated (tolerance gives a trade/relations bonus instead)"
+  },
+  "Root and Tide": {
+    "description": "Halarmira Forest Clans' faith, created for Peter at his request (9 Nov 2026): 'The grove shelters and the tide provides; take only what root and wave can spare, and give thanks to both.'",
+    "perk": "+10% morale when defending a province of your own religion",
+    "debuff": "-1 stability in provinces of a different religion, unless tolerated (tolerance gives a trade/relations bonus instead)"
+  },
+  "ConPhocianism": {
+    "description": "Quaethmor's state faith, as described by Duy (11 Nov 2026): a Confucian-Buddhist hybrid \u2014 rigid social hierarchy, the importance of correct rite and ritual, family and filial obedience, mixed with Buddhist compassion, detachment from worldly desire, and generosity.",
+    "perk": "+10% morale when defending a province of your own religion",
+    "debuff": "-1 stability in provinces of a different religion, unless tolerated (tolerance gives a trade/relations bonus instead)"
   }
 }
