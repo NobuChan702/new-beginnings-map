@@ -1,230 +1,6 @@
 {
   "routes": [
     {
-      "id": "marbre-iorsurmar",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 1,
-      "from": {
-        "nation": 12,
-        "settlement": "Marbre"
-      },
-      "to": {
-        "nation": 266,
-        "settlement": "Iorsurmar"
-      }
-    },
-    {
-      "id": "issselkas-mariorlun",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 1,
-      "from": {
-        "nation": 29,
-        "settlement": "Issselkas"
-      },
-      "to": {
-        "nation": 282,
-        "settlement": "Mariorlun"
-      }
-    },
-    {
-      "id": "the-sevarian-league-mariorlun",
-      "public": true,
-      "kind": "sea",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 1,
-      "from": {
-        "nation": 30,
-        "settlement": "Batrade"
-      },
-      "to": {
-        "nation": 282,
-        "settlement": "Mariorlun"
-      }
-    },
-    {
-      "id": "telith-luntelven",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 1,
-      "from": {
-        "nation": 37,
-        "settlement": "Telith"
-      },
-      "to": {
-        "nation": 82,
-        "settlement": "Luntelven"
-      }
-    },
-    {
-      "id": "miradorpra-atlantis",
-      "public": true,
-      "kind": "sea",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 1,
-      "from": {
-        "nation": 40,
-        "settlement": "Miradorpra"
-      },
-      "to": {
-        "nation": 154,
-        "settlement": "Atlantis"
-      }
-    },
-    {
-      "id": "miradorpra-caiter",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 1,
-      "from": {
-        "nation": 40,
-        "settlement": "Miradorpra"
-      },
-      "to": {
-        "nation": 178,
-        "settlement": "Caiter"
-      }
-    },
-    {
-      "id": "quaethmor-issryn",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Iron",
-      "cycle": 1,
-      "from": {
-        "nation": 66,
-        "settlement": "Haravrajmogthu"
-      },
-      "to": {
-        "nation": 299,
-        "settlement": "Issryn"
-      }
-    },
-    {
-      "id": "kali-holy-order-of-eternea",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 1,
-      "from": {
-        "nation": 73,
-        "settlement": "Kali"
-      },
-      "to": {
-        "nation": 75,
-        "settlement": "Lighthollow"
-      }
-    },
-    {
-      "id": "holy-order-of-eternea-rurukas",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Iron",
-      "cycle": 1,
-      "from": {
-        "nation": 75,
-        "settlement": "Lighthollow"
-      },
-      "to": {
-        "nation": 301,
-        "settlement": "Rurukas"
-      }
-    },
-    {
-      "id": "rynnob-quagalsel",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 1,
-      "from": {
-        "nation": 86,
-        "settlement": "Rynnob"
-      },
-      "to": {
-        "nation": 308,
-        "settlement": "Quagalsel"
-      }
-    },
-    {
-      "id": "velden-brezaniss",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 1,
-      "from": {
-        "nation": 108,
-        "settlement": "Velden"
-      },
-      "to": {
-        "nation": 314,
-        "settlement": "Brezaniss"
-      }
-    },
-    {
-      "id": "ostlitel-halkas",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 1,
-      "from": {
-        "nation": 112,
-        "settlement": "Ostlitel"
-      },
-      "to": {
-        "nation": 316,
-        "settlement": "Halkas"
-      }
-    },
-    {
-      "id": "galrynul-rukas",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 1,
-      "from": {
-        "nation": 130,
-        "settlement": "Galrynul"
-      },
-      "to": {
-        "nation": 176,
-        "settlement": "Rukas"
-      }
-    },
-    {
-      "id": "ruquaost-caiith",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 1,
-      "from": {
-        "nation": 148,
-        "settlement": "Ruquaost"
-      },
-      "to": {
-        "nation": 340,
-        "settlement": "Caiith"
-      }
-    },
-    {
       "id": "atlantis-quador",
       "public": true,
       "kind": "sea",
@@ -273,111 +49,127 @@
       }
     },
     {
-      "id": "shaphequa-elamira",
+      "id": "basileia-rhomania-ethitham",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Tribute and trade",
+      "cycle": 1,
+      "from": {
+        "nation": 25,
+        "settlement": "Thessaloniki"
+      },
+      "to": {
+        "nation": 281,
+        "settlement": "Ethitham"
+      }
+    },
+    {
+      "id": "basileia-rhomania-quaamryn",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Tribute and trade",
+      "cycle": 1,
+      "from": {
+        "nation": 25,
+        "settlement": "Thessaloniki"
+      },
+      "to": {
+        "nation": 280,
+        "settlement": "Quaamryn"
+      }
+    },
+    {
+      "id": "basileia-rhomania-zaniorzan",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Tribute and trade",
+      "cycle": 1,
+      "from": {
+        "nation": 25,
+        "settlement": "Thessaloniki"
+      },
+      "to": {
+        "nation": 317,
+        "settlement": "Zaniorzan"
+      }
+    },
+    {
+      "id": "galrynul-rukas",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 1,
+      "from": {
+        "nation": 130,
+        "settlement": "Galrynul"
+      },
+      "to": {
+        "nation": 176,
+        "settlement": "Rukas"
+      }
+    },
+    {
+      "id": "holy-empire-of-sanbreque-mirapheior",
       "public": true,
       "kind": "sea",
       "status": "active",
       "goods": "Trade goods",
-      "cycle": 2,
+      "cycle": 1,
       "from": {
-        "nation": 10,
-        "settlement": "Shaphequa"
+        "nation": 23,
+        "settlement": "Holy Empire of Sanbreque"
       },
       "to": {
-        "nation": 63,
-        "settlement": "Elamira"
+        "nation": 307,
+        "settlement": "Mirapheior"
       }
     },
     {
-      "id": "shaphequa-galqua",
+      "id": "holy-empire-of-sanbreque-morsur",
       "public": true,
       "kind": "land",
       "status": "active",
       "goods": "Trade goods",
-      "cycle": 2,
+      "cycle": 1,
       "from": {
-        "nation": 10,
-        "settlement": "Shaphequa"
+        "nation": 23,
+        "settlement": "Holy Empire of Sanbreque"
       },
       "to": {
-        "nation": 201,
-        "settlement": "Galqua"
+        "nation": 277,
+        "settlement": "Morsur"
       }
     },
     {
-      "id": "lunrynul-haltorzan",
+      "id": "holy-order-of-eternea-rurukas",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Iron",
+      "cycle": 1,
+      "from": {
+        "nation": 75,
+        "settlement": "Lighthollow"
+      },
+      "to": {
+        "nation": 301,
+        "settlement": "Rurukas"
+      }
+    },
+    {
+      "id": "issselkas-mariorlun",
       "public": true,
       "kind": "land",
       "status": "active",
       "goods": "Trade goods",
-      "cycle": 2,
+      "cycle": 1,
       "from": {
-        "nation": 14,
-        "settlement": "Lunrynul"
-      },
-      "to": {
-        "nation": 262,
-        "settlement": "Haltorzan"
-      }
-    },
-    {
-      "id": "kasven-zantorgal",
-      "public": true,
-      "kind": "sea",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 17,
-        "settlement": "Kasven"
-      },
-      "to": {
-        "nation": 172,
-        "settlement": "Zantorgal"
-      }
-    },
-    {
-      "id": "teriorsur-itharnob",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 18,
-        "settlement": "Teriorsur"
-      },
-      "to": {
-        "nation": 272,
-        "settlement": "Itharnob"
-      }
-    },
-    {
-      "id": "torshaqua-veleth",
-      "public": true,
-      "kind": "sea",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 26,
-        "settlement": "Torshaqua"
-      },
-      "to": {
-        "nation": 155,
-        "settlement": "Veleth"
-      }
-    },
-    {
-      "id": "halvenbre-mariorlun",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 31,
-        "settlement": "Halvenbre"
+        "nation": 29,
+        "settlement": "Issselkas"
       },
       "to": {
         "nation": 282,
@@ -385,67 +177,195 @@
       }
     },
     {
-      "id": "kaiorven-telith",
+      "id": "kali-holy-order-of-eternea",
       "public": true,
       "kind": "land",
       "status": "active",
       "goods": "Trade goods",
-      "cycle": 2,
+      "cycle": 1,
       "from": {
-        "nation": 36,
-        "settlement": "Kaiorven"
+        "nation": 73,
+        "settlement": "Kali"
       },
       "to": {
+        "nation": 75,
+        "settlement": "Lighthollow"
+      }
+    },
+    {
+      "id": "marbre-iorsurmar",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 1,
+      "from": {
+        "nation": 12,
+        "settlement": "Marbre"
+      },
+      "to": {
+        "nation": 266,
+        "settlement": "Iorsurmar"
+      }
+    },
+    {
+      "id": "miradorpra-atlantis",
+      "public": true,
+      "kind": "sea",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 1,
+      "from": {
+        "nation": 40,
+        "settlement": "Miradorpra"
+      },
+      "to": {
+        "nation": 154,
+        "settlement": "Atlantis"
+      }
+    },
+    {
+      "id": "miradorpra-caiter",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 1,
+      "from": {
+        "nation": 40,
+        "settlement": "Miradorpra"
+      },
+      "to": {
+        "nation": 178,
+        "settlement": "Caiter"
+      }
+    },
+    {
+      "id": "ostlitel-halkas",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 1,
+      "from": {
+        "nation": 112,
+        "settlement": "Ostlitel"
+      },
+      "to": {
+        "nation": 316,
+        "settlement": "Halkas"
+      }
+    },
+    {
+      "id": "quaethmor-issryn",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Iron",
+      "cycle": 1,
+      "from": {
+        "nation": 66,
+        "settlement": "Haravrajmogthu"
+      },
+      "to": {
+        "nation": 299,
+        "settlement": "Issryn"
+      }
+    },
+    {
+      "id": "ruquaost-caiith",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 1,
+      "from": {
+        "nation": 148,
+        "settlement": "Ruquaost"
+      },
+      "to": {
+        "nation": 340,
+        "settlement": "Caiith"
+      }
+    },
+    {
+      "id": "rynnob-quagalsel",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 1,
+      "from": {
+        "nation": 86,
+        "settlement": "Rynnob"
+      },
+      "to": {
+        "nation": 308,
+        "settlement": "Quagalsel"
+      }
+    },
+    {
+      "id": "telith-luntelven",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 1,
+      "from": {
         "nation": 37,
         "settlement": "Telith"
+      },
+      "to": {
+        "nation": 82,
+        "settlement": "Luntelven"
       }
     },
     {
-      "id": "ethzantel-kasmira",
+      "id": "the-sevarian-league-mariorlun",
+      "public": true,
+      "kind": "sea",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 1,
+      "from": {
+        "nation": 30,
+        "settlement": "Batrade"
+      },
+      "to": {
+        "nation": 282,
+        "settlement": "Mariorlun"
+      }
+    },
+    {
+      "id": "velden-brezaniss",
       "public": true,
       "kind": "land",
       "status": "active",
       "goods": "Trade goods",
-      "cycle": 2,
+      "cycle": 1,
       "from": {
-        "nation": 39,
-        "settlement": "Ethzantel"
+        "nation": 108,
+        "settlement": "Velden"
       },
       "to": {
-        "nation": 98,
-        "settlement": "Kasmira"
+        "nation": 314,
+        "settlement": "Brezaniss"
       }
     },
     {
-      "id": "itheth-surar",
+      "id": "verillian-empire-ulgaltel",
       "public": true,
-      "kind": "land",
+      "kind": "sea",
       "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
+      "goods": "Tribute and trade",
+      "cycle": 1,
       "from": {
-        "nation": 41,
-        "settlement": "Itheth"
+        "nation": 21,
+        "settlement": "Verillia"
       },
       "to": {
-        "nation": 44,
-        "settlement": "Surar"
-      }
-    },
-    {
-      "id": "surar-lunka",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 44,
-        "settlement": "Surar"
-      },
-      "to": {
-        "nation": 291,
-        "settlement": "Lunka"
+        "nation": 229,
+        "settlement": "Ulgaltel"
       }
     },
     {
@@ -465,339 +385,19 @@
       }
     },
     {
-      "id": "ithlun-galrynul",
+      "id": "amzan-denmiraam",
       "public": true,
       "kind": "land",
       "status": "active",
       "goods": "Trade goods",
       "cycle": 2,
       "from": {
-        "nation": 64,
-        "settlement": "Ithlun"
+        "nation": 224,
+        "settlement": "Amzan"
       },
       "to": {
-        "nation": 130,
-        "settlement": "Galrynul"
-      }
-    },
-    {
-      "id": "quaethmor-kasosttel",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 66,
-        "settlement": "Haravrajmogthu"
-      },
-      "to": {
-        "nation": 67,
-        "settlement": "Kasosttel"
-      }
-    },
-    {
-      "id": "ulost-ostiormira",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 68,
-        "settlement": "Ulost"
-      },
-      "to": {
-        "nation": 300,
-        "settlement": "Ostiormira"
-      }
-    },
-    {
-      "id": "rynnob-mirapheior",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 86,
-        "settlement": "Rynnob"
-      },
-      "to": {
-        "nation": 307,
-        "settlement": "Mirapheior"
-      }
-    },
-    {
-      "id": "tershanob-vengal",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 90,
-        "settlement": "Tershanob"
-      },
-      "to": {
-        "nation": 185,
-        "settlement": "Vengal"
-      }
-    },
-    {
-      "id": "lunith-venshaden",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 91,
-        "settlement": "Lunith"
-      },
-      "to": {
-        "nation": 92,
-        "settlement": "Venshaden"
-      }
-    },
-    {
-      "id": "bresha-velden",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 106,
-        "settlement": "Bresha"
-      },
-      "to": {
-        "nation": 108,
-        "settlement": "Velden"
-      }
-    },
-    {
-      "id": "galiss-ostlitel",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 110,
-        "settlement": "Galiss"
-      },
-      "to": {
-        "nation": 112,
-        "settlement": "Ostlitel"
-      }
-    },
-    {
-      "id": "galiss-doronryn",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 110,
-        "settlement": "Galiss"
-      },
-      "to": {
-        "nation": 315,
-        "settlement": "Doronryn"
-      }
-    },
-    {
-      "id": "issost-ruambre",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 114,
-        "settlement": "Issost"
-      },
-      "to": {
-        "nation": 200,
-        "settlement": "Ruambre"
-      }
-    },
-    {
-      "id": "torvelvo-surmar",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 115,
-        "settlement": "Torvelvo"
-      },
-      "to": {
-        "nation": 117,
-        "settlement": "Surmar"
-      }
-    },
-    {
-      "id": "issar-amnobdor",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 124,
-        "settlement": "Issar"
-      },
-      "to": {
-        "nation": 125,
-        "settlement": "Amnobdor"
-      }
-    },
-    {
-      "id": "praith-miraostphe",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 126,
-        "settlement": "Praith"
-      },
-      "to": {
-        "nation": 325,
-        "settlement": "Miraostphe"
-      }
-    },
-    {
-      "id": "etheth-ryngal",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 129,
-        "settlement": "Etheth"
-      },
-      "to": {
-        "nation": 328,
-        "settlement": "Ryngal"
-      }
-    },
-    {
-      "id": "galrynul-atlantis",
-      "public": true,
-      "kind": "sea",
-      "status": "active",
-      "goods": "Food",
-      "cycle": 2,
-      "from": {
-        "nation": 130,
-        "settlement": "Galrynul"
-      },
-      "to": {
-        "nation": 154,
-        "settlement": "Atlantis"
-      }
-    },
-    {
-      "id": "torelaela-denqua",
-      "public": true,
-      "kind": "sea",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 132,
-        "settlement": "Torelaela"
-      },
-      "to": {
-        "nation": 363,
-        "settlement": "Denqua"
-      }
-    },
-    {
-      "id": "caiqua-elaquamira",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 143,
-        "settlement": "Caiqua"
-      },
-      "to": {
-        "nation": 338,
-        "settlement": "Elaquamira"
-      }
-    },
-    {
-      "id": "morselsha-morethvo",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 144,
-        "settlement": "Morselsha"
-      },
-      "to": {
-        "nation": 339,
-        "settlement": "Morethvo"
-      }
-    },
-    {
-      "id": "ruquaost-tertelden",
-      "public": true,
-      "kind": "sea",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 148,
-        "settlement": "Ruquaost"
-      },
-      "to": {
-        "nation": 343,
-        "settlement": "Tertelden"
-      }
-    },
-    {
-      "id": "halzan-ithdor",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 150,
-        "settlement": "Halzan"
-      },
-      "to": {
-        "nation": 346,
-        "settlement": "Ithdor"
-      }
-    },
-    {
-      "id": "surbre-caimorsel",
-      "public": true,
-      "kind": "sea",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 152,
-        "settlement": "Surbre"
-      },
-      "to": {
-        "nation": 331,
-        "settlement": "Caimorsel"
+        "nation": 365,
+        "settlement": "Denmiraam"
       }
     },
     {
@@ -833,51 +433,83 @@
       }
     },
     {
-      "id": "shatel-ethtel",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 183,
-        "settlement": "Shatel"
-      },
-      "to": {
-        "nation": 189,
-        "settlement": "Ethtel"
-      }
-    },
-    {
-      "id": "ulga-denam",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 205,
-        "settlement": "Ulga"
-      },
-      "to": {
-        "nation": 360,
-        "settlement": "Denam"
-      }
-    },
-    {
-      "id": "telvobre-ulgaltel",
+      "id": "basileia-rhomania-doronryn",
       "public": true,
       "kind": "sea",
       "status": "active",
+      "goods": "Tribute and trade",
+      "cycle": 2,
+      "from": {
+        "nation": 25,
+        "settlement": "Thessaloniki"
+      },
+      "to": {
+        "nation": 315,
+        "settlement": "Doronryn"
+      }
+    },
+    {
+      "id": "basileia-rhomania-galiss",
+      "public": true,
+      "kind": "sea",
+      "status": "active",
+      "goods": "Tribute and trade",
+      "cycle": 2,
+      "from": {
+        "nation": 25,
+        "settlement": "Thessaloniki"
+      },
+      "to": {
+        "nation": 110,
+        "settlement": "Galiss"
+      }
+    },
+    {
+      "id": "basileia-rhomania-torshaqua",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Tribute and trade",
+      "cycle": 2,
+      "from": {
+        "nation": 25,
+        "settlement": "Thessaloniki"
+      },
+      "to": {
+        "nation": 26,
+        "settlement": "Torshaqua"
+      }
+    },
+    {
+      "id": "bresha-velden",
+      "public": true,
+      "kind": "land",
+      "status": "active",
       "goods": "Trade goods",
       "cycle": 2,
       "from": {
-        "nation": 209,
-        "settlement": "Telvobre"
+        "nation": 106,
+        "settlement": "Bresha"
       },
       "to": {
-        "nation": 229,
-        "settlement": "Ulgaltel"
+        "nation": 108,
+        "settlement": "Velden"
+      }
+    },
+    {
+      "id": "caiqua-elaquamira",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 143,
+        "settlement": "Caiqua"
+      },
+      "to": {
+        "nation": 338,
+        "settlement": "Elaquamira"
       }
     },
     {
@@ -897,115 +529,211 @@
       }
     },
     {
-      "id": "amzan-denmiraam",
+      "id": "etheth-ryngal",
       "public": true,
       "kind": "land",
       "status": "active",
       "goods": "Trade goods",
       "cycle": 2,
       "from": {
-        "nation": 224,
-        "settlement": "Amzan"
+        "nation": 129,
+        "settlement": "Etheth"
       },
       "to": {
-        "nation": 365,
-        "settlement": "Denmiraam"
+        "nation": 328,
+        "settlement": "Ryngal"
       }
     },
     {
-      "id": "voli-dorelaga",
+      "id": "ethzantel-kasmira",
       "public": true,
       "kind": "land",
       "status": "active",
       "goods": "Trade goods",
       "cycle": 2,
       "from": {
-        "nation": 225,
-        "settlement": "Voli"
+        "nation": 39,
+        "settlement": "Ethzantel"
       },
       "to": {
-        "nation": 364,
-        "settlement": "Dorelaga"
+        "nation": 98,
+        "settlement": "Kasmira"
       }
     },
     {
-      "id": "onmorela-phekas",
+      "id": "galiss-doronryn",
       "public": true,
       "kind": "land",
       "status": "active",
       "goods": "Trade goods",
       "cycle": 2,
       "from": {
-        "nation": 230,
-        "settlement": "Onmorela"
+        "nation": 110,
+        "settlement": "Galiss"
       },
       "to": {
-        "nation": 369,
-        "settlement": "Phekas"
+        "nation": 315,
+        "settlement": "Doronryn"
       }
     },
     {
-      "id": "onmorela-kasam",
+      "id": "galiss-ostlitel",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 110,
+        "settlement": "Galiss"
+      },
+      "to": {
+        "nation": 112,
+        "settlement": "Ostlitel"
+      }
+    },
+    {
+      "id": "galrynul-atlantis",
+      "public": true,
+      "kind": "sea",
+      "status": "active",
+      "goods": "Food",
+      "cycle": 2,
+      "from": {
+        "nation": 130,
+        "settlement": "Galrynul"
+      },
+      "to": {
+        "nation": 154,
+        "settlement": "Atlantis"
+      }
+    },
+    {
+      "id": "halvenbre-mariorlun",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 31,
+        "settlement": "Halvenbre"
+      },
+      "to": {
+        "nation": 282,
+        "settlement": "Mariorlun"
+      }
+    },
+    {
+      "id": "halzan-ithdor",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 150,
+        "settlement": "Halzan"
+      },
+      "to": {
+        "nation": 346,
+        "settlement": "Ithdor"
+      }
+    },
+    {
+      "id": "issar-amnobdor",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 124,
+        "settlement": "Issar"
+      },
+      "to": {
+        "nation": 125,
+        "settlement": "Amnobdor"
+      }
+    },
+    {
+      "id": "issost-ruambre",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 114,
+        "settlement": "Issost"
+      },
+      "to": {
+        "nation": 200,
+        "settlement": "Ruambre"
+      }
+    },
+    {
+      "id": "itheth-surar",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 41,
+        "settlement": "Itheth"
+      },
+      "to": {
+        "nation": 44,
+        "settlement": "Surar"
+      }
+    },
+    {
+      "id": "ithlun-galrynul",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 64,
+        "settlement": "Ithlun"
+      },
+      "to": {
+        "nation": 130,
+        "settlement": "Galrynul"
+      }
+    },
+    {
+      "id": "kaiorven-telith",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 36,
+        "settlement": "Kaiorven"
+      },
+      "to": {
+        "nation": 37,
+        "settlement": "Telith"
+      }
+    },
+    {
+      "id": "kasven-zantorgal",
       "public": true,
       "kind": "sea",
       "status": "active",
       "goods": "Trade goods",
       "cycle": 2,
       "from": {
-        "nation": 230,
-        "settlement": "Onmorela"
+        "nation": 17,
+        "settlement": "Kasven"
       },
       "to": {
-        "nation": 370,
-        "settlement": "Kasam"
-      }
-    },
-    {
-      "id": "surithtor-lunka",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 290,
-        "settlement": "Surithtor"
-      },
-      "to": {
-        "nation": 291,
-        "settlement": "Lunka"
-      }
-    },
-    {
-      "id": "oniortel-brevoli",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 293,
-        "settlement": "Oniortel"
-      },
-      "to": {
-        "nation": 361,
-        "settlement": "Brevoli"
-      }
-    },
-    {
-      "id": "mirapheior-quagalsel",
-      "public": true,
-      "kind": "land",
-      "status": "active",
-      "goods": "Trade goods",
-      "cycle": 2,
-      "from": {
-        "nation": 307,
-        "settlement": "Mirapheior"
-      },
-      "to": {
-        "nation": 308,
-        "settlement": "Quagalsel"
+        "nation": 172,
+        "settlement": "Zantorgal"
       }
     },
     {
@@ -1025,6 +753,278 @@
       }
     },
     {
+      "id": "lunith-venshaden",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 91,
+        "settlement": "Lunith"
+      },
+      "to": {
+        "nation": 92,
+        "settlement": "Venshaden"
+      }
+    },
+    {
+      "id": "lunrynul-haltorzan",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 14,
+        "settlement": "Lunrynul"
+      },
+      "to": {
+        "nation": 262,
+        "settlement": "Haltorzan"
+      }
+    },
+    {
+      "id": "mirapheior-quagalsel",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 307,
+        "settlement": "Mirapheior"
+      },
+      "to": {
+        "nation": 308,
+        "settlement": "Quagalsel"
+      }
+    },
+    {
+      "id": "morselsha-morethvo",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 144,
+        "settlement": "Morselsha"
+      },
+      "to": {
+        "nation": 339,
+        "settlement": "Morethvo"
+      }
+    },
+    {
+      "id": "oniortel-brevoli",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 293,
+        "settlement": "Oniortel"
+      },
+      "to": {
+        "nation": 361,
+        "settlement": "Brevoli"
+      }
+    },
+    {
+      "id": "onmorela-kasam",
+      "public": true,
+      "kind": "sea",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 230,
+        "settlement": "Onmorela"
+      },
+      "to": {
+        "nation": 370,
+        "settlement": "Kasam"
+      }
+    },
+    {
+      "id": "onmorela-phekas",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 230,
+        "settlement": "Onmorela"
+      },
+      "to": {
+        "nation": 369,
+        "settlement": "Phekas"
+      }
+    },
+    {
+      "id": "praith-miraostphe",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 126,
+        "settlement": "Praith"
+      },
+      "to": {
+        "nation": 325,
+        "settlement": "Miraostphe"
+      }
+    },
+    {
+      "id": "quaethmor-kasosttel",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 66,
+        "settlement": "Haravrajmogthu"
+      },
+      "to": {
+        "nation": 67,
+        "settlement": "Kasosttel"
+      }
+    },
+    {
+      "id": "ruquaost-tertelden",
+      "public": true,
+      "kind": "sea",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 148,
+        "settlement": "Ruquaost"
+      },
+      "to": {
+        "nation": 343,
+        "settlement": "Tertelden"
+      }
+    },
+    {
+      "id": "rynnob-mirapheior",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 86,
+        "settlement": "Rynnob"
+      },
+      "to": {
+        "nation": 307,
+        "settlement": "Mirapheior"
+      }
+    },
+    {
+      "id": "shaphequa-elamira",
+      "public": true,
+      "kind": "sea",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 10,
+        "settlement": "Shaphequa"
+      },
+      "to": {
+        "nation": 63,
+        "settlement": "Elamira"
+      }
+    },
+    {
+      "id": "shaphequa-galqua",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 10,
+        "settlement": "Shaphequa"
+      },
+      "to": {
+        "nation": 201,
+        "settlement": "Galqua"
+      }
+    },
+    {
+      "id": "shatel-ethtel",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 183,
+        "settlement": "Shatel"
+      },
+      "to": {
+        "nation": 189,
+        "settlement": "Ethtel"
+      }
+    },
+    {
+      "id": "surar-lunka",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 44,
+        "settlement": "Surar"
+      },
+      "to": {
+        "nation": 291,
+        "settlement": "Lunka"
+      }
+    },
+    {
+      "id": "surbre-caimorsel",
+      "public": true,
+      "kind": "sea",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 152,
+        "settlement": "Surbre"
+      },
+      "to": {
+        "nation": 331,
+        "settlement": "Caimorsel"
+      }
+    },
+    {
+      "id": "surithtor-lunka",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 290,
+        "settlement": "Surithtor"
+      },
+      "to": {
+        "nation": 291,
+        "settlement": "Lunka"
+      }
+    },
+    {
       "id": "teltelmira-zanhalter",
       "public": true,
       "kind": "land",
@@ -1038,6 +1038,166 @@
       "to": {
         "nation": 368,
         "settlement": "Zanhalter"
+      }
+    },
+    {
+      "id": "telvobre-ulgaltel",
+      "public": true,
+      "kind": "sea",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 209,
+        "settlement": "Telvobre"
+      },
+      "to": {
+        "nation": 229,
+        "settlement": "Ulgaltel"
+      }
+    },
+    {
+      "id": "teriorsur-itharnob",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 18,
+        "settlement": "Teriorsur"
+      },
+      "to": {
+        "nation": 272,
+        "settlement": "Itharnob"
+      }
+    },
+    {
+      "id": "tershanob-vengal",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 90,
+        "settlement": "Tershanob"
+      },
+      "to": {
+        "nation": 185,
+        "settlement": "Vengal"
+      }
+    },
+    {
+      "id": "torelaela-denqua",
+      "public": true,
+      "kind": "sea",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 132,
+        "settlement": "Torelaela"
+      },
+      "to": {
+        "nation": 363,
+        "settlement": "Denqua"
+      }
+    },
+    {
+      "id": "torshaqua-veleth",
+      "public": true,
+      "kind": "sea",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 26,
+        "settlement": "Torshaqua"
+      },
+      "to": {
+        "nation": 155,
+        "settlement": "Veleth"
+      }
+    },
+    {
+      "id": "torvelvo-surmar",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 115,
+        "settlement": "Torvelvo"
+      },
+      "to": {
+        "nation": 117,
+        "settlement": "Surmar"
+      }
+    },
+    {
+      "id": "ulga-denam",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 205,
+        "settlement": "Ulga"
+      },
+      "to": {
+        "nation": 360,
+        "settlement": "Denam"
+      }
+    },
+    {
+      "id": "ulost-ostiormira",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 68,
+        "settlement": "Ulost"
+      },
+      "to": {
+        "nation": 300,
+        "settlement": "Ostiormira"
+      }
+    },
+    {
+      "id": "verillian-empire-telith",
+      "public": true,
+      "kind": "sea",
+      "status": "active",
+      "goods": "Tribute and trade",
+      "cycle": 2,
+      "from": {
+        "nation": 21,
+        "settlement": "Verillia"
+      },
+      "to": {
+        "nation": 37,
+        "settlement": "Telith"
+      }
+    },
+    {
+      "id": "voli-dorelaga",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Trade goods",
+      "cycle": 2,
+      "from": {
+        "nation": 225,
+        "settlement": "Voli"
+      },
+      "to": {
+        "nation": 364,
+        "settlement": "Dorelaga"
       }
     }
   ]
