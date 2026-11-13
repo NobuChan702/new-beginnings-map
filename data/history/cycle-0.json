@@ -98,6 +98,66 @@
     {
       "province": 2267,
       "owner": 275
+    },
+    {
+      "province": 2716,
+      "owner": 339
+    },
+    {
+      "province": 2717,
+      "owner": 339
+    },
+    {
+      "province": 2733,
+      "owner": 339
+    },
+    {
+      "province": 2202,
+      "owner": 22
+    },
+    {
+      "province": 2209,
+      "owner": 22
+    },
+    {
+      "province": 2215,
+      "owner": 22
+    },
+    {
+      "province": 2221,
+      "owner": 22
+    },
+    {
+      "province": 2247,
+      "owner": 22
+    },
+    {
+      "province": 2713,
+      "owner": 22
+    },
+    {
+      "province": 2802,
+      "owner": 22
+    },
+    {
+      "province": 2803,
+      "owner": 22
+    },
+    {
+      "province": 2881,
+      "owner": 22
+    },
+    {
+      "province": 2882,
+      "owner": 22
+    },
+    {
+      "province": 2899,
+      "owner": 22
+    },
+    {
+      "province": 3009,
+      "owner": 22
     }
   ],
   "alliances": []
