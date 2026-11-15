@@ -804,7 +804,7 @@
       "id": "morselsha-morethvo",
       "public": true,
       "kind": "land",
-      "status": "active",
+      "status": "disrupted",
       "goods": "Trade goods",
       "cycle": 2,
       "from": {
@@ -1028,7 +1028,7 @@
       "id": "teltelmira-zanhalter",
       "public": true,
       "kind": "land",
-      "status": "active",
+      "status": "disrupted",
       "goods": "Trade goods",
       "cycle": 2,
       "from": {
@@ -1044,7 +1044,7 @@
       "id": "telvobre-ulgaltel",
       "public": true,
       "kind": "sea",
-      "status": "active",
+      "status": "disrupted",
       "goods": "Trade goods",
       "cycle": 2,
       "from": {
@@ -1198,6 +1198,54 @@
       "to": {
         "nation": 364,
         "settlement": "Dorelaga"
+      }
+    },
+    {
+      "id": "elaka-cold-iron-alliance",
+      "public": true,
+      "kind": "land",
+      "status": "active",
+      "goods": "Iron",
+      "cycle": 3,
+      "from": {
+        "nation": 330,
+        "settlement": "Elaka"
+      },
+      "to": {
+        "nation": 131,
+        "settlement": "Osteth"
+      }
+    },
+    {
+      "id": "amsurior-cold-iron-alliance",
+      "public": true,
+      "kind": "sea",
+      "status": "active",
+      "goods": "Iron",
+      "cycle": 3,
+      "from": {
+        "nation": 322,
+        "settlement": "Amsurior"
+      },
+      "to": {
+        "nation": 131,
+        "settlement": "Osteth"
+      }
+    },
+    {
+      "id": "verillian-empire-ononkas",
+      "public": true,
+      "kind": "sea",
+      "status": "active",
+      "goods": "Timber",
+      "cycle": 3,
+      "from": {
+        "nation": 21,
+        "settlement": "Verillia"
+      },
+      "to": {
+        "nation": 207,
+        "settlement": "Ononkas"
       }
     }
   ]

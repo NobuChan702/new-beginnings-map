@@ -23,5 +23,10 @@
   "description": "Rynith's druidic faith, as set by Joe M.: veneration of the Beast Mother, kept by a Celtic forest people \u2014 the wild provides, and the clan answers to her law.",
   "perk": "+10% morale when defending a province of your own religion",
   "debuff": "-1 stability in provinces of a different religion, unless tolerated (tolerance gives a trade/relations bonus instead)"
+ },
+ "The Grand Smith": {
+  "description": "The Cold Iron Alliance's faith, as set by Chris Williams: veneration of the Grand Smith, the divine smith of the delved kingdom \u2014 iron, craft and the work of hands raised to worship, kept by a dwarven-inspired mining people under Kor'va Gon.",
+  "perk": "+10% morale when defending a province of your own religion",
+  "debuff": "-1 stability in provinces of a different religion, unless tolerated (tolerance gives a trade/relations bonus instead)"
  }
 }
