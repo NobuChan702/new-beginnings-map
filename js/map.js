@@ -317,6 +317,7 @@
     syncOwnerRecolor();
     syncOwnerSeams();
     syncUnionJuniors();
+    syncConfederation();
   }
 
   // Province lines live on their own pane so they stay above ownership plates.
@@ -1214,7 +1215,7 @@
         return;
       }
       const cycle = data.meta && data.meta.cycle != null ? data.meta.cycle : "";
-      if (cycle !== "") html += '<p class="meta nb-asof">As of Cycle ' + esc(String(cycle)) + "</p>";
+      if (cycle !== "") html += '<p class="meta nb-asof">Building limits as of Cycle ' + esc(String(cycle)) + "</p>";
       node.innerHTML = html;
     });
   }
@@ -1280,6 +1281,64 @@
     return html;
   }
 
+  function appliedProvinceIds(nationId) {
+    const rows = [];
+    state.provinces.forEach(function (prov, id) {
+      if (!provinceIsPublic(id, prov) || isConcealed(id)) return;
+      const owner = legalOwnerId(id, prov);
+      const occ = occupationOf(id);
+      rows.push({ id: id, owner: owner, occupier: occ ? occ.occupier : null });
+    });
+    const held = window.NB_FILL ? window.NB_FILL.controlledTerritory(rows) : {};
+    const ids = (held[String(nationId)] || []).slice();
+    const cycle = state.historyView ? state.historyView.cycle : 0;
+    const extra = window.NB_FILL && window.NB_FILL.confederationHoldings ? window.NB_FILL.confederationHoldings(cycle) : [];
+    extra.forEach(function (row) {
+      if (row.partner !== nationId || ids.indexOf(row.province) >= 0) return;
+      const prov = state.provinces.get(row.province);
+      if (!provinceIsPublic(row.province, prov) || isConcealed(row.province)) return;
+      const owner = legalOwnerId(row.province, prov);
+      if (owner != null && owner !== nationId) return;
+      ids.push(row.province);
+    });
+    ids.sort(function (a, b) {
+      return a - b;
+    });
+    return ids;
+  }
+
+  function appliedArea(ids) {
+    let area = 0;
+    (ids || []).forEach(function (id) {
+      const prov = state.provinces.get(id);
+      const value = prov && prov.area_km2;
+      if (value != null && isFinite(Number(value))) area += Number(value);
+    });
+    return area;
+  }
+
+  function territoryLine(nation) {
+    const ids = appliedProvinceIds(nation.id);
+    const count = ids.length;
+    const cycle = state.historyView && state.historyView.cycle != null ? state.historyView.cycle : null;
+    let text = count + (count === 1 ? " province" : " provinces") + " · " + fmtArea(appliedArea(ids));
+    if (cycle != null) text += " · Cycle " + cycle;
+    return text;
+  }
+
+  function confederationLine(nation) {
+    if (!nation || !window.NB_FILL || !window.NB_FILL.confederationHoldings) return "";
+    const cycle = state.historyView ? state.historyView.cycle : 0;
+    const rows = window.NB_FILL.confederationHoldings(cycle).filter(function (row) {
+      return row.partner === nation.id;
+    });
+    if (!rows.length) return "";
+    const names = rows.map(function (row) {
+      return row.hall;
+    });
+    return '<p class="meta">' + esc(names.join(" and ") + " confederation") + "</p>";
+  }
+
   function nationHtml(nation, provinceId) {
     const shownId = state.provinces.has(provinceId) ? provinceId : nation.capital_province;
     const prov = state.provinces.get(shownId);
@@ -1300,11 +1359,10 @@
       esc(labelTier(nation.tier)) +
       "</p>" +
       allianceLine(nation) +
+      confederationLine(nation) +
       religionLine(shownId, prov) +
       '<p class="meta">' +
-      nation.province_count +
-      " provinces · " +
-      fmtArea(nation.area_km2) +
+      territoryLine(nation) +
       '</p><p class="meta">Capital: ' +
       capitalLine +
       "</p>" +
@@ -1515,6 +1573,26 @@
     options = options || {};
     const prov = state.provinces.get(id);
     if (!provinceIsPublic(id, prov) || !prov.bbox || !prov.xy || isConcealed(id)) return;
+    const cycle = state.historyView ? state.historyView.cycle : 0;
+    const partnerNation = state.nationsById.get(236);
+    const confed = window.NB_FILL && window.NB_FILL.confederationFill
+      ? window.NB_FILL.confederationFill({
+          cycle: cycle,
+          provinceId: id,
+          partnerColor: partnerNation ? partnerNation.color : null,
+        })
+      : null;
+    if (confed && confed.partnerId && state.nationsById.has(confed.partnerId)) {
+      selectNation(state.nationsById.get(confed.partnerId), {
+        fly: false,
+        popup: !!options.popup,
+        provinceId: id,
+        latlng: L.latLng(prov.xy[1], prov.xy[0]),
+        hash: options.hash,
+      });
+      if (options.fly) flyToBox(prov.bbox, 6);
+      return;
+    }
     const colony = colonyOf(id);
     const owner = legalOwnerId(id, prov);
     const nation = colony
@@ -1590,7 +1668,7 @@
   function selectNation(nation, options) {
     options = options || {};
     state.activeNationId = nation.id;
-    showHighlight(nation.provinces, hexToRgb(nationColor(nation.id)));
+    showHighlight(appliedProvinceIds(nation.id), hexToRgb(nationColor(nation.id)));
     if (options.hash !== false) setNationHash(nation);
     if (options.fly) flyToNation(nation);
     if (options.popup) {
@@ -1887,19 +1965,31 @@ if (entry.kind === "work") {
     }
     const prov = state.provinces.get(id);
     const colony = colonyOf(id);
-    const transferred = hasOwnerOverride(id);
-    if (colony || transferred) {
+    if (colony) {
       state.activeNationId = null;
       setNationHash(null);
-      const ownerId = colony ? colony.owner : legalOwnerId(id, prov);
-      const nation = ownerId && state.nationsById.get(ownerId);
+      const nation = state.nationsById.get(colony.owner);
       showHighlight([id], nation ? hexToRgb(nationColor(nation.id)) : [230, 230, 234]);
       openPopup(event.latlng, nation ? nationHtml(nation, id) : unclaimedHtml(id, prov));
       showFlagCard(nation, id);
       return;
     }
-    if (prov && prov.nation_id && state.nationsById.has(prov.nation_id)) {
-      const nation = state.nationsById.get(prov.nation_id);
+    const cycle = state.historyView ? state.historyView.cycle : 0;
+    const partnerNation = state.nationsById.get(236);
+    const confed = window.NB_FILL && window.NB_FILL.confederationFill
+      ? window.NB_FILL.confederationFill({
+          cycle: cycle,
+          provinceId: id,
+          partnerColor: partnerNation ? partnerNation.color : null,
+        })
+      : null;
+    if (confed && confed.partnerId && state.nationsById.has(confed.partnerId)) {
+      selectNation(state.nationsById.get(confed.partnerId), { fly: false, popup: true, latlng: event.latlng, provinceId: id });
+      return;
+    }
+    const ownerId = legalOwnerId(id, prov);
+    const nation = ownerId && state.nationsById.get(ownerId);
+    if (nation) {
       selectNation(nation, { fly: false, popup: true, latlng: event.latlng, provinceId: id });
       return;
     }
@@ -2411,6 +2501,7 @@ const claim = claimOf(nation);
     renderOwnerRecolor();
     renderOwnerSeams();
     renderUnionJuniors();
+    renderConfederation();
     applyMode();
   }
 
@@ -4646,6 +4737,7 @@ const claim = claimOf(nation);
         if (wash) washes.push(wash);
       }
     });
+    pushConfederationPlates(plates);
     rememberAnnexGeoms(plates);
     const features = plates.concat(washes);
     if (!features.length) {
@@ -4843,6 +4935,151 @@ const claim = claimOf(nation);
       fillOpacity: 1,
       interactive: false,
     };
+  }
+
+  function pushConfederationPlates(plates) {
+    if (!window.NB_FILL || !window.NB_FILL.confederationHoldings) return;
+    const cycle = state.historyView ? state.historyView.cycle : 0;
+    const partner = state.nationsById.get(236);
+    window.NB_FILL.confederationHoldings(cycle).forEach(function (row) {
+      if (plates.some(function (feature) { return feature.properties && feature.properties.id === row.province; })) return;
+      const paint = window.NB_FILL.confederationFill({
+        cycle: cycle,
+        provinceId: row.province,
+        partnerColor: partner ? partner.color : null,
+      });
+      if (!paint) return;
+      const baked = bakedProvinceColor(row.province) || "#8d8678";
+      const plate = provinceFeature(row.province, { role: "plate", id: row.province, fill: paint.colors[0], baked: baked });
+      if (plate) plates.push(plate);
+    });
+  }
+
+  function confedPatternId(a, b) {
+    return "nb-confed-" + String(a).replace("#", "").toLowerCase() + "-" + String(b).replace("#", "").toLowerCase();
+  }
+
+  function installConfedPatterns(pairs) {
+    const svg = document.querySelector(".leaflet-history-pane svg");
+    if (!svg) return;
+    const ns = "http://www.w3.org/2000/svg";
+    let defs = svg.querySelector("defs");
+    if (!defs) {
+      defs = document.createElementNS(ns, "defs");
+      svg.insertBefore(defs, svg.firstChild);
+    }
+    pairs.forEach(function (pair) {
+      const id = confedPatternId(pair[0], pair[1]);
+      if (svg.querySelector("#" + id)) return;
+      const pattern = document.createElementNS(ns, "pattern");
+      pattern.setAttribute("id", id);
+      pattern.setAttribute("patternUnits", "userSpaceOnUse");
+      pattern.setAttribute("width", "8");
+      pattern.setAttribute("height", "8");
+      pattern.setAttribute("patternTransform", "rotate(45)");
+      const wash = document.createElementNS(ns, "rect");
+      wash.setAttribute("width", "8");
+      wash.setAttribute("height", "8");
+      wash.setAttribute("fill", pair[0]);
+      const stripe = document.createElementNS(ns, "path");
+      stripe.setAttribute("d", "M0 4 H8");
+      stripe.setAttribute("stroke", pair[1]);
+      stripe.setAttribute("stroke-width", "4");
+      pattern.appendChild(wash);
+      pattern.appendChild(stripe);
+      defs.appendChild(pattern);
+    });
+  }
+
+  function confederationOpacity() {
+    if (!state.map) return 0;
+    if (state.mode === "political") return 1;
+    if (state.mode === "auto") return politicalOpacity(state.map.getZoom());
+    return 0;
+  }
+
+  function confedStyle(feature) {
+    const colors = feature.properties.colors || [];
+    return {
+      stroke: false,
+      fill: true,
+      fillColor: "url(#" + confedPatternId(colors[0], colors[1]) + ")",
+      fillOpacity: confederationOpacity(),
+      interactive: false,
+    };
+  }
+
+  function syncConfederation() {
+    if (!state.confedLayer) return;
+    state.confedLayer.setStyle(confedStyle);
+  }
+
+  function renderConfederation() {
+    const map = state.map;
+    if (!map) return;
+    dropLayer(state.confedLayer);
+    state.confedLayer = null;
+    if (!window.NB_FILL || !window.NB_FILL.confederationHoldings || !state.flatById) return;
+    const cycle = state.historyView ? state.historyView.cycle : 0;
+    const partner = state.nationsById.get(236);
+    const features = [];
+    const pairs = [];
+    window.NB_FILL.confederationHoldings(cycle).forEach(function (row) {
+      const paint = window.NB_FILL.confederationFill({
+        cycle: cycle,
+        provinceId: row.province,
+        partnerColor: partner ? partner.color : null,
+      });
+      if (!paint) return;
+      const feature = provinceFeature(row.province, { id: row.province, colors: paint.colors });
+      if (!feature) return;
+      features.push(feature);
+      pairs.push(paint.colors);
+    });
+    const alliances = currentAlliances() || [];
+    const byBloc = {};
+    alliances.forEach(function (row) {
+      if (!row || !row.bloc) return;
+      if (!byBloc[row.bloc]) byBloc[row.bloc] = [];
+      byBloc[row.bloc].push(row);
+    });
+    Object.keys(byBloc).forEach(function (bloc) {
+      const members = byBloc[bloc];
+      if (members.length < 2) return;
+      if (members.some(function (row) {
+        const role = String(row.role || "").toLowerCase();
+        return role === "leader" || role === "vassal" || (role !== "ally" && role !== "confederation");
+      })) return;
+      const colors = members.map(function (row) {
+        const nation = nationByName(row.nation);
+        return nation ? safeColor(nation.color) : null;
+      }).filter(Boolean);
+      if (colors.length < 2) return;
+      members.forEach(function (row) {
+        const nation = nationByName(row.nation);
+        if (!nation) return;
+        appliedProvinceIds(nation.id).forEach(function (id) {
+          if (features.some(function (feature) { return feature.properties.id === id; })) return;
+          const feature = provinceFeature(id, { id: id, colors: [colors[0], colors[1]] });
+          if (feature) features.push(feature);
+        });
+      });
+      pairs.push([colors[0], colors[1]]);
+    });
+    if (!features.length) return;
+    state.confedLayer = L.geoJSON(
+      { type: "FeatureCollection", features: features },
+      {
+        pane: "history",
+        renderer: state.historyRenderer,
+        interactive: false,
+        smoothFactor: 0,
+        style: confedStyle,
+      }
+    );
+    state.confedLayer.addTo(map);
+    installConfedPatterns(pairs);
+    state.confedLayer.setStyle(confedStyle);
   }
 
   function renderUnionJuniors() {
@@ -5609,6 +5846,11 @@ const claim = claimOf(nation);
     renderOwnerRecolor();
     renderOwnerSeams();
     renderUnionJuniors();
+    renderConfederation();
+    if (state.activeNationId) {
+      const selected = state.nationsById.get(state.activeNationId);
+      if (selected) showHighlight(appliedProvinceIds(selected.id), hexToRgb(nationColor(selected.id)));
+    }
     rebuildMarks();
     paintClaims();
     if (state.infraRaw) applyInfra();

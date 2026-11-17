@@ -123,7 +123,7 @@ test("cycle 0 keeps the baked colour and later turns cover it", function () {
     assert.equal(decision(1, id).ownColor, "#b0579a");
     const conquered = decision(2, id);
     assert.equal(conquered.owner, 229);
-    assert.equal(conquered.ownColor, "#414b0d");
+    assert.equal(conquered.ownColor, "#75813b");
     assert.equal(conquered.paintColor, "#3efec9");
     assert.equal(conquered.hidesBaked, true);
     assert.equal(conquered.wash, true);
@@ -263,8 +263,112 @@ test("terrain and depth hide the plate; the flat board takes over up close", fun
   assert.equal(decision(2, 2200, { mode: "political", flat: 0.98 }).plateOpacity, 0);
   const home = decision(2, HOME.terrillia);
   assert.equal(home.annexed, false);
-  assert.equal(home.plate, false);
+  assert.equal(home.plate, true);
+  assert.equal(home.ownColor.toLowerCase(), "#75813b");
+  assert.equal(home.hidesBaked, true);
   assert.equal(home.wash, true);
+  assert.equal(decision(2, 2118, { mode: "terrain" }).plateOpacity, 0);
+  assert.equal(decision(2, 2118, { mode: "terrain" }).hidesBaked, false);
+  assert.equal(decision(2, 2118, { mode: "depth" }).plateOpacity, 0);
   assert.equal(decision(2, HOME.verillian).plate, false);
   assert.equal(decision(2, HOME.verillian).wash, false);
+});
+
+test("Terrillia core is plated in the current colour on every cycle", function () {
+  [0, 1, 2, 3].forEach(function (turn) {
+    const core = decision(turn, HOME.terrillia);
+    assert.equal(core.owner, 229);
+    assert.equal(core.annexed, false);
+    assert.equal(core.ownColor.toLowerCase(), "#75813b");
+    assert.equal(core.plate, true);
+    assert.equal(core.hidesBaked, true);
+    assert.notEqual(core.ownColor.toLowerCase(), baked.get(HOME.terrillia).color.toLowerCase());
+  });
+  assert.equal(decision(0, HOME.terrillia).wash, false);
+  assert.equal(decision(3, HOME.terrillia).wash, true);
+  assert.equal(decision(3, HOME.terrillia).paintColor.toLowerCase(), "#3efec9");
+});
+
+function territoryRows(turn) {
+  const view = fold(turn);
+  const ids = new Set();
+  Object.keys(world.provinces).forEach(function (key) {
+    ids.add(Number(key));
+  });
+  Object.keys(view.owners).forEach(function (key) {
+    ids.add(Number(key));
+  });
+  const occupied = {};
+  view.occupations.forEach(function (row) {
+    occupied[row.province] = row.occupier;
+  });
+  return Array.from(ids).map(function (id) {
+    const record = world.provinces[String(id)];
+    return {
+      id: id,
+      owner: fill.resolvedOwner(view.owners, id, record ? record.nation_id : null),
+      occupier: occupied[id] == null ? null : occupied[id],
+    };
+  });
+}
+
+function heldBy(turn, nationId) {
+  return fill.controlledTerritory(territoryRows(turn))[String(nationId)] || [];
+}
+
+test("popup territory follows transfers and occupations, not the static list", function () {
+  const base = nations.get(37).provinces.slice();
+  assert.equal(base.length, 7);
+  assert.deepEqual(heldBy(2, 37).filter(function (id) {
+    return base.indexOf(id) < 0;
+  }), []);
+  const cycle3 = heldBy(3, 37);
+  [2881, 2882, 3039, 3044, 3047, 3051].forEach(function (id) {
+    assert.ok(cycle3.indexOf(id) >= 0);
+    assert.equal(base.indexOf(id), -1);
+  });
+  assert.equal(cycle3.length, 13);
+  assert.equal(heldBy(0, 111).length, 9);
+  assert.deepEqual(heldBy(3, 111), [559]);
+  [484, 492, 512, 527, 537, 540, 541, 547].forEach(function (id) {
+    assert.ok(heldBy(3, 25).indexOf(id) >= 0);
+  });
+});
+
+test("Bryn and Neth halls stripe both colours from cycle 2", function () {
+  assert.equal(fill.confederationFill({ cycle: 0, provinceId: 160, partnerColor: "#c5b3a1" }), null);
+  assert.equal(fill.confederationFill({ cycle: 1, provinceId: 18, partnerColor: "#c5b3a1" }), null);
+  assert.deepEqual(fill.confederationHoldings(1), []);
+  const bryn = fill.confederationFill({ cycle: 2, provinceId: 160, partnerColor: "#c5b3a1" });
+  const neth = fill.confederationFill({ cycle: 3, provinceId: 18, partnerColor: "#c5b3a1" });
+  assert.equal(bryn.label, "Bryn and Neth confederation");
+  assert.equal(bryn.partnerId, 236);
+  assert.equal(bryn.hall, "Bryn");
+  assert.equal(neth.hall, "Neth");
+  assert.equal(bryn.colors[0].toLowerCase(), "#c5b3a1");
+  assert.equal(neth.colors[0].toLowerCase(), "#c5b3a1");
+  assert.notEqual(bryn.colors[1].toLowerCase(), bryn.colors[0].toLowerCase());
+  assert.notEqual(neth.colors[1].toLowerCase(), bryn.colors[1].toLowerCase());
+  assert.deepEqual(fill.confederationHoldings(3).map(function (row) {
+    return row.province;
+  }), [160, 18]);
+  const equals = fill.confederationFill({
+    cycle: 3,
+    provinceId: 160,
+    ownerName: "Bryn",
+    partnerColor: "#c5b3a1",
+    alliances: [
+      { bloc: "Bryn and Neth", nation: "Bryn", role: "confederation" },
+      { bloc: "Bryn and Neth", nation: "Neth", role: "confederation" },
+    ],
+    memberColors: ["#111111", "#222222"],
+  });
+  assert.deepEqual(equals.colors, ["#111111", "#222222"]);
+  const vassal = fill.confederationFill({
+    cycle: 3,
+    ownerName: "Ulgaltel",
+    alliances: fold(3).alliances,
+    memberColors: ["#3efec9", "#75813b"],
+  });
+  assert.equal(vassal, null);
 });

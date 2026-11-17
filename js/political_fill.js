@@ -1,7 +1,9 @@
-/* Selected-turn political fill for provinces whose owner has changed.
+/* Selected-turn political fill.
    The baked political paint (flat.geojson and the political tiles) stays the
-   cycle-0 picture. This module decides how the page covers that paint.
-   Claims hatching and occupation stripes are other layers; they are not inputs. */
+   cycle-0 picture. This module decides how the page covers that paint:
+   annexed land, and any province whose nation colour no longer matches the
+   bake, including a nation's original core. Claims hatching and occupation
+   stripes are other layers; they are not inputs. */
 (function (root, factory) {
   var api = factory();
   if (typeof module === "object" && module.exports) module.exports = api;
@@ -48,7 +50,10 @@
     if (!isFinite(politicalOpacity)) politicalOpacity = 1;
     var show = mode === "political" || mode === "auto";
     var annexed = owner != null && !sameId(owner, spec.bakedNationId);
-    var plate = annexed && !!own;
+    // A nation can change colour without changing owner. The bake still has
+    // the old pixels, so the core has to be plated the same way an annexation is.
+    var recolor = !!(own && bakedColor && normColor(own) !== normColor(bakedColor));
+    var plate = !!own && (annexed || recolor);
     var wash = false;
     if (paint) {
       if (plate && own && normColor(paint) !== normColor(own)) wash = true;
@@ -120,6 +125,103 @@
       return 387;
     }
 
+    // Who holds a province for the popup count and the click highlight.
+    // A transfer sets owner. An occupation moves the hold to the occupier
+    // without changing the owner the popup sentence still names.
+    function controlledTerritory(rows) {
+      var byNation = {};
+      (rows || []).forEach(function (row) {
+        if (!row) return;
+        var id = asId(row.id);
+        var occupier = row.occupier == null || row.occupier === "" ? null : asId(row.occupier);
+        var owner = row.owner == null || row.owner === "" ? null : asId(row.owner);
+        var holder = occupier != null ? occupier : owner;
+        if (id == null || holder == null) return;
+        var key = String(holder);
+        if (!byNation[key]) byNation[key] = [];
+        byNation[key].push(id);
+      });
+      Object.keys(byNation).forEach(function (key) {
+        byNation[key].sort(function (a, b) {
+          return a - b;
+        });
+      });
+      return byNation;
+    }
+
+    // Bryn (province 160) and Neth (province 18) are unclaimed island halls.
+    // From Cycle 2 they are confederated with The Iron North (nation 236).
+    // Alliances do not list them: the halls are not nations, so a bloc row
+    // cannot name them. A bloc of equals (role ally or confederation, no
+    // leader and no vassal) is striped the same way when the data has one.
+    var CONFEDERATION_FROM_CYCLE = 2;
+    var CONFEDERATION_PARTNER = 236;
+    var CONFEDERATION_HALLS = { 160: "Bryn", 18: "Neth" };
+    var HALL_PALETTE = ["#2f6fbe", "#c45c26", "#1f8a70", "#8a4baf", "#b08900", "#a33b55", "#3d6b9a", "#6b7c3a"];
+
+    function paletteColor(name) {
+      var hash = 0;
+      var text = String(name || "");
+      for (var i = 0; i < text.length; i++) hash = (hash * 33 + text.charCodeAt(i)) >>> 0;
+      return HALL_PALETTE[hash % HALL_PALETTE.length];
+    }
+
+    function confederationHoldings(cycle) {
+      if (Number(cycle) < CONFEDERATION_FROM_CYCLE) return [];
+      return [
+        { province: 160, partner: CONFEDERATION_PARTNER, hall: "Bryn" },
+        { province: 18, partner: CONFEDERATION_PARTNER, hall: "Neth" },
+      ];
+    }
+
+    function allianceConfederation(spec) {
+      var alliances = spec.alliances || [];
+      var ownerName = spec.ownerName;
+      if (!ownerName) return null;
+      var bloc = null;
+      var role = null;
+      for (var i = 0; i < alliances.length; i++) {
+        if (!alliances[i] || alliances[i].nation !== ownerName) continue;
+        bloc = alliances[i].bloc;
+        role = String(alliances[i].role || "").toLowerCase();
+        break;
+      }
+      if (!bloc || (role !== "ally" && role !== "confederation")) return null;
+      var members = [];
+      for (var j = 0; j < alliances.length; j++) {
+        if (!alliances[j] || alliances[j].bloc !== bloc) continue;
+        var memberRole = String(alliances[j].role || "").toLowerCase();
+        if (memberRole === "leader" || memberRole === "vassal") return null;
+        if (memberRole !== "ally" && memberRole !== "confederation") return null;
+        members.push(alliances[j]);
+      }
+      if (members.length < 2) return null;
+      var colors = spec.memberColors || [];
+      if (colors.length < 2) return null;
+      return { label: String(bloc), colors: [colors[0], colors[1]], partnerId: null, hall: null };
+    }
+
+    function confederationFill(spec) {
+      spec = spec || {};
+      var fromAlliance = allianceConfederation(spec);
+      if (fromAlliance) return fromAlliance;
+      var cycle = Number(spec.cycle);
+      if (!isFinite(cycle) || cycle < CONFEDERATION_FROM_CYCLE) return null;
+      var hall = CONFEDERATION_HALLS[asId(spec.provinceId)];
+      if (!hall) return null;
+      var partner = spec.partnerColor || "#c5b3a1";
+      var other = paletteColor(hall);
+      if (normColor(partner) === normColor(other)) {
+        other = HALL_PALETTE[(HALL_PALETTE.indexOf(other) + 1) % HALL_PALETTE.length];
+      }
+      return {
+        label: "Bryn and Neth confederation",
+        partnerId: CONFEDERATION_PARTNER,
+        hall: hall,
+        colors: [partner, other],
+      };
+    }
+
     return {
       resolvedOwner: resolvedOwner,
       provincePaint: provincePaint,
@@ -127,5 +229,8 @@
       shouldPaintHistoryOwnerFill: shouldPaintHistoryOwnerFill,
       borderPaneZ: borderPaneZ,
       flatBorderPaneZ: flatBorderPaneZ,
+      controlledTerritory: controlledTerritory,
+      confederationHoldings: confederationHoldings,
+      confederationFill: confederationFill,
     };
 });
