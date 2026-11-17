@@ -230,6 +230,10 @@
     {
       "province": 2196,
       "owner": 209
+    },
+    {
+      "province": 57,
+      "owner": 31
     }
   ],
   "alliances": []
