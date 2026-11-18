@@ -2350,16 +2350,6 @@
    "nation": 269
   },
   {
-   "id": "city-129",
-   "type": "city",
-   "name": "Miramirador",
-   "province": 129,
-   "x": 7918.5,
-   "y": 579.5,
-   "cycle": 0,
-   "nation": 16
-  },
-  {
    "id": "town-129",
    "type": "town",
    "name": "Rara",
@@ -2406,6 +2396,16 @@
    "province": 131,
    "x": 7969.5,
    "y": 786.5,
+   "cycle": 0,
+   "nation": 16
+  },
+  {
+   "id": "city-131",
+   "type": "city",
+   "name": "Mirador",
+   "province": 131,
+   "x": 7997.5,
+   "y": 756.5,
    "cycle": 0,
    "nation": 16
   },

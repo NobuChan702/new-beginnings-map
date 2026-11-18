@@ -1051,7 +1051,7 @@
   },
   "31": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -1174,7 +1174,7 @@
   },
   "33": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -1415,7 +1415,7 @@
   },
   "37": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -1706,7 +1706,7 @@
   },
   "42": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -1883,7 +1883,7 @@
   },
   "45": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -2975,7 +2975,7 @@
   },
   "63": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -3413,7 +3413,7 @@
   },
   "70": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -3590,7 +3590,7 @@
   },
   "73": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -3824,7 +3824,7 @@
   },
   "77": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -4181,7 +4181,7 @@
   },
   "83": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -4306,7 +4306,7 @@
   },
   "85": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -4372,7 +4372,7 @@
   },
   "86": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -4431,7 +4431,7 @@
   },
   "87": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -4736,7 +4736,7 @@
   },
   "92": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -4859,7 +4859,7 @@
   },
   "94": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -5327,7 +5327,7 @@
   },
   "102": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -5514,7 +5514,7 @@
   },
   "105": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -5696,7 +5696,7 @@
   },
   "108": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -5871,7 +5871,7 @@
   },
   "111": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -6242,7 +6242,7 @@
   },
   "117": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -6301,7 +6301,7 @@
   },
   "118": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -6414,7 +6414,7 @@
   },
   "120": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -6596,7 +6596,7 @@
   },
   "123": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -6959,17 +6959,17 @@
   },
   "129": {
    "nation_id": 16,
-   "nation": "Mirador",
-   "capital": false,
-   "largest_settlement": "village",
+   "nation": "The Scarlet Empire",
+   "capital": true,
+   "largest_settlement": "city",
    "limits": {
     "Farm": {
      "built": 0,
-     "max": 2
+     "max": 5
     },
     "Market": {
      "built": 0,
-     "max": 2
+     "max": 5
     },
     "Fort": {
      "built": 0,
@@ -6981,7 +6981,7 @@
     },
     "Mine": {
      "built": 0,
-     "max": 2
+     "max": 5
     }
    },
    "can_build": [
@@ -6995,9 +6995,9 @@
    "sectors": [
     {
      "sector": "129-A",
-     "name": "Miramirador",
-     "map_label": "city",
-     "level": "village",
+     "name": "Ambercrest",
+     "map_label": "capital",
+     "level": "city",
      "buildings": []
     },
     {
@@ -7077,8 +7077,8 @@
   },
   "131": {
    "nation_id": 16,
-   "nation": "Mirador",
-   "capital": true,
+   "nation": "The Scarlet Empire",
+   "capital": false,
    "largest_settlement": "city",
    "limits": {
     "Farm": {
@@ -7114,7 +7114,7 @@
     {
      "sector": "131-A",
      "name": "Mirador",
-     "map_label": "capital",
+     "map_label": "city",
      "level": "city",
      "buildings": []
     },
@@ -7195,7 +7195,7 @@
   },
   "133": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -7313,7 +7313,7 @@
   },
   "135": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -7490,7 +7490,7 @@
   },
   "138": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
@@ -8140,7 +8140,7 @@
   },
   "149": {
    "nation_id": 16,
-   "nation": "Mirador",
+   "nation": "The Scarlet Empire",
    "capital": false,
    "largest_settlement": "village",
    "limits": {
