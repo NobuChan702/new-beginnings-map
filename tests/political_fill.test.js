@@ -329,9 +329,9 @@ test("popup territory follows transfers and occupations, not the static list", f
   });
   assert.equal(cycle3.length, 13);
   assert.equal(heldBy(0, 111).length, 9);
-  assert.deepEqual(heldBy(3, 111), [559]);
+  assert.deepEqual(heldBy(3, 111), [484, 492, 512, 527, 537, 540, 541, 547, 559]);
   [484, 492, 512, 527, 537, 540, 541, 547].forEach(function (id) {
-    assert.ok(heldBy(3, 25).indexOf(id) >= 0);
+    assert.equal(heldBy(3, 25).indexOf(id), -1);
   });
 });
 
