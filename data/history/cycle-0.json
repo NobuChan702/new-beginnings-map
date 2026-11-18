@@ -234,6 +234,26 @@
     {
       "province": 57,
       "owner": 31
+    },
+    {
+      "province": 883,
+      "owner": 352
+    },
+    {
+      "province": 897,
+      "owner": 352
+    },
+    {
+      "province": 2729,
+      "owner": 218
+    },
+    {
+      "province": 2732,
+      "owner": 218
+    },
+    {
+      "province": 2735,
+      "owner": 218
     }
   ],
   "alliances": []
