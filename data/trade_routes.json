@@ -1044,7 +1044,7 @@
       "id": "telvobre-ulgaltel",
       "public": true,
       "kind": "sea",
-      "status": "disrupted",
+      "status": "active",
       "goods": "Trade goods",
       "cycle": 2,
       "from": {
