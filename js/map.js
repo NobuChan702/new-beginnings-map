@@ -34,7 +34,7 @@
     provinceNames: new Map(),
     flags: new Map(),
     mode: "auto",
-    overlays: { borders: true, claims: true, occupied: true, revolts: true, markers: true, infra: true, trade: true, sectors: true, alliances: false, religion: false, ids: false },
+    overlays: { borders: true, claims: true, occupied: true, revolts: true, events: true, markers: true, infra: true, trade: true, sectors: true, alliances: false, religion: false, ids: false },
     labelLayer: null,
     map: null,
     provinceTip: null,
@@ -61,6 +61,7 @@
     changeLayer: null,
     occLayer: null,
     revoltLayer: null,
+    eventLayer: null,
     workLayer: null,
     workMarkers: null,
     fogLayer: null,
@@ -570,6 +571,7 @@
           '<label><input type="checkbox" data-overlay="claims" checked> Claimed nations</label>' +
           '<label><input type="checkbox" data-overlay="occupied" checked> Occupied territory</label>' +
           '<label><input type=\"checkbox\" data-overlay=\"revolts\" checked> Revolts</label>' +
+          '<label><input type=\"checkbox\" data-overlay=\"events\" checked> Events</label>' +
           '<label><input type="checkbox" data-overlay="sectors" checked> Sectors</label>' +
           '<label><input type="checkbox" data-overlay="alliances"> Alliances</label>' +
           '<label><input type="checkbox" data-overlay="religion"> Religion</label>' +
@@ -1372,6 +1374,7 @@
       colonyLine(provinceId) +
       occupationSentence(provinceId) +
       revoltSentence(provinceId) +
+      eventSentence(provinceId) +
       (prov
         ? '<hr><p class="meta">' +
           esc(provinceTitle(shownId)) +
@@ -1395,6 +1398,7 @@
       colonyLine(id) +
       occupationSentence(id) +
       revoltSentence(id) +
+      eventSentence(id) +
       provinceFields(prov) +
       slotsMount(id) +
       "</div>"
@@ -4074,6 +4078,20 @@ const claim = claimOf(nation);
     return '<p class="claim">In revolt</p>';
   }
 
+  function eventsOf(id) {
+    const rows = (state.historyView && state.historyView.events) || [];
+    return rows.filter(function (row) { return row.province === id; });
+  }
+
+  function eventSentence(id) {
+    if (isConcealed(id)) return "";
+    return eventsOf(id)
+      .map(function (row) {
+        return '<p class="claim">Event: ' + esc(row.title) + (row.text ? " \u2014 " + esc(row.text) : "") + "</p>";
+      })
+      .join("");
+  }
+
   function historyLook(id) {
     if (!state.historyView || isConcealed(id)) {
       return isConcealed(id) ? { fog: true } : {};
@@ -4313,6 +4331,43 @@ const claim = claimOf(nation);
     pattern.appendChild(d1);
     pattern.appendChild(d2);
     defs.appendChild(pattern);
+  }
+
+  function installEventPattern(svg) {
+    svg = svg || document.querySelector(".leaflet-history-pane svg");
+    if (!svg) return;
+    if (svg.querySelector("#nb-event-hatch")) return;
+    const ns = "http://www.w3.org/2000/svg";
+    let defs = svg.querySelector("defs");
+    if (!defs) {
+      defs = document.createElementNS(ns, "defs");
+      svg.insertBefore(defs, svg.firstChild);
+    }
+    const pattern = document.createElementNS(ns, "pattern");
+    pattern.setAttribute("id", "nb-event-hatch");
+    pattern.setAttribute("patternUnits", "userSpaceOnUse");
+    pattern.setAttribute("width", "7");
+    pattern.setAttribute("height", "7");
+    const d1 = document.createElementNS(ns, "path");
+    d1.setAttribute("d", "M0 7 L7 0");
+    d1.setAttribute("stroke", "#c9930a");
+    d1.setAttribute("stroke-width", "1.7");
+    pattern.appendChild(d1);
+    defs.appendChild(pattern);
+  }
+
+  function eventStyle(feature) {
+    if (state.mode === "terrain") return { stroke: false, fill: true, fillColor: "url(#nb-event-hatch)", fillOpacity: 0, opacity: 0, interactive: false };
+    return {
+      stroke: true,
+      color: "#8a6108",
+      weight: 2,
+      opacity: 0.95,
+      fill: true,
+      fillColor: "url(#nb-event-hatch)",
+      fillOpacity: 0.5,
+      interactive: false,
+    };
   }
 
   function revoltStyle(feature) {
@@ -5547,6 +5602,7 @@ const claim = claimOf(nation);
     dropLayer(state.changeLayer);
     dropLayer(state.occLayer);
     dropLayer(state.revoltLayer);
+    dropLayer(state.eventLayer);
     dropLayer(state.workLayer);
     dropLayer(state.workMarkers);
     dropLayer(state.fogLayer);
@@ -5554,6 +5610,7 @@ const claim = claimOf(nation);
     state.changeLayer = null;
     state.occLayer = null;
     state.revoltLayer = null;
+    state.eventLayer = null;
     state.workLayer = null;
     state.workMarkers = null;
     state.workMarkerKey = null;
@@ -5662,6 +5719,35 @@ const claim = claimOf(nation);
       if (state.overlays.revolts) state.revoltLayer.addTo(map);
       installRevoltPattern();
       state.revoltLayer.setStyle(revoltStyle);
+    }
+
+    const eventFeatures = [];
+    (view.events || []).forEach(function (row) {
+      const id = row.province;
+      if (view.concealedProvinces[id]) return;
+      const prov = state.provinces.get(id);
+      if (!provinceIsPublic(id, prov)) return;
+      const feature = provinceFeature(id, {
+        role: "event",
+        id: id,
+        owner: legalOwnerId(id, prov),
+      });
+      if (feature) eventFeatures.push(feature);
+    });
+    if (eventFeatures.length) {
+      state.eventLayer = L.geoJSON(
+        { type: "FeatureCollection", features: eventFeatures },
+        {
+          pane: "history",
+          renderer: state.historyRenderer,
+          smoothFactor: 0,
+          interactive: false,
+          style: eventStyle,
+        }
+      );
+      if (state.overlays.events) state.eventLayer.addTo(map);
+      installEventPattern();
+      state.eventLayer.setStyle(eventStyle);
     }
 
     if (view.works.length) {
@@ -5793,12 +5879,17 @@ const claim = claimOf(nation);
       state.revoltLayer.setStyle(revoltStyle);
       installRevoltPattern();
     }
+    if (state.eventLayer) {
+      state.eventLayer.setStyle(eventStyle);
+      installEventPattern();
+    }
     refreshWorkMarkers();
   }
 
   function syncHistoryOverlays() {
     setOn(state.occLayer, !!state.overlays.occupied);
     setOn(state.revoltLayer, !!state.overlays.revolts);
+    setOn(state.eventLayer, !!state.overlays.events);
     setOn(state.battleLayer, !!state.overlays.markers);
   }
 
