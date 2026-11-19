@@ -564,8 +564,11 @@ body.has-timeline #depth-legend {
   margin-top: 6px;
   width: 196px;
   /* Cap the height so the expanded panel never reaches the bottom-right
-     furniture (depth legend, scale bar, timeline); it scrolls internally. */
-  max-height: calc(100dvh - var(--header-h) - 195px);
+     furniture (depth legend, scale bar, timeline); it scrolls internally.
+     The allowance covers the whole top-right control stack above the panel
+     (minimap + toggles, ~293px measured from the viewport top to the
+     panel's top edge) plus ~150px of clearance at the bottom. */
+  max-height: calc(100dvh - var(--header-h) - 385px);
   overflow-y: auto;
   overscroll-behavior: contain;
   padding: 8px 10px 10px;
