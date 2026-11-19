@@ -304,6 +304,7 @@
     var end = list.length ? Math.max(0, Math.min(index | 0, list.length - 1)) : -1;
     var owners = {};
     var occupations = [];
+    var revolts = [];
     var colonies = {};
     var integrated = {};
     var revealedProvinces = {};
@@ -433,6 +434,16 @@
         occupations = nextOcc;
       }
 
+      if (has(snap, "revolts")) {
+        var nextRev = [];
+        (snap.revolts || []).forEach(function (row) {
+          var id = num(row && row.province != null ? row.province : row);
+          if (id == null) return;
+          nextRev.push(id);
+        });
+        revolts = nextRev;
+      }
+
       if (has(snap, "markers")) {
         var nextMarks = [];
         (snap.markers || []).forEach(function (row) {
@@ -508,6 +519,7 @@
       renames: renames,
       alliances: alliances,
       occupations: occupations,
+      revolts: revolts,
       colonies: colonies,
       revealedProvinces: revealedProvinces,
       revealedSeas: revealedSeas,
