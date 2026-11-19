@@ -563,6 +563,11 @@ body.has-timeline #depth-legend {
 .nb-layers-panel {
   margin-top: 6px;
   width: 196px;
+  /* Cap the height so the expanded panel never reaches the bottom-right
+     furniture (depth legend, scale bar, timeline); it scrolls internally. */
+  max-height: calc(100dvh - var(--header-h) - 195px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   padding: 8px 10px 10px;
   background: rgba(11, 26, 74, 0.96);
   color: var(--silver);
