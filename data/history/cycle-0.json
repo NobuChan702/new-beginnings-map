@@ -1,396 +1,436 @@
 {
-  "id": "cycle-0",
-  "cycle": 0,
-  "label": "Start (Cycle 0)",
-  "transfers": [
-    {
-      "province": 2200,
-      "owner": 276
-    },
-    {
-      "province": 2254,
-      "owner": 276
-    },
-    {
-      "province": 2206,
-      "owner": 210
-    },
-    {
-      "province": 2218,
-      "owner": 210
-    },
-    {
-      "province": 2230,
-      "owner": 210
-    },
-    {
-      "province": 2252,
-      "owner": 210
-    },
-    {
-      "province": 2263,
-      "owner": 210
-    },
-    {
-      "province": 2286,
-      "owner": 210
-    },
-    {
-      "province": 2117,
-      "owner": 368
-    },
-    {
-      "province": 2120,
-      "owner": 368
-    },
-    {
-      "province": 2123,
-      "owner": 368
-    },
-    {
-      "province": 2124,
-      "owner": 368
-    },
-    {
-      "province": 2125,
-      "owner": 368
-    },
-    {
-      "province": 2127,
-      "owner": 368
-    },
-    {
-      "province": 2129,
-      "owner": 368
-    },
-    {
-      "province": 2353,
-      "owner": 368
-    },
-    {
-      "province": 1720,
-      "owner": 161
-    },
-    {
-      "province": 2203,
-      "owner": 275
-    },
-    {
-      "province": 2213,
-      "owner": 275
-    },
-    {
-      "province": 2217,
-      "owner": 275
-    },
-    {
-      "province": 2232,
-      "owner": 275
-    },
-    {
-      "province": 2242,
-      "owner": 275
-    },
-    {
-      "province": 2260,
-      "owner": 275
-    },
-    {
-      "province": 2267,
-      "owner": 275
-    },
-    {
-      "province": 2716,
-      "owner": 339
-    },
-    {
-      "province": 2717,
-      "owner": 339
-    },
-    {
-      "province": 2733,
-      "owner": 339
-    },
-    {
-      "province": 2202,
-      "owner": 22
-    },
-    {
-      "province": 2209,
-      "owner": 22
-    },
-    {
-      "province": 2215,
-      "owner": 22
-    },
-    {
-      "province": 2221,
-      "owner": 22
-    },
-    {
-      "province": 2247,
-      "owner": 22
-    },
-    {
-      "province": 2713,
-      "owner": 22
-    },
-    {
-      "province": 2802,
-      "owner": 22
-    },
-    {
-      "province": 2803,
-      "owner": 22
-    },
-    {
-      "province": 2881,
-      "owner": 22
-    },
-    {
-      "province": 2882,
-      "owner": 22
-    },
-    {
-      "province": 2899,
-      "owner": 22
-    },
-    {
-      "province": 3009,
-      "owner": 22
-    },
-    {
-      "province": 1314,
-      "owner": 302
-    },
-    {
-      "province": 1327,
-      "owner": 302
-    },
-    {
-      "province": 1341,
-      "owner": 302
-    },
-    {
-      "province": 3039,
-      "owner": 107
-    },
-    {
-      "province": 3044,
-      "owner": 107
-    },
-    {
-      "province": 3047,
-      "owner": 107
-    },
-    {
-      "province": 3051,
-      "owner": 107
-    },
-    {
-      "province": 2214,
-      "owner": 209
-    },
-    {
-      "province": 2219,
-      "owner": 209
-    },
-    {
-      "province": 2228,
-      "owner": 209
-    },
-    {
-      "province": 2229,
-      "owner": 209
-    },
-    {
-      "province": 2243,
-      "owner": 209
-    },
-    {
-      "province": 2248,
-      "owner": 209
-    },
-    {
-      "province": 2250,
-      "owner": 209
-    },
-    {
-      "province": 2255,
-      "owner": 209
-    },
-    {
-      "province": 2271,
-      "owner": 209
-    },
-    {
-      "province": 2280,
-      "owner": 209
-    },
-    {
-      "province": 2196,
-      "owner": 209
-    },
-    {
-      "province": 57,
-      "owner": 31
-    },
-    {
-      "province": 883,
-      "owner": 352
-    },
-    {
-      "province": 897,
-      "owner": 352
-    },
-    {
-      "province": 2729,
-      "owner": 218
-    },
-    {
-      "province": 2732,
-      "owner": 218
-    },
-    {
-      "province": 2735,
-      "owner": 218
-    },
-    {
-      "owner": 150,
-      "province": 2212
-    },
-    {
-      "owner": 150,
-      "province": 2220
-    },
-    {
-      "owner": 150,
-      "province": 2223
-    },
-    {
-      "owner": 150,
-      "province": 2231
-    },
-    {
-      "owner": 150,
-      "province": 2240
-    },
-    {
-      "owner": 150,
-      "province": 2257
-    },
-    {
-      "owner": 150,
-      "province": 2277
-    },
-    {
-      "owner": 367,
-      "province": 2122
-    },
-    {
-      "owner": 367,
-      "province": 2130
-    },
-    {
-      "owner": 367,
-      "province": 2475
-    },
-    {
-      "owner": 83,
-      "province": 1543
-    },
-    {
-      "owner": 83,
-      "province": 1546
-    },
-    {
-      "owner": 83,
-      "province": 1547
-    },
-    {
-      "owner": 83,
-      "province": 1548
-    },
-    {
-      "owner": 83,
-      "province": 1549
-    },
-    {
-      "owner": 83,
-      "province": 1581
-    },
-    {
-      "owner": 83,
-      "province": 1613
-    },
-    {
-      "owner": 83,
-      "province": 1616
-    },
-    {
-      "owner": 83,
-      "province": 1619
-    },
-    {
-      "owner": 83,
-      "province": 1623
-    },
-    {
-      "owner": 83,
-      "province": 1628
-    },
-    {
-      "owner": 83,
-      "province": 1637
-    },
-    {
-      "owner": 83,
-      "province": 1642
-    },
-    {
-      "owner": 83,
-      "province": 1647
-    },
-    {
-      "owner": 83,
-      "province": 1654
-    },
-    {
-      "owner": 83,
-      "province": 1658
-    },
-    {
-      "owner": 83,
-      "province": 1664
-    },
-    {
-      "owner": 83,
-      "province": 1668
-    },
-    {
-      "owner": 286,
-      "province": 2949
-    },
-    {
-      "owner": 286,
-      "province": 2950
-    },
-    {
-      "owner": 286,
-      "province": 2964
-    },
-    {
-      "owner": 286,
-      "province": 2965
-    },
-    {
-      "owner": 286,
-      "province": 2972
-    },
-    {
-      "owner": 286,
-      "province": 2980
-    }
-  ],
-  "alliances": []
+ "id": "cycle-0",
+ "cycle": 0,
+ "label": "Start (Cycle 0)",
+ "transfers": [
+  {
+   "province": 2200,
+   "owner": 276
+  },
+  {
+   "province": 2254,
+   "owner": 276
+  },
+  {
+   "province": 2206,
+   "owner": 210
+  },
+  {
+   "province": 2218,
+   "owner": 210
+  },
+  {
+   "province": 2230,
+   "owner": 210
+  },
+  {
+   "province": 2252,
+   "owner": 210
+  },
+  {
+   "province": 2263,
+   "owner": 210
+  },
+  {
+   "province": 2286,
+   "owner": 210
+  },
+  {
+   "province": 2117,
+   "owner": 368
+  },
+  {
+   "province": 2120,
+   "owner": 368
+  },
+  {
+   "province": 2123,
+   "owner": 368
+  },
+  {
+   "province": 2124,
+   "owner": 368
+  },
+  {
+   "province": 2125,
+   "owner": 368
+  },
+  {
+   "province": 2127,
+   "owner": 368
+  },
+  {
+   "province": 2129,
+   "owner": 368
+  },
+  {
+   "province": 2353,
+   "owner": 368
+  },
+  {
+   "province": 1720,
+   "owner": 161
+  },
+  {
+   "province": 2203,
+   "owner": 275
+  },
+  {
+   "province": 2213,
+   "owner": 275
+  },
+  {
+   "province": 2217,
+   "owner": 275
+  },
+  {
+   "province": 2232,
+   "owner": 275
+  },
+  {
+   "province": 2242,
+   "owner": 275
+  },
+  {
+   "province": 2260,
+   "owner": 275
+  },
+  {
+   "province": 2267,
+   "owner": 275
+  },
+  {
+   "province": 2716,
+   "owner": 339
+  },
+  {
+   "province": 2717,
+   "owner": 339
+  },
+  {
+   "province": 2733,
+   "owner": 339
+  },
+  {
+   "province": 2202,
+   "owner": 22
+  },
+  {
+   "province": 2209,
+   "owner": 22
+  },
+  {
+   "province": 2215,
+   "owner": 22
+  },
+  {
+   "province": 2221,
+   "owner": 22
+  },
+  {
+   "province": 2247,
+   "owner": 22
+  },
+  {
+   "province": 2713,
+   "owner": 22
+  },
+  {
+   "province": 2802,
+   "owner": 22
+  },
+  {
+   "province": 2803,
+   "owner": 22
+  },
+  {
+   "province": 2881,
+   "owner": 22
+  },
+  {
+   "province": 2882,
+   "owner": 22
+  },
+  {
+   "province": 2899,
+   "owner": 22
+  },
+  {
+   "province": 3009,
+   "owner": 22
+  },
+  {
+   "province": 1314,
+   "owner": 302
+  },
+  {
+   "province": 1327,
+   "owner": 302
+  },
+  {
+   "province": 1341,
+   "owner": 302
+  },
+  {
+   "province": 3039,
+   "owner": 107
+  },
+  {
+   "province": 3044,
+   "owner": 107
+  },
+  {
+   "province": 3047,
+   "owner": 107
+  },
+  {
+   "province": 3051,
+   "owner": 107
+  },
+  {
+   "province": 2214,
+   "owner": 209
+  },
+  {
+   "province": 2219,
+   "owner": 209
+  },
+  {
+   "province": 2228,
+   "owner": 209
+  },
+  {
+   "province": 2229,
+   "owner": 209
+  },
+  {
+   "province": 2243,
+   "owner": 209
+  },
+  {
+   "province": 2248,
+   "owner": 209
+  },
+  {
+   "province": 2250,
+   "owner": 209
+  },
+  {
+   "province": 2255,
+   "owner": 209
+  },
+  {
+   "province": 2271,
+   "owner": 209
+  },
+  {
+   "province": 2280,
+   "owner": 209
+  },
+  {
+   "province": 2196,
+   "owner": 209
+  },
+  {
+   "province": 57,
+   "owner": 31
+  },
+  {
+   "province": 883,
+   "owner": 352
+  },
+  {
+   "province": 897,
+   "owner": 352
+  },
+  {
+   "province": 2729,
+   "owner": 218
+  },
+  {
+   "province": 2732,
+   "owner": 218
+  },
+  {
+   "province": 2735,
+   "owner": 218
+  },
+  {
+   "owner": 150,
+   "province": 2212
+  },
+  {
+   "owner": 150,
+   "province": 2220
+  },
+  {
+   "owner": 150,
+   "province": 2223
+  },
+  {
+   "owner": 150,
+   "province": 2231
+  },
+  {
+   "owner": 150,
+   "province": 2240
+  },
+  {
+   "owner": 150,
+   "province": 2257
+  },
+  {
+   "owner": 150,
+   "province": 2277
+  },
+  {
+   "owner": 367,
+   "province": 2122
+  },
+  {
+   "owner": 367,
+   "province": 2130
+  },
+  {
+   "owner": 367,
+   "province": 2475
+  },
+  {
+   "owner": 83,
+   "province": 1543
+  },
+  {
+   "owner": 83,
+   "province": 1546
+  },
+  {
+   "owner": 83,
+   "province": 1547
+  },
+  {
+   "owner": 83,
+   "province": 1548
+  },
+  {
+   "owner": 83,
+   "province": 1549
+  },
+  {
+   "owner": 83,
+   "province": 1581
+  },
+  {
+   "owner": 83,
+   "province": 1613
+  },
+  {
+   "owner": 83,
+   "province": 1616
+  },
+  {
+   "owner": 83,
+   "province": 1619
+  },
+  {
+   "owner": 83,
+   "province": 1623
+  },
+  {
+   "owner": 83,
+   "province": 1628
+  },
+  {
+   "owner": 83,
+   "province": 1637
+  },
+  {
+   "owner": 83,
+   "province": 1642
+  },
+  {
+   "owner": 83,
+   "province": 1647
+  },
+  {
+   "owner": 83,
+   "province": 1654
+  },
+  {
+   "owner": 83,
+   "province": 1658
+  },
+  {
+   "owner": 83,
+   "province": 1664
+  },
+  {
+   "owner": 83,
+   "province": 1668
+  },
+  {
+   "owner": 286,
+   "province": 2949
+  },
+  {
+   "owner": 286,
+   "province": 2950
+  },
+  {
+   "owner": 286,
+   "province": 2964
+  },
+  {
+   "owner": 286,
+   "province": 2965
+  },
+  {
+   "owner": 286,
+   "province": 2972
+  },
+  {
+   "owner": 286,
+   "province": 2980
+  },
+  {
+   "owner": 112,
+   "province": 483
+  },
+  {
+   "owner": 112,
+   "province": 485
+  },
+  {
+   "owner": 112,
+   "province": 501
+  },
+  {
+   "owner": 112,
+   "province": 503
+  },
+  {
+   "owner": 112,
+   "province": 507
+  },
+  {
+   "owner": 112,
+   "province": 519
+  },
+  {
+   "owner": 112,
+   "province": 526
+  },
+  {
+   "owner": 112,
+   "province": 545
+  },
+  {
+   "owner": 112,
+   "province": 550
+  },
+  {
+   "owner": 112,
+   "province": 1019
+  }
+ ],
+ "alliances": []
 }

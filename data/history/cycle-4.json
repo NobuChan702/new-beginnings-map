@@ -1,1 +1,695 @@
-{"alliances":[{"bloc":"Verillian Empire","nation":"Verillian Empire","role":"leader"},{"bloc":"Verillian Empire","nation":"Ulgaltel","role":"vassal"},{"bloc":"Verillian Empire","nation":"Valenia","role":"vassal"},{"bloc":"Verillian Empire","nation":"Onvara","role":"vassal"},{"bloc":"Basileia Rhomania","nation":"Basileia Rhomania","role":"leader"},{"bloc":"Basileia Rhomania","nation":"Ethitham","role":"vassal"},{"bloc":"Basileia Rhomania","nation":"Quaamryn","role":"vassal"},{"bloc":"Basileia Rhomania","nation":"Zaniorzan","role":"vassal"},{"bloc":"Basileia Rhomania","nation":"Torshaqua","role":"vassal"},{"bloc":"Basileia Rhomania","nation":"Morelacai","role":"vassal"},{"bloc":"The Sevarian League","nation":"The Sevarian League","role":"leader"},{"bloc":"The Sevarian League","nation":"Halvenbre","role":"vassal"},{"bloc":"Holy Order of Eternea","nation":"Holy Order of Eternea","role":"leader"},{"bloc":"Holy Order of Eternea","nation":"Rurukas","role":"vassal"},{"bloc":"Holy Order of Eternea","nation":"Onpraryn","role":"vassal"},{"bloc":"Great Yuan","nation":"Great Yuan","role":"leader"},{"bloc":"Great Yuan","nation":"Nobarven","role":"vassal"},{"bloc":"The Iron North + Zanter","nation":"The Iron North","role":"ally"},{"bloc":"The Iron North + Zanter","nation":"Zanter","role":"ally"},{"bloc":"Cold Iron Alliance + Amsurior","nation":"Cold Iron Alliance","role":"ally"},{"bloc":"Cold Iron Alliance + Amsurior","nation":"Amsurior","role":"ally"},{"bloc":"Quaethmor + Kasosttel","nation":"Quaethmor","role":"ally"},{"bloc":"Quaethmor + Kasosttel","nation":"Kasosttel","role":"ally"},{"bloc":"Holy Order of Eternea","nation":"Kali","role":"ally"}],"cycle":4,"id":"cycle-4","label":"Cycle 4 (1103)","transfers":[{"owner":21,"province":2212},{"owner":21,"province":2220},{"owner":21,"province":2223},{"owner":21,"province":2231},{"owner":21,"province":2240},{"owner":21,"province":2257},{"owner":21,"province":2277},{"owner":229,"province":2122},{"owner":229,"province":2130},{"owner":229,"province":2475},{"owner":23,"province":1543},{"owner":23,"province":1546},{"owner":23,"province":1547},{"owner":23,"province":1548},{"owner":23,"province":1549},{"owner":23,"province":1581},{"owner":23,"province":1613},{"owner":23,"province":1616},{"owner":23,"province":1619},{"owner":23,"province":1623},{"owner":23,"province":1628},{"owner":23,"province":1637},{"owner":23,"province":1642},{"owner":23,"province":1647},{"owner":23,"province":1654},{"owner":23,"province":1658},{"owner":23,"province":1664},{"owner":23,"province":1668},{"owner":37,"province":2949},{"owner":37,"province":2950},{"owner":37,"province":2964},{"owner":37,"province":2965},{"owner":37,"province":2972},{"owner":37,"province":2980}],"occupations":[{"occupier":12,"province":1345,"war":"Marbre-Torvonob"},{"occupier":20,"province":25,"war":"Pranobka-Surtelcai"},{"occupier":40,"province":950,"war":"Miradorpra-Nobgamar"}],"revolts":[],"events":[{"province":1072,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1073,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1074,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1075,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1137,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1138,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1139,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1140,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1141,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1153,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1155,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1157,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1158,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1163,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1173,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1179,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1222,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1223,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1224,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1225,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1226,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1227,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1228,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1229,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1230,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1150,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1154,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1161,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1168,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1169,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1176,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":1178,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":403,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":415,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":416,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":417,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":420,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":426,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":438,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":909,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":910,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":911,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":912,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":913,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":402,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":404,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":406,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":408,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":414,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":421,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":424,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":440,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":446,"title":"Plague","text":"Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."},{"province":499,"title":"Hard Bargain","text":"Foreign merchants drive a hard bargain over food and timber."},{"province":1060,"title":"A Merchant's Gift","text":"A grateful merchant guild has made a gift to the crown."},{"province":7,"title":"Popular Festival","text":"The people call for a grand festival this year."},{"province":1627,"title":"Mercenary Offer","text":"A mercenary captain offers his company for hire."},{"province":2246,"title":"Peasant Grievance","text":"Peasants have marched with grievances over food."},{"province":1333,"title":"Volunteers","text":"Villagers have volunteered to serve - a company of levies raised free."},{"province":1228,"title":"Fishing Bounty","text":"Shoals of fish crowd the coasts - a rich catch this year."},{"province":1574,"title":"Peasant Grievance","text":"Peasants have marched with grievances over food."},{"province":2752,"title":"Volunteers","text":"Villagers have volunteered to serve - a company of levies raised free."},{"province":116,"title":"Iron Seam","text":"Miners have struck a small seam of iron."},{"province":1473,"title":"Fishing Bounty","text":"Shoals of fish crowd the coasts - a rich catch this year."},{"province":894,"title":"Deserters","text":"Soldiers have been slipping away in the night."},{"province":1411,"title":"Peasant Grievance","text":"Peasants have marched with grievances over food."},{"province":192,"title":"Peasant Grievance","text":"Peasants have marched with grievances over food."},{"province":339,"title":"Volunteers","text":"Villagers have volunteered to serve - a company of levies raised free."},{"province":2720,"title":"Smugglers","text":"Smugglers are dodging the tolls along the coast."},{"province":2690,"title":"Mine Collapse","text":"One of the realm's mines has caved in, with workers lost."},{"province":2905,"title":"Wandering Monks","text":"Wandering monks ask leave to build a monastery."},{"province":1025,"title":"Fishing Bounty","text":"Shoals of fish crowd the coasts - a rich catch this year."},{"province":129,"title":"Wealthy Pilgrims","text":"Pilgrims flock to a shrine in the realm, leaving rich offerings."},{"province":2793,"title":"Fishing Bounty","text":"Shoals of fish crowd the coasts - a rich catch this year."}]}
+{
+ "alliances": [
+  {
+   "bloc": "Verillian Empire",
+   "nation": "Verillian Empire",
+   "role": "leader"
+  },
+  {
+   "bloc": "Verillian Empire",
+   "nation": "Ulgaltel",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Verillian Empire",
+   "nation": "Valenia",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Verillian Empire",
+   "nation": "Onvara",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Basileia Rhomania",
+   "nation": "Basileia Rhomania",
+   "role": "leader"
+  },
+  {
+   "bloc": "Basileia Rhomania",
+   "nation": "Ethitham",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Basileia Rhomania",
+   "nation": "Quaamryn",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Basileia Rhomania",
+   "nation": "Zaniorzan",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Basileia Rhomania",
+   "nation": "Torshaqua",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Basileia Rhomania",
+   "nation": "Morelacai",
+   "role": "vassal"
+  },
+  {
+   "bloc": "The Sevarian League",
+   "nation": "The Sevarian League",
+   "role": "leader"
+  },
+  {
+   "bloc": "The Sevarian League",
+   "nation": "Halvenbre",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Holy Order of Eternea",
+   "nation": "Holy Order of Eternea",
+   "role": "leader"
+  },
+  {
+   "bloc": "Holy Order of Eternea",
+   "nation": "Rurukas",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Holy Order of Eternea",
+   "nation": "Onpraryn",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Great Yuan",
+   "nation": "Great Yuan",
+   "role": "leader"
+  },
+  {
+   "bloc": "Great Yuan",
+   "nation": "Nobarven",
+   "role": "vassal"
+  },
+  {
+   "bloc": "The Iron North + Zanter",
+   "nation": "The Iron North",
+   "role": "ally"
+  },
+  {
+   "bloc": "The Iron North + Zanter",
+   "nation": "Zanter",
+   "role": "ally"
+  },
+  {
+   "bloc": "Cold Iron Alliance + Amsurior",
+   "nation": "Cold Iron Alliance",
+   "role": "ally"
+  },
+  {
+   "bloc": "Cold Iron Alliance + Amsurior",
+   "nation": "Amsurior",
+   "role": "ally"
+  },
+  {
+   "bloc": "Quaethmor + Kasosttel",
+   "nation": "Quaethmor",
+   "role": "ally"
+  },
+  {
+   "bloc": "Quaethmor + Kasosttel",
+   "nation": "Kasosttel",
+   "role": "ally"
+  },
+  {
+   "bloc": "Holy Order of Eternea",
+   "nation": "Kali",
+   "role": "ally"
+  }
+ ],
+ "cycle": 4,
+ "id": "cycle-4",
+ "label": "Cycle 4 (1103)",
+ "transfers": [
+  {
+   "owner": 21,
+   "province": 2212
+  },
+  {
+   "owner": 21,
+   "province": 2220
+  },
+  {
+   "owner": 21,
+   "province": 2223
+  },
+  {
+   "owner": 21,
+   "province": 2231
+  },
+  {
+   "owner": 21,
+   "province": 2240
+  },
+  {
+   "owner": 21,
+   "province": 2257
+  },
+  {
+   "owner": 21,
+   "province": 2277
+  },
+  {
+   "owner": 229,
+   "province": 2122
+  },
+  {
+   "owner": 229,
+   "province": 2130
+  },
+  {
+   "owner": 229,
+   "province": 2475
+  },
+  {
+   "owner": 23,
+   "province": 1543
+  },
+  {
+   "owner": 23,
+   "province": 1546
+  },
+  {
+   "owner": 23,
+   "province": 1547
+  },
+  {
+   "owner": 23,
+   "province": 1548
+  },
+  {
+   "owner": 23,
+   "province": 1549
+  },
+  {
+   "owner": 23,
+   "province": 1581
+  },
+  {
+   "owner": 23,
+   "province": 1613
+  },
+  {
+   "owner": 23,
+   "province": 1616
+  },
+  {
+   "owner": 23,
+   "province": 1619
+  },
+  {
+   "owner": 23,
+   "province": 1623
+  },
+  {
+   "owner": 23,
+   "province": 1628
+  },
+  {
+   "owner": 23,
+   "province": 1637
+  },
+  {
+   "owner": 23,
+   "province": 1642
+  },
+  {
+   "owner": 23,
+   "province": 1647
+  },
+  {
+   "owner": 23,
+   "province": 1654
+  },
+  {
+   "owner": 23,
+   "province": 1658
+  },
+  {
+   "owner": 23,
+   "province": 1664
+  },
+  {
+   "owner": 23,
+   "province": 1668
+  },
+  {
+   "owner": 37,
+   "province": 2949
+  },
+  {
+   "owner": 37,
+   "province": 2950
+  },
+  {
+   "owner": 37,
+   "province": 2964
+  },
+  {
+   "owner": 37,
+   "province": 2965
+  },
+  {
+   "owner": 37,
+   "province": 2972
+  },
+  {
+   "owner": 37,
+   "province": 2980
+  },
+  {
+   "owner": 25,
+   "province": 483
+  },
+  {
+   "owner": 25,
+   "province": 485
+  },
+  {
+   "owner": 25,
+   "province": 501
+  },
+  {
+   "owner": 25,
+   "province": 503
+  },
+  {
+   "owner": 25,
+   "province": 507
+  },
+  {
+   "owner": 25,
+   "province": 519
+  },
+  {
+   "owner": 25,
+   "province": 526
+  },
+  {
+   "owner": 25,
+   "province": 545
+  },
+  {
+   "owner": 25,
+   "province": 550
+  },
+  {
+   "owner": 25,
+   "province": 1019
+  }
+ ],
+ "occupations": [
+  {
+   "occupier": 12,
+   "province": 1345,
+   "war": "Marbre-Torvonob"
+  },
+  {
+   "occupier": 20,
+   "province": 25,
+   "war": "Pranobka-Surtelcai"
+  },
+  {
+   "occupier": 40,
+   "province": 950,
+   "war": "Miradorpra-Nobgamar"
+  }
+ ],
+ "revolts": [],
+ "events": [
+  {
+   "province": 1072,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1073,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1074,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1075,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1137,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1138,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1139,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1140,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1141,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1153,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1155,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1157,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1158,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1163,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1173,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1179,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1222,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1223,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1224,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1225,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1226,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1227,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1228,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1229,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1230,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1150,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1154,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1161,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1168,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1169,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1176,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 1178,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 403,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 415,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 416,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 417,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 420,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 426,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 438,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 909,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 910,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 911,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 912,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 913,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 402,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 404,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 406,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 408,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 414,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 421,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 424,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 440,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 446,
+   "title": "Plague",
+   "text": "Sickness spreads through the Marmorbre archipelago and the coasts facing it. Manpower recovery is reduced by a tenth this cycle."
+  },
+  {
+   "province": 499,
+   "title": "Hard Bargain",
+   "text": "Foreign merchants drive a hard bargain over food and timber."
+  },
+  {
+   "province": 1060,
+   "title": "A Merchant's Gift",
+   "text": "A grateful merchant guild has made a gift to the crown."
+  },
+  {
+   "province": 7,
+   "title": "Popular Festival",
+   "text": "The people call for a grand festival this year."
+  },
+  {
+   "province": 1627,
+   "title": "Mercenary Offer",
+   "text": "A mercenary captain offers his company for hire."
+  },
+  {
+   "province": 2246,
+   "title": "Peasant Grievance",
+   "text": "Peasants have marched with grievances over food."
+  },
+  {
+   "province": 1333,
+   "title": "Volunteers",
+   "text": "Villagers have volunteered to serve - a company of levies raised free."
+  },
+  {
+   "province": 1228,
+   "title": "Fishing Bounty",
+   "text": "Shoals of fish crowd the coasts - a rich catch this year."
+  },
+  {
+   "province": 1574,
+   "title": "Peasant Grievance",
+   "text": "Peasants have marched with grievances over food."
+  },
+  {
+   "province": 2752,
+   "title": "Volunteers",
+   "text": "Villagers have volunteered to serve - a company of levies raised free."
+  },
+  {
+   "province": 116,
+   "title": "Iron Seam",
+   "text": "Miners have struck a small seam of iron."
+  },
+  {
+   "province": 1473,
+   "title": "Fishing Bounty",
+   "text": "Shoals of fish crowd the coasts - a rich catch this year."
+  },
+  {
+   "province": 894,
+   "title": "Deserters",
+   "text": "Soldiers have been slipping away in the night."
+  },
+  {
+   "province": 1411,
+   "title": "Peasant Grievance",
+   "text": "Peasants have marched with grievances over food."
+  },
+  {
+   "province": 192,
+   "title": "Peasant Grievance",
+   "text": "Peasants have marched with grievances over food."
+  },
+  {
+   "province": 339,
+   "title": "Volunteers",
+   "text": "Villagers have volunteered to serve - a company of levies raised free."
+  },
+  {
+   "province": 2720,
+   "title": "Smugglers",
+   "text": "Smugglers are dodging the tolls along the coast."
+  },
+  {
+   "province": 2690,
+   "title": "Mine Collapse",
+   "text": "One of the realm's mines has caved in, with workers lost."
+  },
+  {
+   "province": 2905,
+   "title": "Wandering Monks",
+   "text": "Wandering monks ask leave to build a monastery."
+  },
+  {
+   "province": 1025,
+   "title": "Fishing Bounty",
+   "text": "Shoals of fish crowd the coasts - a rich catch this year."
+  },
+  {
+   "province": 129,
+   "title": "Wealthy Pilgrims",
+   "text": "Pilgrims flock to a shrine in the realm, leaving rich offerings."
+  },
+  {
+   "province": 2793,
+   "title": "Fishing Bounty",
+   "text": "Shoals of fish crowd the coasts - a rich catch this year."
+  }
+ ]
+}
