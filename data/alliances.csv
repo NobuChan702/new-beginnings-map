@@ -1,9 +1,25 @@
 bloc,nation,role
 Verillian Empire,Verillian Empire,leader
 Verillian Empire,Ulgaltel,vassal
+Verillian Empire,Valenia,vassal
+Verillian Empire,Onvara,vassal
 Basileia Rhomania,Basileia Rhomania,leader
 Basileia Rhomania,Ethitham,vassal
 Basileia Rhomania,Quaamryn,vassal
 Basileia Rhomania,Zaniorzan,vassal
-Verillian Empire,Valenia,vassal
 Basileia Rhomania,Torshaqua,vassal
+Basileia Rhomania,Morelacai,vassal
+The Sevarian League,The Sevarian League,leader
+The Sevarian League,Halvenbre,vassal
+Holy Order of Eternea,Holy Order of Eternea,leader
+Holy Order of Eternea,Rurukas,vassal
+Holy Order of Eternea,Onpraryn,vassal
+Great Yuan,Great Yuan,leader
+Great Yuan,Nobarven,vassal
+The Iron North + Zanter,The Iron North,ally
+The Iron North + Zanter,Zanter,ally
+Cold Iron Alliance + Amsurior,Cold Iron Alliance,ally
+Cold Iron Alliance + Amsurior,Amsurior,ally
+Quaethmor + Kasosttel,Quaethmor,ally
+Quaethmor + Kasosttel,Kasosttel,ally
+Holy Order of Eternea,Kali,ally
