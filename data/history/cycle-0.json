@@ -254,6 +254,142 @@
     {
       "province": 2735,
       "owner": 218
+    },
+    {
+      "owner": 150,
+      "province": 2212
+    },
+    {
+      "owner": 150,
+      "province": 2220
+    },
+    {
+      "owner": 150,
+      "province": 2223
+    },
+    {
+      "owner": 150,
+      "province": 2231
+    },
+    {
+      "owner": 150,
+      "province": 2240
+    },
+    {
+      "owner": 150,
+      "province": 2257
+    },
+    {
+      "owner": 150,
+      "province": 2277
+    },
+    {
+      "owner": 367,
+      "province": 2122
+    },
+    {
+      "owner": 367,
+      "province": 2130
+    },
+    {
+      "owner": 367,
+      "province": 2475
+    },
+    {
+      "owner": 83,
+      "province": 1543
+    },
+    {
+      "owner": 83,
+      "province": 1546
+    },
+    {
+      "owner": 83,
+      "province": 1547
+    },
+    {
+      "owner": 83,
+      "province": 1548
+    },
+    {
+      "owner": 83,
+      "province": 1549
+    },
+    {
+      "owner": 83,
+      "province": 1581
+    },
+    {
+      "owner": 83,
+      "province": 1613
+    },
+    {
+      "owner": 83,
+      "province": 1616
+    },
+    {
+      "owner": 83,
+      "province": 1619
+    },
+    {
+      "owner": 83,
+      "province": 1623
+    },
+    {
+      "owner": 83,
+      "province": 1628
+    },
+    {
+      "owner": 83,
+      "province": 1637
+    },
+    {
+      "owner": 83,
+      "province": 1642
+    },
+    {
+      "owner": 83,
+      "province": 1647
+    },
+    {
+      "owner": 83,
+      "province": 1654
+    },
+    {
+      "owner": 83,
+      "province": 1658
+    },
+    {
+      "owner": 83,
+      "province": 1664
+    },
+    {
+      "owner": 83,
+      "province": 1668
+    },
+    {
+      "owner": 286,
+      "province": 2949
+    },
+    {
+      "owner": 286,
+      "province": 2950
+    },
+    {
+      "owner": 286,
+      "province": 2964
+    },
+    {
+      "owner": 286,
+      "province": 2965
+    },
+    {
+      "owner": 286,
+      "province": 2972
+    },
+    {
+      "owner": 286,
+      "province": 2980
     }
   ],
   "alliances": []
