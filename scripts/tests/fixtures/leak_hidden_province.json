@@ -1,0 +1,10 @@
+{
+  "fog": {"2": "explored"},
+  "provinces": [
+    {"id": 2, "rgb": [2, 0, 0], "centroid": [300, 40], "terrain": "plains", "coastal": false}
+  ],
+  "raster_ids": [2, 9],
+  "deposits": [],
+  "landmarks": [],
+  "natives": []
+}

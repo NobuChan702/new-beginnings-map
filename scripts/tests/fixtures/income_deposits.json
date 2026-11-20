@@ -1,0 +1,10 @@
+[
+  {"province": 1, "code": "Fe", "name": "Iron", "luxury": false, "worked_by": "Mine", "effect": "+2 iron"},
+  {"province": 2, "code": "Ag", "name": "Silver", "luxury": false, "worked_by": "Mine", "effect": "+5 gold"},
+  {"province": 3, "code": "Gt", "name": "Grain", "luxury": false, "worked_by": "Farm", "effect": "+2 food"},
+  {"province": 4, "code": "Sp", "name": "Spices", "luxury": true, "worked_by": "Market", "effect": "+5 gold"},
+  {"province": 5, "code": "S", "name": "Sulfur", "luxury": false, "worked_by": "Mine", "effect": "+1 iron +1 powder"},
+  {"province": 6, "code": "Na", "name": "Nitre", "luxury": false, "worked_by": "Farm", "effect": "+2 food +1 gold"},
+  {"province": 7, "code": "Wh", "name": "Whales", "luxury": false, "worked_by": "Port", "effect": "+2 gold +1 food"},
+  {"province": 8, "code": "Gm", "name": "Gems", "luxury": true, "worked_by": "Mine", "effect": "+3 gold"}
+]

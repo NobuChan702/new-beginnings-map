@@ -1,7 +1,7 @@
 // Zoom for the New Beginnings map.
 // Zoom 0 shows the whole world. Native resolution is native_zoom in
-// data/meta.json (6 for this sheet). The source image is 12000×5600 at
-// 5.5 km per pixel, so the raster cannot get any sharper than that.
+// data/meta.json. The source image is 5.5 km per pixel, so the raster
+// cannot get any sharper than native zoom. Width and height come from meta.json.
 // overzoomLevels adds close-up steps past that point. Auto, Political, and
 // Depth become a flat board there. Terrain keeps the terrain tiles.
 // Reload the page after editing. A rebuild is not required for these numbers.

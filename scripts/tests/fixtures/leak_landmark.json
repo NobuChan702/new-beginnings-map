@@ -1,0 +1,9 @@
+{
+  "fog": {"2": "charted"},
+  "provinces": [
+    {"id": 2, "rgb": [2, 0, 0], "centroid": [300, 40], "terrain": "steppe", "mix": [["steppe", 100]], "coastal": false}
+  ],
+  "landmarks": [
+    {"id": "rock", "name": "Hidden rock", "province": 2, "x": 300, "y": 40, "charted": false}
+  ]
+}

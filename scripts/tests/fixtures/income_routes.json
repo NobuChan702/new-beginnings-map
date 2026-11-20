@@ -1,0 +1,20 @@
+{
+  "routes": [
+    {
+      "id": "spice-furs",
+      "public": true,
+      "status": "active",
+      "goods": "Spices and Furs",
+      "from": {"nation": "Albion", "settlement": "Haven"},
+      "to": {"nation": "Bor", "settlement": "Quay"}
+    },
+    {
+      "id": "pearls-down",
+      "public": true,
+      "status": "disrupted",
+      "goods": "Pearls",
+      "from": {"nation": "Albion", "settlement": "Haven"},
+      "to": {"nation": "Bor", "settlement": "Quay"}
+    }
+  ]
+}

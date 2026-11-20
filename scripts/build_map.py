@@ -13,9 +13,10 @@ secrecy line), then writes only player-safe outputs:
   close zoom (a flat board, not a sharper copy of the raster)
 - assets/overview.webp, a low-resolution fogged political image
 
-Provinces that touch x < HIDDEN_WEST_OF are omitted. The removed_americas
-block in nations.yaml is ignored. Source files are never copied into the
-output. claims.json and infrastructure.geojson are left untouched.
+Provinces that touch x < HIDDEN_WEST_OF are omitted unless source/reveal/
+names them. The removed_americas block in nations.yaml is ignored. Source
+files are never copied into the output. Width and height come from the
+rasters. claims.json and infrastructure.geojson are left untouched.
 """
 
 from __future__ import annotations
@@ -24,11 +25,13 @@ import json
 import math
 import shutil
 import sys
+import tempfile
 import time
 from collections import defaultdict
 from pathlib import Path
 
 import numpy as np
+import reveal
 import yaml
 from PIL import Image
 
@@ -46,6 +49,19 @@ DEPTH_RGB = {
 }
 DEPTH_LABEL = {80: "shallow", 160: "mid", 240: "deep"}
 BG = (13, 13, 15)
+# Filled by load_published_ids. Inactive means today's western rectangle.
+REVEAL = {
+    "active": False,
+    "revealed_west": False,
+    "bundle_ids": set(),
+    "states": {},
+    "deposits_by_province": {},
+    "hidden_mask": None,
+    "contains": None,
+    "east_origin": None,
+    "layers": None,
+}
+SIGHTED_TINT = "#c4b48a"
 
 
 def log(msg: str) -> None:
@@ -191,10 +207,12 @@ def shallowest_water(ids: np.ndarray, depth: np.ndarray) -> dict[int, int]:
         neigh_depth[dst_y, dst_x] = depth[src_y, src_x]
         neigh_id[dst_y, dst_x] = ids[src_y, src_x]
         mask = land & (neigh_depth > 0) & (neigh_id == 0)
-        # Neighbor column x+dx must sit on the published side of the line.
-        limit = HIDDEN_WEST_OF - dx
-        if limit > 0:
-            mask[:, : min(width, limit)] = False
+        # Neighbor column x+dx must sit on the published side of the line,
+        # unless the bundle has revealed provinces in the old west.
+        if not REVEAL.get("revealed_west"):
+            limit = HIDDEN_WEST_OF - dx
+            if limit > 0:
+                mask[:, : min(width, limit)] = False
         if not mask.any():
             continue
         pids = ids[mask].astype(np.int32)
@@ -239,12 +257,14 @@ def as_num(value) -> int | float:
     return round(number, 1)
 
 
-def write_lookup(ids: np.ndarray, path: Path) -> tuple[int, int]:
+def write_lookup(ids: np.ndarray, path: Path, keep_west: bool = False) -> tuple[int, int]:
     scale = LOOKUP_SCALE
     sampled = ids[scale // 2 :: scale, scale // 2 :: scale].copy()
     # A lookup column is published only when its whole source block is east of the line.
-    west_cols = (HIDDEN_WEST_OF - 1) // scale + 1
-    sampled[:, :west_cols] = 0
+    # A revealed western province keeps the id already stored in the raster.
+    if not keep_west:
+        west_cols = (HIDDEN_WEST_OF - 1) // scale + 1
+        sampled[:, :west_cols] = 0
     red = (sampled & 255).astype(np.uint8)
     green = ((sampled >> 8) & 255).astype(np.uint8)
     blue = np.zeros_like(red)
@@ -253,7 +273,7 @@ def write_lookup(ids: np.ndarray, path: Path) -> tuple[int, int]:
     return int(sampled.shape[1]), int(sampled.shape[0])
 
 
-def edge_mask(ids: np.ndarray) -> np.ndarray:
+def edge_mask(ids: np.ndarray, blank_west: bool = True) -> np.ndarray:
     edge = np.zeros(ids.shape, dtype=bool)
     left = ids[:, :-1]
     right = ids[:, 1:]
@@ -265,7 +285,8 @@ def edge_mask(ids: np.ndarray) -> np.ndarray:
     vert = (up != down) & ((up != 0) | (down != 0))
     edge[:-1, :] |= vert
     edge[1:, :] |= vert
-    edge[:, :HIDDEN_WEST_OF] = False
+    if blank_west:
+        edge[:, :HIDDEN_WEST_OF] = False
     return edge
 
 
@@ -359,8 +380,15 @@ def write_photo_pyramid(arr: np.ndarray, dest: Path, native: int) -> None:
         del view
 
 
-def write_depth_pyramid(dep: np.ndarray, political: np.ndarray, dest: Path, native: int) -> None:
-    if not np.array_equal(dep[:, :HIDDEN_WEST_OF], political[:, :HIDDEN_WEST_OF]):
+def write_depth_pyramid(
+    dep: np.ndarray,
+    political: np.ndarray,
+    dest: Path,
+    native: int,
+    recopy_west: bool = True,
+    hidden_mask: np.ndarray | None = None,
+) -> None:
+    if recopy_west and not np.array_equal(dep[:, :HIDDEN_WEST_OF], political[:, :HIDDEN_WEST_OF]):
         raise SystemExit("depth composite failed to replace the hidden west with fog art")
     if dest.exists():
         shutil.rmtree(dest)
@@ -368,11 +396,15 @@ def write_depth_pyramid(dep: np.ndarray, political: np.ndarray, dest: Path, nati
         started = time.perf_counter()
         scale = 1 << (native - zoom)
         view = np.array(scaled(dep, scale), copy=True)
-        fog = scaled(political, scale)
-        cut = min(view.shape[1], int(math.ceil(HIDDEN_WEST_OF / scale)))
-        view[:, :cut] = fog[:, :cut]
-        if not np.array_equal(view[:, :cut], fog[:, :cut]):
-            raise SystemExit(f"depth tiles at zoom {zoom} would leak past the fog line")
+        fog = scaled(political, scale) if recopy_west or hidden_mask is not None else None
+        if recopy_west:
+            cut = min(view.shape[1], int(math.ceil(HIDDEN_WEST_OF / scale)))
+            view[:, :cut] = fog[:, :cut]
+            if not np.array_equal(view[:, :cut], fog[:, :cut]):
+                raise SystemExit(f"depth tiles at zoom {zoom} would leak past the fog line")
+        if hidden_mask is not None and fog is not None:
+            small = pool_any(hidden_mask, view.shape[0], view.shape[1])
+            view[small] = fog[small]
         count = write_rgb_tiles(view, dest, zoom)
         log(f"  z{zoom}: {count} tiles ({time.perf_counter() - started:.1f}s)")
         del view, fog
@@ -476,6 +508,9 @@ def build_world(paths: dict[str, Path], ids: np.ndarray, allowed: set[int], boxe
                 if pid not in allowed:
                     dropped += 1
                 continue
+            if REVEAL.get("active") and REVEAL["states"].get(pid, "explored") != "explored":
+                dropped += 1
+                continue
             kept.append(pid)
         if dropped:
             log(f"  {nation.get('name')} dropped {dropped} hidden provinces")
@@ -499,7 +534,7 @@ def build_world(paths: dict[str, Path], ids: np.ndarray, allowed: set[int], boxe
             capital = kept[0]
         centroid = by_id[capital]["centroid"]
         cx, cy = float(centroid[0]), float(centroid[1])
-        if cx < HIDDEN_WEST_OF:
+        if cx < HIDDEN_WEST_OF and capital not in (REVEAL.get("bundle_ids") or set()):
             cx = (minx + maxx) / 2
             cy = (miny + maxy) / 2
         tier = str(nation.get("type") or nation.get("tier") or "")
@@ -531,6 +566,17 @@ def build_world(paths: dict[str, Path], ids: np.ndarray, allowed: set[int], boxe
     for pid in sorted(allowed):
         prov = by_id.get(pid)
         terr = terrain_by_id.get(pid, {})
+        if not terr and prov and prov.get("terrain"):
+            mix_raw = prov.get("mix") or {}
+            if isinstance(mix_raw, list):
+                mix_raw = {str(name): value for name, value in mix_raw}
+            terr = {
+                "dominant": prov.get("terrain"),
+                "mix_pct": mix_raw,
+                "river": prov.get("river"),
+                "coastal": prov.get("coastal"),
+                "area_km2": prov.get("area_km2") or 0,
+            }
         mix = terr.get("mix_pct") or {}
         mix_pairs = sorted(
             ((str(k), as_num(v)) for k, v in mix.items() if float(v) >= 1),
@@ -555,7 +601,15 @@ def build_world(paths: dict[str, Path], ids: np.ndarray, allowed: set[int], boxe
             "nation_id": nation_of.get(pid),
             "bbox": [int(box["minx"]), int(box["miny"]), int(box["maxx"]), int(box["maxy"])],
             "xy": xy,
+            "id": pid,
+            "state": REVEAL["states"].get(pid, "explored") if REVEAL.get("active") else "explored",
         }
+        native = (prov or {}).get("native_power")
+        if isinstance(native, str) and native.strip() and record["state"] in {"charted", "explored"}:
+            record["native_power"] = native.strip()
+        region = (prov or {}).get("region")
+        if region and record["state"] == "explored":
+            record["region"] = region
         published_provinces[str(pid)] = record
 
     published_nations.sort(key=lambda n: n["id"])
@@ -585,19 +639,31 @@ def secrecy_check(world: dict, lookup_path: Path, allowed: set[int]) -> None:
             raise SystemExit(f"secrecy: province {pid} points at an unpublished nation")
         bbox = prov.get("bbox") or [HIDDEN_WEST_OF, 0, HIDDEN_WEST_OF, 0]
         xy = prov.get("xy") or [HIDDEN_WEST_OF, 0]
-        if int(bbox[0]) < HIDDEN_WEST_OF or float(xy[0]) < HIDDEN_WEST_OF:
+        west_anchor = int(bbox[0]) < HIDDEN_WEST_OF or float(xy[0]) < HIDDEN_WEST_OF
+        bundle_west = REVEAL.get("bundle_ids") or set()
+        if west_anchor and pid not in bundle_west:
             raise SystemExit(f"secrecy: province {pid} anchor sits in the hidden west")
+        if REVEAL.get("contains") and REVEAL["contains"](float(xy[0]), float(xy[1])):
+            raise SystemExit(f"secrecy: province {pid} anchor sits inside a hidden province")
     for nation in world["nations"]:
         for pid in nation["provinces"]:
             if pid not in allowed:
                 raise SystemExit(f"secrecy: nation {nation['id']} lists hidden province {pid}")
-        if nation["bbox"][0] < HIDDEN_WEST_OF:
+            if REVEAL.get("active") and REVEAL["states"].get(pid) not in (None, "explored"):
+                raise SystemExit(f"secrecy: nation {nation['id']} lists province {pid} before it is explored")
+        owns_revealed_west = any(pid in (REVEAL.get("bundle_ids") or set()) for pid in nation["provinces"])
+        if nation["bbox"][0] < HIDDEN_WEST_OF and not owns_revealed_west:
             raise SystemExit(f"secrecy: nation {nation['id']} bbox crosses the fog line")
     with Image.open(lookup_path) as im:
         lut = np.asarray(im.convert("RGB"))
     got = lut[:, :, 0].astype(np.uint16) + (lut[:, :, 1].astype(np.uint16) << 8)
     west_cols = (HIDDEN_WEST_OF - 1) // LOOKUP_SCALE + 1
-    if int(got[:, :west_cols].sum()) != 0:
+    if REVEAL.get("revealed_west"):
+        west_ids = {int(value) for value in np.unique(got[:, :west_cols])} - {0}
+        stray_west = west_ids - set(REVEAL.get("bundle_ids") or set())
+        if stray_west:
+            raise SystemExit(f"secrecy: province lookup has hidden ids west of the fog line {sorted(stray_west)[:8]}")
+    elif int(got[:, :west_cols].sum()) != 0:
         raise SystemExit("secrecy: province lookup has ids west of the fog line")
     stray = set(int(v) for v in np.unique(got)) - {0} - allowed
     if stray:
@@ -786,8 +852,12 @@ def _smooth_arc(pts: list[tuple[int, int]]) -> list[tuple]:
         smoothed = _chaikin(_densify(simplified, FLAT_DENSIFY, False), FLAT_CHAIKIN, False)
         cleaned = _rdp(smoothed, FLAT_CLEAN)
     rounded = []
+    contains = REVEAL.get("contains") if REVEAL.get("active") else None
     for x, y in cleaned:
-        if x < HIDDEN_WEST_OF:
+        if contains is not None:
+            if contains(float(x), float(y)):
+                raise SystemExit("secrecy: a smoothed outline stepped into a hidden province")
+        elif x < HIDDEN_WEST_OF:
             if HIDDEN_WEST_OF - x > 2:
                 raise SystemExit("secrecy: a smoothed outline stepped into the hidden west")
             x = HIDDEN_WEST_OF
@@ -1014,7 +1084,7 @@ def _polygons_from_rings(rings: list[list]) -> list[list]:
     return polys
 
 
-def _assert_flat_secret(collection: dict, allowed: set[int], width: int, height: int) -> None:
+def _assert_flat_secret(collection: dict, allowed: set[int], width: int, height: int, fog_xs: set[int] | None = None) -> None:
     blob = json.dumps(collection, separators=(",", ":"))
     if "removed_americas" in blob:
         raise SystemExit("secrecy: removed_americas leaked into flat.geojson")
@@ -1025,10 +1095,16 @@ def _assert_flat_secret(collection: dict, allowed: set[int], width: int, height:
         if y < -1 or y > height + 1:
             raise SystemExit(f"secrecy: flat {kind} coordinate is outside the map")
         if kind == "fog":
-            if x not in (0, HIDDEN_WEST_OF):
-                raise SystemExit("secrecy: fog shape is not a plain western rectangle")
+            allowed_x = fog_xs if fog_xs is not None else {0, HIDDEN_WEST_OF}
+            if x not in allowed_x:
+                if fog_xs is None:
+                    raise SystemExit("secrecy: fog shape is not a plain western rectangle")
+                raise SystemExit("secrecy: fog shape is not a plain rectangle")
             return
-        if x < HIDDEN_WEST_OF:
+        if REVEAL.get("active") and REVEAL.get("contains"):
+            if REVEAL["contains"](float(x), float(y)):
+                raise SystemExit(f"secrecy: flat {kind} geometry sits inside a hidden province")
+        elif x < HIDDEN_WEST_OF:
             raise SystemExit(f"secrecy: flat {kind} geometry crosses into the hidden west")
         if x > width + 1:
             raise SystemExit(f"secrecy: flat {kind} coordinate is outside the map")
@@ -1060,7 +1136,15 @@ def _assert_flat_secret(collection: dict, allowed: set[int], width: int, height:
         log(f"  flat layer skipped {len(missing)} tiny provinces")
 
 
-def write_flat_layer(ids: np.ndarray, world: dict, width: int, height: int, political_path: Path, dest: Path) -> None:
+def write_flat_layer(
+    ids: np.ndarray,
+    world: dict,
+    width: int,
+    height: int,
+    political_path: Path,
+    dest: Path,
+    east_origin: int | None = None,
+) -> None:
     """Eastern province fills and nation outlines for zoom levels past the raster.
 
     The source sheet has no pixels finer than native zoom, so the close view is a
@@ -1104,15 +1188,37 @@ def write_flat_layer(ids: np.ndarray, world: dict, width: int, height: int, poli
             },
         }
     ]
+    east_fog = None
+    if east_origin is not None and int(east_origin) < width:
+        east_fog = {
+            "type": "Feature",
+            "properties": {"kind": "fog", "color": _fog_hex(political_path)},
+            "geometry": {
+                "type": "Polygon",
+                "coordinates": [[
+                    [int(east_origin), 0],
+                    [width, 0],
+                    [width, height],
+                    [int(east_origin), height],
+                    [int(east_origin), 0],
+                ]],
+            },
+        }
+        features.append(east_fog)
 
     counts = np.bincount(ids.ravel())
     pids = sorted(int(pid) for pid in world["provinces"])
     province_count = 0
     bad_shape = 0
     for pid in pids:
-        box = world["provinces"][str(pid)]["bbox"]
-        if int(box[0]) < HIDDEN_WEST_OF:
+        record = world["provinces"][str(pid)]
+        box = record.get("bbox")
+        if not box:
+            raise SystemExit(f"secrecy: flat province {pid} has no bbox")
+        bundle_ids = REVEAL.get("bundle_ids") or set()
+        if int(box[0]) < HIDDEN_WEST_OF and pid not in bundle_ids:
             raise SystemExit(f"secrecy: flat province {pid} bbox starts in the hidden west")
+        state = record.get("state") or "explored"
         pixels = int(counts[pid]) if pid < len(counts) else 0
         if pixels < 6:
             continue
@@ -1132,8 +1238,8 @@ def write_flat_layer(ids: np.ndarray, world: dict, width: int, height: int, poli
                 "properties": {
                     "kind": "province",
                     "id": pid,
-                    "nation_id": nation_of.get(pid),
-                    "color": color_of.get(pid, UNCLAIMED_COLOR),
+                    "nation_id": None if state in {"sighted", "charted"} else nation_of.get(pid),
+                    "color": SIGHTED_TINT if state == "sighted" else color_of.get(pid, UNCLAIMED_COLOR),
                 },
                 "geometry": {"type": "MultiPolygon", "coordinates": polys},
             }
@@ -1180,7 +1286,10 @@ def write_flat_layer(ids: np.ndarray, world: dict, width: int, height: int, poli
     )
 
     collection = {"type": "FeatureCollection", "features": features}
-    _assert_flat_secret(collection, set(pids), width, height)
+    fog_xs = None
+    if east_origin is not None and int(east_origin) < width:
+        fog_xs = {0, HIDDEN_WEST_OF, int(east_origin), int(width)}
+    _assert_flat_secret(collection, set(pids), width, height, fog_xs)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_text(json.dumps(collection, separators=(",", ":")) + "\n", encoding="utf-8")
     log(
@@ -1189,24 +1298,418 @@ def write_flat_layer(ids: np.ndarray, world: dict, width: int, height: int, poli
     )
 
 
-def main_flat_only() -> None:
-    """Rebuild data/flat.geojson without touching tiles."""
-    started = time.perf_counter()
-    paths = require_source()
+def _reset_reveal() -> None:
+    REVEAL.clear()
+    REVEAL.update(
+        {
+            "active": False,
+            "revealed_west": False,
+            "bundle_ids": set(),
+            "states": {},
+            "deposits_by_province": {},
+            "hidden_mask": None,
+            "contains": None,
+            "east_origin": None,
+            "layers": {
+                "deposits": [],
+                "landmarks": [],
+                "winds_currents": {"winds": [], "currents": []},
+                "hazards": {"areas": [], "chokepoints": []},
+            },
+            "tmpdir": None,
+        }
+    )
+
+
+def _as_list(value, key: str):
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        rows = value.get(key)
+        if rows is None and key == "deposits":
+            rows = value.get("deposits")
+        return rows or []
+    raise SystemExit(f"secrecy: reveal {key} must be a list")
+
+
+def _province_rows(doc) -> list:
+    if isinstance(doc, dict):
+        return list(doc.get("provinces") or [])
+    if isinstance(doc, list):
+        return list(doc)
+    raise SystemExit("secrecy: provinces json must be an object or a list")
+
+
+def _save_rgb(arr: np.ndarray, path: Path) -> None:
+    Image.fromarray(np.ascontiguousarray(arr), "RGB").save(path)
+
+
+def _read_depth_zones(path: Path, shape: tuple[int, int]) -> np.ndarray | None:
+    """Zone raster (0, 80, 160, 240), or None when the file is already fogged art."""
+    with Image.open(path) as im:
+        gray = np.asarray(im.convert("L"))
+    if gray.shape != shape:
+        return None
+    values = {int(value) for value in np.unique(gray)}
+    if values <= {0, 80, 160, 240}:
+        return gray
+    return None
+
+
+def _numpy_contains(mask: np.ndarray):
+    height, width = mask.shape
+
+    def contains(x: float, y: float) -> bool:
+        ix = int(round(float(x)))
+        iy = int(round(float(y)))
+        saw = False
+        for dy in range(-1, 2):
+            for dx in range(-1, 2):
+                xx = ix + dx
+                yy = iy + dy
+                if xx < 0 or yy < 0 or xx >= width or yy >= height:
+                    continue
+                saw = True
+                if not bool(mask[yy, xx]):
+                    return False
+        return saw
+
+    return contains
+
+
+def _check_hidden_art(name: str, image: np.ndarray, ids: np.ndarray, hidden_mask: np.ndarray, east_origin: int | None) -> None:
+    """Hidden-province pixels must be the parchment fog, not a coastline leak."""
+    if hidden_mask.any():
+        reveal.assert_fog_color(name, image[hidden_mask].reshape(-1, 3).mean(axis=0))
+        sea = (ids == 0) & ~hidden_mask
+        # Sample sea next to hidden land by a coarse shift, so revealed land is not the comparison.
+        near = np.zeros_like(hidden_mask)
+        for dy in (-8, 0, 8):
+            for dx in (-8, 0, 8):
+                if dx == 0 and dy == 0:
+                    continue
+                shifted = np.zeros_like(hidden_mask)
+                src_y = slice(max(dy, 0), image.shape[0] + min(dy, 0))
+                src_x = slice(max(dx, 0), image.shape[1] + min(dx, 0))
+                dst_y = slice(max(-dy, 0), image.shape[0] + min(-dy, 0))
+                dst_x = slice(max(-dx, 0), image.shape[1] + min(-dx, 0))
+                shifted[dst_y, dst_x] = hidden_mask[src_y, src_x]
+                near |= shifted
+        near &= sea
+        if near.any():
+            contrast = abs(float(image[hidden_mask].mean()) - float(image[near].mean()))
+            log(f"  {name} hidden-province fog contrast {contrast:.2f}")
+            if contrast > 12:
+                raise SystemExit(
+                    f"{name} still shows land against sea under the fog "
+                    f"(contrast {contrast:.1f}). Refusing to publish unfogged imagery."
+                )
+    if east_origin is None or east_origin >= image.shape[1]:
+        return
+    strip = image[:, east_origin:]
+    strip_ids = ids[:, east_origin:]
+    strip_hidden = hidden_mask[:, east_origin:]
+    revealed = (strip_ids > 0) & ~strip_hidden
+    if not revealed.any():
+        reveal.assert_fog_color(f"{name} eastern strip", strip.reshape(-1, 3).mean(axis=0))
+    if strip_hidden.any() and (strip_ids == 0).any():
+        contrast = abs(float(strip[strip_hidden].mean()) - float(strip[strip_ids == 0].mean()))
+        log(f"  {name} eastern fog contrast {contrast:.2f}")
+        if contrast > 12:
+            raise SystemExit(
+                f"{name} eastern strip still shows land against sea under the fog "
+                f"(contrast {contrast:.1f}). Refusing to publish unfogged imagery."
+            )
+
+
+def _load_legacy(paths: dict[str, Path]):
     with Image.open(paths["political"]) as im:
         width, height = im.size
-    log(f"Flat layer only, map {width}x{height}")
+    log(f"  map {width}x{height}, native zoom {native_zoom_for(width, height)}, hide x < {HIDDEN_WEST_OF}")
     provinces = json.loads(paths["provinces"].read_text(encoding="utf-8"))["provinces"]
     ids = build_id_raster(paths["province_ids"], provinces, (height, width))
     del provinces
+    log("Checking that the published artwork is actually fogged…")
+    political = load_rgb(paths["political"])
+    assert_fogged("political.png", political, ids)
+    del political
+    terrain = load_rgb(paths["terrain"])
+    assert_fogged("terrain.png", terrain, ids)
+    del terrain
+    log("Measuring provinces…")
     minx, maxx, miny, maxy, count = extents(ids)
     allowed = {pid for pid in range(1, len(count)) if count[pid] and int(minx[pid]) >= HIDDEN_WEST_OF}
+    omitted = {pid for pid in range(1, len(count)) if count[pid] and pid not in allowed}
+    west_pixels = int((ids[:, :HIDDEN_WEST_OF] > 0).sum())
+    if west_pixels and not omitted:
+        raise SystemExit("secrecy: western land is present but no province was omitted")
+    log(f"  published provinces {len(allowed)}, omitted {len(omitted)}, western land pixels {west_pixels}")
     drop = np.ones(len(count), dtype=bool)
     drop[0] = False
     for pid in allowed:
         drop[pid] = False
     ids[drop[ids]] = 0
     ids[:, :HIDDEN_WEST_OF] = 0
+    return paths, width, height, ids, allowed, minx, maxx, miny, maxy
+
+
+def _load_with_reveal(paths: dict[str, Path]):
+    """Merge source/reveal into the base rasters. Canvas size follows those rasters."""
+    reveal_dir = SRC / "reveal"
+    fog_path = reveal_dir / "fog.json"
+    if not fog_path.is_file():
+        raise SystemExit("secrecy: source/reveal/fog.json is missing. Refusing to publish.")
+    raw_fog = json.loads(fog_path.read_text(encoding="utf-8"))
+    fog = reveal.parse_fog(raw_fog)
+    REVEAL["active"] = True
+    REVEAL["tmpdir"] = tempfile.TemporaryDirectory(prefix="nb-reveal-")
+    work = Path(REVEAL["tmpdir"].name)
+
+    with Image.open(paths["political"]) as im:
+        base_w, base_h = im.size
+    base_rows = _province_rows(json.loads(paths["provinces"].read_text(encoding="utf-8")))
+    base_ids = build_id_raster(paths["province_ids"], base_rows, (base_h, base_w))
+    bundle_rows = _province_rows(json.loads((reveal_dir / "provinces.json").read_text(encoding="utf-8"))) if (reveal_dir / "provinces.json").is_file() else []
+    raster_names = ("political.png", "terrain.png", "depth_zones.png", "province_ids.png")
+    present = [name for name in raster_names if (reveal_dir / name).is_file()]
+    bundle_ids = None
+    bundle_size = None
+    if present and len(present) != len(raster_names):
+        raise SystemExit("secrecy: source/reveal rasters must be political, terrain, depth_zones, and province_ids together")
+    if len(present) == len(raster_names):
+        with Image.open(reveal_dir / "political.png") as im:
+            bundle_size = im.size
+        for name in raster_names:
+            with Image.open(reveal_dir / name) as im:
+                if im.size != bundle_size:
+                    raise SystemExit(f"secrecy: source/reveal/{name} is {im.size[0]}x{im.size[1]}, expected {bundle_size[0]}x{bundle_size[1]}")
+        if bundle_size[1] != base_h:
+            raise SystemExit(f"secrecy: reveal height {bundle_size[1]} does not match the base map {base_h}")
+        if bundle_size[0] < base_w:
+            raise SystemExit("secrecy: reveal raster is narrower than the known map")
+        decode_rows = {tuple(row["rgb"]): row for row in base_rows if row.get("rgb")}
+        for row in bundle_rows:
+            if row.get("rgb"):
+                decode_rows[tuple(int(channel) for channel in row["rgb"])] = row
+        bundle_ids = build_id_raster(
+            reveal_dir / "province_ids.png",
+            list(decode_rows.values()) or base_rows,
+            (bundle_size[1], bundle_size[0]),
+        )
+        width, height = bundle_size
+    else:
+        width, height = base_w, base_h
+    east_origin = base_w if width > base_w else None
+    REVEAL["east_origin"] = east_origin
+
+    canvas_ids = np.zeros((height, width), dtype=np.uint16)
+    canvas_ids[:, :base_w] = base_ids
+    minx, _maxx, _miny, _maxy, count = extents(canvas_ids)
+    base_id_set = {int(row["id"]) for row in base_rows}
+    minx_of = {}
+    for pid in base_id_set:
+        if pid < len(count) and count[pid]:
+            minx_of[pid] = int(minx[pid])
+        else:
+            minx_of[pid] = -1
+    legacy, _states = reveal.publication_plan(base_id_set, minx_of, fog, HIDDEN_WEST_OF)
+    legacy_list = np.array(sorted(legacy), dtype=np.uint16) if legacy else np.array([0], dtype=np.uint16)
+
+    bundle_paint = np.zeros((height, width), dtype=bool)
+    if bundle_ids is not None:
+        bundle_paint = bundle_ids > 0
+        legacy_pixels = np.isin(canvas_ids, legacy_list) if legacy else np.zeros_like(bundle_paint)
+        conflict = bundle_paint[:, :base_w] & (canvas_ids[:, :base_w] > 0) & (bundle_ids[:, :base_w] != canvas_ids[:, :base_w]) & legacy_pixels[:, :base_w]
+        if conflict.any():
+            raise SystemExit("secrecy: reveal raster overwrites a known-world province")
+        bundle_paint &= ~legacy_pixels
+        canvas_ids[bundle_paint] = bundle_ids[bundle_paint]
+
+    minx, maxx, miny, maxy, count = extents(canvas_ids)
+    state_of = np.zeros(int(count.shape[0]), dtype=np.uint8)
+    states: dict[int, str] = {}
+    for pid in range(1, len(count)):
+        if not count[pid]:
+            continue
+        state = reveal.resolve_state(pid, fog, legacy)
+        states[pid] = state
+        if state != "hidden":
+            state_of[pid] = 1
+    for record in bundle_rows:
+        pid = int(record["id"])
+        state = reveal.resolve_state(pid, fog, legacy)
+        if state != "hidden" and (pid >= len(count) or not count[pid]):
+            raise SystemExit(f"secrecy: revealed province {pid} has no pixels")
+    hidden_mask = (canvas_ids > 0) & (state_of[canvas_ids] == 0)
+    revealed_west = any(states.get(pid) not in (None, "hidden") and pid < len(minx) and int(minx[pid]) < HIDDEN_WEST_OF for pid in states)
+    REVEAL["states"] = states
+    REVEAL["revealed_west"] = revealed_west
+    REVEAL["bundle_ids"] = {pid for pid, state in fog.items() if state != "hidden"}
+    REVEAL["hidden_mask"] = hidden_mask
+    REVEAL["contains"] = _numpy_contains(hidden_mask)
+
+    raster_ids = []
+    if bundle_ids is not None:
+        raster_ids = [int(value) for value in np.unique(bundle_ids) if int(value)]
+    deposits = _as_list(json.loads((reveal_dir / "deposits.json").read_text(encoding="utf-8")), "deposits") if (reveal_dir / "deposits.json").is_file() else []
+    landmarks = _as_list(json.loads((reveal_dir / "landmarks.json").read_text(encoding="utf-8")), "landmarks") if (reveal_dir / "landmarks.json").is_file() else []
+    natives = _as_list(json.loads((reveal_dir / "natives.json").read_text(encoding="utf-8")), "natives") if (reveal_dir / "natives.json").is_file() else []
+    winds = json.loads((reveal_dir / "winds_currents.json").read_text(encoding="utf-8")) if (reveal_dir / "winds_currents.json").is_file() else {"winds": [], "currents": []}
+    hazards = json.loads((reveal_dir / "hazards.json").read_text(encoding="utf-8")) if (reveal_dir / "hazards.json").is_file() else {"areas": [], "chokepoints": []}
+    reveal.validate_bundle(
+        {
+            "fog": raw_fog,
+            "provinces": bundle_rows,
+            "deposits": deposits,
+            "landmarks": landmarks,
+            "natives": natives,
+            "winds_currents": winds,
+            "hazards": hazards,
+            "raster_ids": raster_ids,
+        },
+        REVEAL["contains"],
+        legacy,
+    )
+    by_province: dict[int, list] = defaultdict(list)
+    for deposit in deposits:
+        by_province[int(deposit["province"])].append(deposit)
+    REVEAL["deposits_by_province"] = by_province
+    REVEAL["layers"] = {
+        "deposits": deposits,
+        "landmarks": landmarks,
+        "winds_currents": winds if isinstance(winds, dict) else {"winds": [], "currents": []},
+        "hazards": hazards if isinstance(hazards, dict) else {"areas": [], "chokepoints": []},
+    }
+
+    political = load_rgb(paths["political"])
+    terrain = load_rgb(paths["terrain"])
+    base_zones = _read_depth_zones(paths["depth"], (base_h, base_w))
+    if base_zones is None:
+        _depth_values, depth_rgb_base = colorize_depth(paths["depth"], (base_h, base_w))
+        base_zones = _depth_values
+    else:
+        _depth_values, depth_rgb_base = colorize_depth(paths["depth"], (base_h, base_w))
+    if political.shape[0] != base_h or terrain.shape[0] != base_h:
+        raise SystemExit("terrain image size does not match the political map")
+    fog_sample = political[:, : min(HIDDEN_WEST_OF, political.shape[1])]
+    fill = tuple(int(value) for value in fog_sample.reshape(-1, 3).mean(axis=0))
+
+    def widen(base: np.ndarray) -> np.ndarray:
+        canvas = np.empty((height, width) + base.shape[2:], base.dtype)
+        if base.ndim == 3:
+            canvas[:] = fill
+        canvas[:, :base_w] = base
+        return canvas
+
+    political = widen(political)
+    terrain = widen(terrain)
+    depth_rgb = widen(depth_rgb_base)
+    zones = np.zeros((height, width), np.uint8)
+    zones[:, :base_w] = base_zones
+    if bundle_size is not None:
+        art = np.zeros((height, width), dtype=bool)
+        art[:, base_w:] = True
+        art |= bundle_paint
+        political[art] = load_rgb(reveal_dir / "political.png")[art]
+        terrain[art] = load_rgb(reveal_dir / "terrain.png")[art]
+        bundle_zones = _read_depth_zones(reveal_dir / "depth_zones.png", (height, width))
+        if bundle_zones is not None:
+            taken = art & ~np.isin(canvas_ids, legacy_list) if legacy else art
+            zones[taken] = bundle_zones[taken]
+            _zone_values, bundle_color = colorize_depth(reveal_dir / "depth_zones.png", (height, width))
+            depth_rgb[art] = bundle_color[art]
+        else:
+            depth_rgb[art] = load_rgb(reveal_dir / "depth_zones.png")[art]
+    REVEAL["depth_zones"] = zones
+
+    log("Checking that hidden provinces are actually fogged…")
+    if not revealed_west:
+        assert_fogged("political.png", political, canvas_ids)
+        assert_fogged("terrain.png", terrain, canvas_ids)
+    _check_hidden_art("political.png", political, canvas_ids, hidden_mask, east_origin)
+    _check_hidden_art("terrain.png", terrain, canvas_ids, hidden_mask, east_origin)
+    depth_rgb[hidden_mask] = political[hidden_mask]
+    if not revealed_west:
+        depth_rgb[:, :HIDDEN_WEST_OF] = political[:, :HIDDEN_WEST_OF]
+
+    _save_rgb(political, work / "political.png")
+    _save_rgb(terrain, work / "terrain.png")
+    _save_rgb(depth_rgb, work / "depth_zones.png")
+    del political, terrain, depth_rgb
+
+    merged_rows = {int(row["id"]): dict(row) for row in base_rows}
+    for record in bundle_rows:
+        pid = int(record["id"])
+        merged_rows[pid] = {**merged_rows.get(pid, {}), **dict(record)}
+    for native in natives:
+        pid = int(native["province"])
+        if states.get(pid) == "explored" and not merged_rows.get(pid, {}).get("native_power"):
+            name = native.get("name") or native.get("power")
+            if name and pid in merged_rows:
+                merged_rows[pid]["native_power"] = str(name)
+    km = 5.5
+    base_doc = json.loads(paths["provinces"].read_text(encoding="utf-8"))
+    if isinstance(base_doc, dict) and base_doc.get("km_per_px"):
+        km = base_doc["km_per_px"]
+    (work / "provinces.json").write_text(
+        json.dumps({"km_per_px": km, "provinces": list(merged_rows.values())}, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    merged_paths = dict(paths)
+    merged_paths["political"] = work / "political.png"
+    merged_paths["terrain"] = work / "terrain.png"
+    merged_paths["depth"] = work / "depth_zones.png"
+    merged_paths["provinces"] = work / "provinces.json"
+
+    allowed = {pid for pid, state in states.items() if state != "hidden" and count[pid]}
+    omitted = {pid for pid, state in states.items() if state == "hidden" and count[pid]}
+    log(
+        f"  map {width}x{height}, native zoom {native_zoom_for(width, height)}, "
+        f"published {len(allowed)}, hidden {len(omitted)}, wrap on"
+    )
+    published = canvas_ids.copy()
+    published[hidden_mask] = 0
+    if not revealed_west:
+        published[:, :HIDDEN_WEST_OF] = 0
+    leaked = [int(value) for value in np.unique(published) if int(value) and states.get(int(value), "hidden") == "hidden"]
+    if leaked:
+        raise SystemExit(f"secrecy: hidden province {leaked[0]} survived into the published raster")
+    return merged_paths, width, height, published, allowed, minx, maxx, miny, maxy
+
+
+def load_published_ids(paths: dict[str, Path]):
+    """Published id raster. Width and height come from the source rasters."""
+    _reset_reveal()
+    reveal_dir = SRC / "reveal"
+    if reveal_dir.is_dir():
+        return _load_with_reveal(paths)
+    return _load_legacy(paths)
+
+
+def write_public_layers(data_dir: Path) -> None:
+    layers = REVEAL.get("layers") or {}
+    deposits = layers.get("deposits") or []
+    landmarks = layers.get("landmarks") or []
+    winds = layers.get("winds_currents") or {"winds": [], "currents": []}
+    hazards = layers.get("hazards") or {"areas": [], "chokepoints": []}
+    (data_dir / "deposits.json").write_text(json.dumps(deposits, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (data_dir / "landmarks.json").write_text(json.dumps(landmarks, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (data_dir / "winds_currents.json").write_text(json.dumps(winds, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    (data_dir / "hazards.json").write_text(json.dumps(hazards, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    log(
+        f"  layers: {len(deposits)} deposits, {len(landmarks)} landmarks, "
+        f"{len(winds.get('winds') or [])} winds, {len(winds.get('currents') or [])} currents, "
+        f"{len(hazards.get('areas') or [])} hazards"
+    )
+
+
+def main_flat_only() -> None:
+    """Rebuild data/flat.geojson without touching tiles."""
+    started = time.perf_counter()
+    paths, width, height, ids, allowed, minx, maxx, miny, maxy = load_published_ids(require_source())
+    log(f"Flat layer only, map {width}x{height}")
     boxes = {}
     for pid in allowed:
         boxes[pid] = {
@@ -1216,11 +1719,18 @@ def main_flat_only() -> None:
             "maxy": int(maxy[pid]),
             "water": None,
         }
-    del minx, maxx, miny, maxy, count
     world = build_world(paths, ids, allowed, boxes)
     world.pop("km_per_px", None)
     world.pop("removed_names", None)
-    write_flat_layer(ids, world, width, height, paths["political"], ROOT / "data" / "flat.geojson")
+    write_flat_layer(
+        ids,
+        world,
+        width,
+        height,
+        paths["political"],
+        ROOT / "data" / "flat.geojson",
+        east_origin=REVEAL.get("east_origin"),
+    )
     log(f"Done in {time.perf_counter() - started:.0f}s")
 
 
@@ -1234,45 +1744,34 @@ def compare_fog_tiles() -> None:
         raise SystemExit("secrecy: a western depth tile does not match the fog artwork")
 
 
+def _public_provinces(records: dict) -> dict:
+    public = {}
+    deposits = REVEAL.get("deposits_by_province") or {}
+    for key, record in records.items():
+        pid = int(key)
+        state = record.get("state") or "explored"
+        deps = deposits.get(pid) or []
+        if REVEAL.get("active") and state != "explored":
+            public[key] = reveal.publish_province(pid, record, state, deps)
+        else:
+            copied = dict(record)
+            if deps:
+                copied["deposits"] = [dict(item) for item in deps]
+            public[key] = copied
+    return public
+
+
 def main() -> None:
     started = time.perf_counter()
-    paths = require_source()
     log("Loading province rasters…")
-    with Image.open(paths["political"]) as im:
-        width, height = im.size
+    paths, width, height, ids, allowed, minx, maxx, miny, maxy = load_published_ids(require_source())
     native = native_zoom_for(width, height)
-    log(f"  map {width}x{height}, native zoom {native}, hide x < {HIDDEN_WEST_OF}")
-
-    provinces = json.loads(paths["provinces"].read_text(encoding="utf-8"))["provinces"]
-    ids = build_id_raster(paths["province_ids"], provinces, (height, width))
-    del provinces
-
-    log("Checking that the published artwork is actually fogged…")
-    political = load_rgb(paths["political"])
-    assert_fogged("political.png", political, ids)
-    del political
-    terrain = load_rgb(paths["terrain"])
-    assert_fogged("terrain.png", terrain, ids)
-    del terrain
-
-    log("Measuring provinces…")
-    minx, maxx, miny, maxy, count = extents(ids)
-    allowed = {pid for pid in range(1, len(count)) if count[pid] and int(minx[pid]) >= HIDDEN_WEST_OF}
-    omitted = {pid for pid in range(1, len(count)) if count[pid] and pid not in allowed}
-    west_pixels = int((ids[:, :HIDDEN_WEST_OF] > 0).sum())
-    if west_pixels and not omitted:
-        raise SystemExit("secrecy: western land is present but no province was omitted")
-    log(f"  published provinces {len(allowed)}, omitted {len(omitted)}, western land pixels {west_pixels}")
-
-    drop = np.ones(len(count), dtype=bool)
-    drop[0] = False
-    for pid in allowed:
-        drop[pid] = False
-    ids[drop[ids]] = 0
-    ids[:, :HIDDEN_WEST_OF] = 0
 
     log("Sampling nearby water depth…")
-    depth_values, _ = colorize_depth(paths["depth"], (height, width))
+    if REVEAL.get("depth_zones") is not None:
+        depth_values = REVEAL["depth_zones"]
+    else:
+        depth_values, _ = colorize_depth(paths["depth"], (height, width))
     water = shallowest_water(ids, depth_values)
     del depth_values
     boxes = {}
@@ -1290,23 +1789,44 @@ def main() -> None:
     world = build_world(paths, ids, allowed, boxes)
     km = world.pop("km_per_px")
     removed_names = world.pop("removed_names")
+    full_provinces = world["provinces"]
     data_dir = ROOT / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
     (data_dir / "world.json").write_text(
-        json.dumps({"nations": world["nations"], "provinces": world["provinces"]}, ensure_ascii=False, separators=(",", ":")),
+        json.dumps(
+            {"nations": world["nations"], "provinces": _public_provinces(full_provinces)},
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ),
         encoding="utf-8",
     )
+    write_public_layers(data_dir)
     lookup_path = data_dir / "lookup.png"
-    lookup_w, lookup_h = write_lookup(ids, lookup_path)
+    lookup_w, lookup_h = write_lookup(ids, lookup_path, keep_west=bool(REVEAL.get("revealed_west")))
     world["removed_names"] = removed_names
-    secrecy_check(world, lookup_path, allowed)
+    public_world = dict(world)
+    public_world["provinces"] = _public_provinces(full_provinces)
+    secrecy_check(public_world, lookup_path, allowed)
+    if REVEAL.get("contains"):
+        for key, record in public_world["provinces"].items():
+            reveal.assert_coords(record.get("xy"), f"province {key}", REVEAL["contains"])
 
     log("Writing flat close-up vectors…")
-    write_flat_layer(ids, world, width, height, paths["political"], data_dir / "flat.geojson")
+    flat_world = dict(world)
+    flat_world["provinces"] = full_provinces
+    write_flat_layer(
+        ids,
+        flat_world,
+        width,
+        height,
+        paths["political"],
+        data_dir / "flat.geojson",
+        east_origin=REVEAL.get("east_origin"),
+    )
 
     log("Writing outline tiles…")
     _, blank = write_blank_tiles()
-    edge = edge_mask(ids)
+    edge = edge_mask(ids, blank_west=not REVEAL.get("revealed_west"))
     del ids
     write_outline_pyramid(edge, ROOT / "tiles" / "outlines", native, blank)
     del edge
@@ -1333,10 +1853,23 @@ def main() -> None:
     write_photo_pyramid(terrain, ROOT / "tiles" / "terrain", native)
     del terrain
 
-    log("Writing depth tiles (hidden west replaced with fog)…")
-    _, depth_rgb = colorize_depth(paths["depth"], (height, width))
-    depth_rgb[:, :HIDDEN_WEST_OF] = political[:, :HIDDEN_WEST_OF]
-    write_depth_pyramid(depth_rgb, political, ROOT / "tiles" / "depth", native)
+    log("Writing depth tiles (hidden provinces replaced with fog)…")
+    recopy_west = not REVEAL.get("revealed_west")
+    hidden_mask = REVEAL.get("hidden_mask")
+    if REVEAL.get("active"):
+        # The reveal merge already colorized depth and painted fog over hidden provinces.
+        depth_rgb = load_rgb(paths["depth"])
+    else:
+        _, depth_rgb = colorize_depth(paths["depth"], (height, width))
+        depth_rgb[:, :HIDDEN_WEST_OF] = political[:, :HIDDEN_WEST_OF]
+    write_depth_pyramid(
+        depth_rgb,
+        political,
+        ROOT / "tiles" / "depth",
+        native,
+        recopy_west=recopy_west,
+        hidden_mask=hidden_mask,
+    )
     del depth_rgb, political
 
     meta = {
@@ -1349,6 +1882,7 @@ def main() -> None:
         "lookup_width": lookup_w,
         "lookup_height": lookup_h,
         "hidden_west_of": HIDDEN_WEST_OF,
+        "wrap_x": True,
         "overview": "assets/overview.webp",
         "overview_width": overview_w,
         "overview_height": overview_h,

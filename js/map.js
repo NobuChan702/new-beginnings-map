@@ -34,7 +34,7 @@
     provinceNames: new Map(),
     flags: new Map(),
     mode: "auto",
-    overlays: { borders: true, claims: true, occupied: true, revolts: true, events: true, markers: true, infra: true, trade: true, sectors: true, alliances: false, religion: false, ids: false },
+    overlays: { borders: true, claims: true, occupied: true, revolts: true, events: true, markers: true, infra: true, trade: true, sectors: true, alliances: false, religion: false, ids: false, deposits: false, winds: false, hazards: false, landmarks: false },
     labelLayer: null,
     map: null,
     provinceTip: null,
@@ -170,6 +170,105 @@
     const extra = Number(CFG.overzoomLevels);
     const levels = Number.isFinite(extra) ? extra : 3;
     return meta.native_zoom + levels;
+  }
+
+  function wraps() {
+    return !!(state.meta && state.meta.wrap_x);
+  }
+
+  function wrapX(x, width) {
+    const w = width || (state.meta && state.meta.width) || 0;
+    if (!w) return x;
+    let value = Number(x) % w;
+    if (value < 0) value += w;
+    return value;
+  }
+
+  function tileX(index, count) {
+    if (!count) return index;
+    return ((index % count) + count) % count;
+  }
+
+  function tileCounts(meta, zoom) {
+    const scale = Math.pow(2, Math.max(0, meta.native_zoom - zoom));
+    const viewW = Math.max(1, Math.round(meta.width / scale));
+    const viewH = Math.max(1, Math.round(meta.height / scale));
+    return {
+      x: Math.max(1, Math.ceil(viewW / meta.tile_size)),
+      y: Math.max(1, Math.ceil(viewH / meta.tile_size)),
+    };
+  }
+
+  function viewShifts() {
+    if (!wraps() || !state.map) return [0];
+    const w = state.meta.width;
+    const bounds = state.map.getBounds();
+    const west = bounds.getWest();
+    const east = bounds.getEast();
+    let first = Math.floor(west / w);
+    let last = Math.floor((east - 1e-9) / w);
+    if (last < first) last = first;
+    if (last - first > 6) {
+      const center = Math.round(((west + east) / 2) / w);
+      first = center - 3;
+      last = center + 3;
+    }
+    const out = [];
+    for (let k = first; k <= last; k++) out.push(k);
+    return out.length ? out : [0];
+  }
+
+  function presentX(x) {
+    if (!wraps() || !state.map) return x;
+    const w = state.meta.width;
+    const center = state.map.getCenter().lng;
+    let value = Number(x);
+    while (value - center > w / 2) value -= w;
+    while (center - value > w / 2) value += w;
+    return value;
+  }
+
+  function presentPath(points) {
+    if (!wraps() || !state.map || !points || points.length < 1) return points;
+    const w = state.meta.width;
+    const center = state.map.getCenter().lng;
+    const xs = [Number(points[0][0])];
+    for (let i = 1; i < points.length; i++) {
+      let value = Number(points[i][0]);
+      while (value - xs[i - 1] > w / 2) value -= w;
+      while (xs[i - 1] - value > w / 2) value += w;
+      xs.push(value);
+    }
+    let mid = 0;
+    for (let i = 0; i < xs.length; i++) mid += xs[i];
+    mid /= xs.length;
+    const shift = Math.round((center - mid) / w) * w;
+    return points.map(function (point, index) {
+      return [xs[index] + shift, point[1]];
+    });
+  }
+
+  function outsideView(minX, minY, maxX, maxY, grown) {
+    if (!wraps()) {
+      return maxX < grown.getWest() || minX > grown.getEast() || maxY < grown.getSouth() || minY > grown.getNorth();
+    }
+    const w = state.meta.width;
+    const shifts = viewShifts();
+    for (let i = 0; i < shifts.length; i++) {
+      const dx = shifts[i] * w;
+      if (!(maxX + dx < grown.getWest() || minX + dx > grown.getEast() || maxY < grown.getSouth() || minY > grown.getNorth())) return false;
+    }
+    return true;
+  }
+
+  function pointSeen(x, y, grown) {
+    if (!wraps()) return grown.contains(L.latLng(y, x));
+    const w = state.meta.width;
+    const shifts = viewShifts();
+    for (let i = 0; i < shifts.length; i++) {
+      if (grown.contains(L.latLng(y, x + shifts[i] * w))) return true;
+    }
+    return false;
   }
 
   function flatAmount(zoom) {
@@ -379,7 +478,24 @@
       keepBuffer: 2,
     };
     if (pane) options.pane = pane;
-    return L.tileLayer("tiles/" + folder + "/{z}/{x}/{y}.webp", options);
+    const url = "tiles/" + folder + "/{z}/{x}/{y}.webp";
+    if (!meta.wrap_x) return L.tileLayer(url, options);
+    const wrapped = Object.assign({}, options, { noWrap: false });
+    delete wrapped.bounds;
+    const Layer = L.TileLayer.extend({
+      getTileUrl: function (coords) {
+        const counts = tileCounts(meta, Math.min(coords.z, meta.native_zoom));
+        if (coords.y < 0 || coords.y >= counts.y) return this.options.errorTileUrl;
+        return L.Util.template(this._url, { z: coords.z, x: tileX(coords.x, counts.x), y: coords.y });
+      },
+      createTile: function (coords, done) {
+        const counts = tileCounts(meta, Math.min(coords.z, meta.native_zoom));
+        const copy = L.point(tileX(coords.x, counts.x), coords.y);
+        copy.z = coords.z;
+        return L.TileLayer.prototype.createTile.call(this, copy, done);
+      },
+    });
+    return new Layer(url, wrapped);
   }
 
   function initMap(meta) {
@@ -413,7 +529,9 @@
       wheelPxPerZoomLevel: 80,
       attributionControl: false,
       zoomControl: true,
-      maxBounds: state.imageBounds.pad(0.15),
+      maxBounds: meta.wrap_x
+        ? L.latLngBounds([-meta.height * 0.15, -1e9], [meta.height * 1.15, 1e9])
+        : state.imageBounds.pad(0.15),
       maxBoundsViscosity: 0.85,
       fadeAnimation: true,
       zoomAnimation: true,
@@ -532,6 +650,7 @@
     map.on("zoom", applyMode);
     map.on("moveend zoomend", refreshProvinceLabels);
     map.on("moveend zoomend", function () {
+      refreshWrapCopies();
       renderInfra();
       renderTrade();
       renderSectors();
@@ -539,6 +658,7 @@
       renderAlliances();
       renderReligions();
       renderRivers();
+      if (wraps()) renderAtlas();
     });
     map.fitBounds(state.imageBounds, {
       paddingTopLeft: [12, headerOffset() + 8],
@@ -547,6 +667,7 @@
     });
     applyMode();
     headerOffset();
+    state.wrapShiftSig = wraps() ? viewShifts().join(",") : "";
     window.addEventListener("resize", function () {
       headerOffset();
       map.invalidateSize();
@@ -610,8 +731,10 @@
             renderAlliances();
             renderReligions();
             refreshProvinceLabels();
+            if (wraps()) renderAtlas();
           });
         });
+        if (wraps()) appendRoundControls(panel);
         return el;
       },
     });
@@ -628,11 +751,13 @@
           '<div class="nb-mini-frame" aria-label="Overview map. Click or drag to move the main map.">' +
           '<img alt="" draggable="false" src="' + esc(meta.overview || "assets/overview.webp") + '">' +
           '<div class="nb-mini-rect"></div>' +
+          '<div class="nb-mini-rect nb-mini-rect-b" hidden></div>' +
           "</div>";
         L.DomEvent.disableClickPropagation(root);
         L.DomEvent.disableScrollPropagation(root);
         const frame = root.querySelector(".nb-mini-frame");
         const rect = root.querySelector(".nb-mini-rect");
+        const rectB = root.querySelector(".nb-mini-rect-b");
         const button = root.querySelector(".nb-mini-toggle");
         const image = root.querySelector("img");
         frame.style.aspectRatio = meta.width + " / " + meta.height;
@@ -651,6 +776,10 @@
 
         function updateRect() {
           if (root.classList.contains("is-collapsed")) return;
+          if (meta.wrap_x) {
+            updateRectWrap();
+            return;
+          }
           const fw = frame.clientWidth;
           const fh = frame.clientHeight;
           if (!fw || !fh) return;
@@ -679,6 +808,48 @@
           rect.style.top = top + "px";
           rect.style.width = width + "px";
           rect.style.height = height + "px";
+        }
+
+        function placeMini(node, start, end, fw, top, height) {
+          const left = (start / meta.width) * fw;
+          const width = Math.max(4, ((end - start) / meta.width) * fw);
+          node.hidden = false;
+          node.style.left = Math.max(0, Math.min(left, fw - 4)) + "px";
+          node.style.top = top + "px";
+          node.style.width = Math.max(4, Math.min(width, fw - left)) + "px";
+          node.style.height = height + "px";
+        }
+
+        function updateRectWrap() {
+          const fw = frame.clientWidth;
+          const fh = frame.clientHeight;
+          if (!fw || !fh) return;
+          const bounds = map.getBounds();
+          const span = bounds.getEast() - bounds.getWest();
+          const south = bounds.getSouth();
+          const north = bounds.getNorth();
+          let top = (south / meta.height) * fh;
+          let height = ((north - south) / meta.height) * fh;
+          if (height < 8) {
+            top -= (8 - height) / 2;
+            height = 8;
+          }
+          top = Math.max(0, Math.min(top, fh - 4));
+          height = Math.max(4, Math.min(height, fh - top));
+          if (span >= meta.width) {
+            placeMini(rect, 0, meta.width, fw, top, height);
+            rectB.hidden = true;
+            return;
+          }
+          const start = wrapX(bounds.getWest(), meta.width);
+          const end = start + span;
+          if (end <= meta.width) {
+            placeMini(rect, start, end, fw, top, height);
+            rectB.hidden = true;
+            return;
+          }
+          placeMini(rect, start, meta.width, fw, top, height);
+          placeMini(rectB, 0, end - meta.width, fw, top, height);
         }
 
         function eventToWorld(event) {
@@ -741,6 +912,7 @@
   function provinceAt(x, y) {
     const meta = state.meta;
     const lut = state.lut;
+    if (meta && meta.wrap_x) return provinceAtWrapped(x, y);
     if (!lut || x < meta.hidden_west_of || y < 0 || x >= meta.width || y >= meta.height) return 0;
     const lx = Math.floor(x / meta.lookup_scale);
     const ly = Math.floor(y / meta.lookup_scale);
@@ -748,6 +920,23 @@
     if (lx * meta.lookup_scale < meta.hidden_west_of) return 0;
     const id = lut[ly * meta.lookup_width + lx] || 0;
     return state.provinces.has(id) ? id : 0;
+  }
+
+  function provinceAtWrapped(x, y) {
+    const meta = state.meta;
+    const lut = state.lut;
+    x = wrapX(x, meta.width);
+    if (!lut || y < 0 || y >= meta.height) return 0;
+    const ly = Math.floor(y / meta.lookup_scale);
+    const lx = tileX(Math.floor(x / meta.lookup_scale), meta.lookup_width);
+    if (ly < 0 || ly >= meta.lookup_height) return 0;
+    const id = lut[ly * meta.lookup_width + lx] || 0;
+    if (!id || !state.provinces.has(id)) return 0;
+    if (x < meta.hidden_west_of || lx * meta.lookup_scale < meta.hidden_west_of) {
+      const fogState = (state.provinces.get(id) || {}).state;
+      if (fogState !== "sighted" && fogState !== "charted" && fogState !== "explored") return 0;
+    }
+    return id;
   }
 
   function paintMask(canvas, ids, rgbaFor) {
@@ -801,6 +990,7 @@
           state.claimUrl = url;
           syncClaimVisibility();
         }
+        if (wraps()) syncImageCopies(kind);
         resolve();
       }, "image/png");
     });
@@ -1565,6 +1755,7 @@
 
   function provinceIsPublic(id, prov) {
     if (!prov || !state.meta) return false;
+    if (state.meta.wrap_x && prov.state && prov.state !== "hidden") return state.provinces.has(id);
     if (prov.bbox && prov.bbox[0] < state.meta.hidden_west_of) return false;
     if (prov.xy && prov.xy[0] < state.meta.hidden_west_of) return false;
     return state.provinces.has(id);
@@ -1926,9 +2117,19 @@ if (entry.kind === "work") {
 
   function onMapClick(event) {
     const meta = state.meta;
-    const x = event.latlng.lng;
+    let x = event.latlng.lng;
     const y = event.latlng.lat;
-    if (x < meta.hidden_west_of) {
+    const popupAt = event.latlng;
+    if (meta.wrap_x) {
+      x = wrapX(x, meta.width);
+      if (isUncharted(x, y)) {
+        clearHighlight();
+        setNationHash(null);
+        hideFlagCard();
+        openPopup(popupAt, unchartedHtml());
+        return;
+      }
+    } else if (x < meta.hidden_west_of) {
       clearHighlight();
       setNationHash(null);
       hideFlagCard();
@@ -1972,6 +2173,14 @@ if (entry.kind === "work") {
       return;
     }
     const prov = state.provinces.get(id);
+    if (meta.wrap_x && prov && (prov.state === "sighted" || prov.state === "charted")) {
+      clearHighlight();
+      setNationHash(null);
+      hideFlagCard();
+      showHighlight([id], prov.state === "sighted" ? [196, 180, 138] : [196, 180, 138]);
+      openPopup(popupAt, revealHtml(id, prov));
+      return;
+    }
     const colony = colonyOf(id);
     if (colony) {
       state.activeNationId = null;
@@ -2057,9 +2266,10 @@ if (entry.kind === "work") {
 const claim = claimOf(nation);
       if (!claim || isConcealed(nation.capital_province)) return;
       const xy = nationPoint(nation);
+      const markerX = wraps() ? presentX(xy[0]) : xy[0];
       const label = nationLabel(nation);
       const width = Math.max(48, Math.ceil(label.length * 7.4) + 18);
-      const marker = L.marker([xy[1], xy[0]], {
+      const marker = L.marker([xy[1], markerX], {
         icon: L.divIcon({
           className: "claim-marker",
           html: "<span>" + esc(label) + "</span>",
@@ -2270,6 +2480,14 @@ const claim = claimOf(nation);
   function pointConcealed(x, y) {
     const meta = state.meta;
     if (!meta || x == null || y == null) return true;
+    if (meta.wrap_x) {
+      x = wrapX(x, meta.width);
+      if (y < 0 || y > meta.height) return true;
+      if (concealedSeaAt(x, y)) return true;
+      if (isUncharted(x, y)) return true;
+      const wrappedId = provinceAt(x, y);
+      return !!(wrappedId && isConcealed(wrappedId));
+    }
     if (x < meta.hidden_west_of || y < 0 || x > meta.width || y > meta.height) return true;
     if (concealedSeaAt(x, y)) return true;
     const id = provinceAt(x, y);
@@ -2357,7 +2575,8 @@ const claim = claimOf(nation);
       x = prov.xy[0];
       y = prov.xy[1];
     }
-    if (!meta || x < meta.hidden_west_of || y < 0 || x > meta.width || y > meta.height) return null;
+    if (!meta || y < 0 || y > meta.height || x < 0 || x > meta.width) return null;
+    if (!meta.wrap_x && x < meta.hidden_west_of) return null;
     if (pointConcealed(x, y)) return null;
     return [x, y];
   }
@@ -2470,24 +2689,48 @@ const claim = claimOf(nation);
   function applyFlat(collection) {
     if (!collection || collection.type !== "FeatureCollection" || !collection.features || !state.map) return;
     state.flatCollection = collection;
+    state.fogRings = [];
+    collection.features.forEach(function (feature) {
+      const props = (feature && feature.properties) || {};
+      if (props.kind === "fog" && feature.geometry && feature.geometry.coordinates) {
+        if (feature.geometry.type === "Polygon") state.fogRings.push(feature.geometry.coordinates);
+        else if (feature.geometry.type === "MultiPolygon") {
+          feature.geometry.coordinates.forEach(function (poly) {
+            state.fogRings.push(poly);
+          });
+        }
+      }
+    });
     if (state.flatLayer) state.map.removeLayer(state.flatLayer);
-    state.flatLayer = L.geoJSON(collection, {
+    const flatOptions = {
       pane: "flat",
       renderer: state.flatRenderer,
       smoothFactor: 0,
       interactive: false,
       bubblingMouseEvents: false,
       style: function (feature) { return flatStyle(feature, false); },
-    });
+    };
+    if (wraps()) {
+      flatOptions.coordsToLatLng = function (coord) {
+        return L.latLng(coord[1], presentX(coord[0]));
+      };
+    }
+    state.flatLayer = L.geoJSON(collection, flatOptions);
     if (state.borderLayer) state.map.removeLayer(state.borderLayer);
-    state.borderLayer = L.geoJSON(collection, {
+    const borderOptions = {
       pane: "flatBorders",
       renderer: state.borderRenderer,
       smoothFactor: 0,
       interactive: false,
       bubblingMouseEvents: false,
       style: function (feature) { return flatStyle(feature, true); },
-    });
+    };
+    if (wraps()) {
+      borderOptions.coordsToLatLng = function (coord) {
+        return L.latLng(coord[1], presentX(coord[0]));
+      };
+    }
+    state.borderLayer = L.geoJSON(collection, borderOptions);
     state.flatBorderOn = state.overlays.borders;
     state.flatById = new Map();
     state.flatLayer.eachLayer(function (layer) {
@@ -3033,12 +3276,13 @@ const claim = claimOf(nation);
             if (x > maxX) maxX = x;
             if (y > maxY) maxY = y;
           }
-          if (maxX < grown.getWest() || minX > grown.getEast() || maxY < grown.getSouth() || minY > grown.getNorth()) return;
+          if (outsideView(minX, minY, maxX, maxY, grown)) return;
         }
         const stops = roadPoints(road);
         if (!stops) return;
+        const drawnStops = wraps() ? presentPath(stops) : stops;
         const line = L.polyline(
-          stops.map(function (pt) {
+          drawnStops.map(function (pt) {
             return [pt[1], pt[0]];
           }),
           {
@@ -3221,8 +3465,10 @@ const claim = claimOf(nation);
     const meta = state.meta;
     const lut = state.lut;
     if (!meta || !lut) return false;
-    if (lx < 0 || ly < 0 || lx >= meta.lookup_width || ly >= meta.lookup_height) return false;
-    if (lx * meta.lookup_scale < meta.hidden_west_of) return false;
+    if (ly < 0 || ly >= meta.lookup_height) return false;
+    if (meta.wrap_x) lx = tileX(lx, meta.lookup_width);
+    else if (lx < 0 || lx >= meta.lookup_width) return false;
+    if (!meta.wrap_x && lx * meta.lookup_scale < meta.hidden_west_of) return false;
     const id = lut[ly * meta.lookup_width + lx] || 0;
     return !!(id && state.provinces.has(id) && !isConcealed(id));
   }
@@ -3231,12 +3477,15 @@ const claim = claimOf(nation);
     const meta = state.meta;
     const lut = state.lut;
     if (!meta || !lut) return false;
-    if (lx < 0 || ly < 0 || lx >= meta.lookup_width || ly >= meta.lookup_height) return false;
-    if (lx * meta.lookup_scale < meta.hidden_west_of) return false;
+    if (ly < 0 || ly >= meta.lookup_height) return false;
+    if (meta.wrap_x) lx = tileX(lx, meta.lookup_width);
+    else if (lx < 0 || lx >= meta.lookup_width) return false;
+    if (!meta.wrap_x && lx * meta.lookup_scale < meta.hidden_west_of) return false;
     if ((lut[ly * meta.lookup_width + lx] || 0) !== 0) return false;
     const x = lx * meta.lookup_scale + meta.lookup_scale / 2;
     const y = ly * meta.lookup_scale + meta.lookup_scale / 2;
-    if (y < 0 || x > meta.width || y > meta.height) return false;
+    if (y < 0 || (!meta.wrap_x && x > meta.width) || y > meta.height) return false;
+    if (meta.wrap_x && fogCovers(x, y)) return false;
     return !concealedSeaAt(x, y);
   }
 
@@ -3359,7 +3608,7 @@ const claim = claimOf(nation);
 
   function bfsCells(start, goal, walk, pad) {
     const meta = state.meta;
-    const westCell = Math.ceil(meta.hidden_west_of / meta.lookup_scale);
+    const westCell = meta.wrap_x ? 0 : Math.ceil(meta.hidden_west_of / meta.lookup_scale);
     const minX = Math.max(westCell, Math.min(start[0], goal[0]) - pad);
     const maxX = Math.min(meta.lookup_width - 1, Math.max(start[0], goal[0]) + pad);
     const minY = Math.max(0, Math.min(start[1], goal[1]) - pad);
@@ -3795,7 +4044,8 @@ const claim = claimOf(nation);
   }
 
   function tradeLatLngs(points) {
-    return points.map(function (pt) {
+    const drawn = wraps() ? presentPath(points) : points;
+    return drawn.map(function (pt) {
       return [pt[1], pt[0]];
     });
   }
@@ -3829,7 +4079,7 @@ const claim = claimOf(nation);
         if (x > maxX) maxX = x;
         if (y > maxY) maxY = y;
       }
-      if (maxX < grown.getWest() || minX > grown.getEast() || maxY < grown.getSouth() || minY > grown.getNorth()) return;
+      if (outsideView(minX, minY, maxX, maxY, grown)) return;
       const style = tradeStyle(line.route);
       const latlngs = tradeLatLngs(line.points);
       const cls = "nb-trade nb-trade-" + line.route.kind + " nb-trade-" + line.route.status;
@@ -3893,7 +4143,7 @@ const claim = claimOf(nation);
         if (x > maxX) maxX = x;
         if (y > maxY) maxY = y;
       }
-      if (maxX < grown.getWest() || minX > grown.getEast() || maxY < grown.getSouth() || minY > grown.getNorth()) return;
+      if (outsideView(minX, minY, maxX, maxY, grown)) return;
       const flow = Math.max(1, Number((feature.properties && feature.properties.flow) || 1));
       const mouth = Math.min(3.6, 0.95 + Math.log10(flow) * 0.72);
       const source = Math.max(0.75, mouth * 0.36);
@@ -4183,6 +4433,51 @@ const claim = claimOf(nation);
   function unexploredHtml(western) {
     const text = western ? "The western lands are unexplored." : "This part of the world is unexplored.";
     return '<div class="nb-pop"><h2>Unexplored</h2><p>' + text + "</p></div>";
+  }
+
+  function unchartedHtml() {
+    return '<div class="nb-pop"><h2>Uncharted waters/lands</h2><p>This part of the world has not been revealed.</p></div>';
+  }
+
+  function fogCovers(x, y) {
+    const rings = state.fogRings || [];
+    if (!window.NB_HISTORY || !window.NB_HISTORY.pointInRings) return false;
+    for (let i = 0; i < rings.length; i++) {
+      if (window.NB_HISTORY.pointInRings(x, y, rings[i])) return true;
+    }
+    return false;
+  }
+
+  function isUncharted(x, y) {
+    if (!state.meta) return false;
+    if (provinceAt(x, y)) return false;
+    if (x < state.meta.hidden_west_of) return true;
+    return fogCovers(x, y);
+  }
+
+  function revealHtml(id, prov) {
+    const sighted = prov.state === "sighted";
+    const deposits = (prov.deposits || [])
+      .map(function (deposit) {
+        return esc(deposit.name || deposit.code) + (deposit.effect ? " (" + esc(deposit.effect) + ")" : "");
+      })
+      .join(", ");
+    const terrain = sighted
+      ? ""
+      : "<p>" + esc((prov.mix || []).map(function (pair) { return labelTerrain(pair[0]) + " " + formatPct(pair[1]) + "%"; }).join(", ") || labelTerrain(prov.terrain)) + "</p>";
+    const native = !sighted && prov.native_power ? '<p class="meta">Native power: ' + esc(prov.native_power) + "</p>" : "";
+    const goods = deposits ? '<p class="meta">' + deposits + "</p>" : "";
+    return (
+      '<div class="nb-pop"><h2>' +
+      (sighted ? "Sighted coast" : "Charted province " + id) +
+      "</h2><p class=\"tier\">" +
+      (sighted ? "Coastline only" : "Charted") +
+      "</p>" +
+      terrain +
+      native +
+      goods +
+      "</div>"
+    );
   }
 
   function workScreen(work) {
@@ -4538,6 +4833,12 @@ const claim = claimOf(nation);
       return box[2] + pad < minX || box[0] - pad > maxX || box[3] + pad < minY || box[1] - pad > maxY;
     }
     layer.createTile = function (coords, done) {
+      if (state.meta && state.meta.wrap_x) {
+        const counts = tileCounts(state.meta, Math.min(coords.z, state.meta.native_zoom));
+        const copy = L.point(tileX(coords.x, counts.x), coords.y);
+        copy.z = coords.z;
+        coords = copy;
+      }
       const groups = state.annexGroups;
       const sig = state.annexGeomSig || "";
       if (!groups || !groups.length) return layer._nbCreateTile(coords, done);
@@ -6091,6 +6392,339 @@ const claim = claimOf(nation);
     }
   }
 
+  const TERRAIN_LEGEND = [
+    ["forest", "Forest", "#2f6b3a", false],
+    ["jungle", "Jungle", "#1d6a45", false],
+    ["plains", "Plains", "#c6b47a", false],
+    ["hills", "Hills", "#8d7344", false],
+    ["desert", "Desert", "#d2b48c", false],
+    ["snow", "Snow", "#e7eef2", false],
+    ["mountains", "Mountains", "#6d6875", false],
+    ["marsh", "Marsh", "#6f8f72", false],
+    ["grassland", "Grassland", "#8fad62", false],
+    ["tundra", "Tundra", "#b7c4be", false],
+    ["steppe", "Steppe", "#AAAA70", true],
+    ["savanna", "Savanna", "#B8AA62", true],
+    ["taiga", "Taiga", "#346244", true],
+    ["dunes", "Dunes", "#EED698", true],
+    ["volcanic", "Volcanic", "#5C504C", true],
+  ];
+
+  const DEPOSIT_GLYPH = {
+    Fe: "M3 11h8l1 3H2l1-3Zm1 3h6v2H4v-2Z",
+    Ag: "M7 2a5 5 0 1 0 .1 0ZM7 4.2v5.6M5.2 5.4h3.6",
+    Gm: "M7 2 12 7 7 12 2 7Z",
+    S: "M7 2 12 12H2Z",
+    Gt: "M4 12c2-1 2-4 0-6M7 12c2-1 2-5 0-7M10 12c2-1 2-4 0-5",
+    Na: "M7 2 9 6 7 12 5 6Z",
+    Sp: "M7 1.5 8.4 5H12L9 7.2 10.2 11 7 8.8 3.8 11 5 7.2 2 5h3.6Z",
+    Dy: "M7 2c2 3 3 4 3 6a3 3 0 0 1-6 0c0-2 1-3 3-6Z",
+    Hw: "M2 8h10v3H2ZM2 6h10",
+    Hr: "M3 9c0-3 2-5 4-5s4 2 4 5H3Z",
+    Fu: "M3 8c1-3 7-3 8 0-2 3-6 3-8 0Z",
+    Pe: "M7 3a4 4 0 1 0 .1 0Z",
+    Wh: "M2 8c2 2 3 2 5 0 2 2 3 2 5 0",
+    Sf: "M2 5h10v2H2Zm1 2h8l-1 5H4Z",
+  };
+
+  const HAZARD_COLOR = { storm: "#6a5a8a", reef: "#8a5a4a", shoal: "#c4a574", ice: "#9bb8c9", monster: "#7a3048" };
+
+  function depositGlyph(code) {
+    const path = DEPOSIT_GLYPH[code] || DEPOSIT_GLYPH.Fe;
+    return (
+      '<svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true">' +
+      '<path fill="none" stroke="#1b2430" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="' +
+      path +
+      '"/></svg>'
+    );
+  }
+
+  function terrainsInUse() {
+    const used = {};
+    state.provinces.forEach(function (prov) {
+      if (prov.state === "hidden" || prov.state === "sighted") return;
+      if (prov.terrain) used[String(prov.terrain).toLowerCase()] = true;
+      (prov.mix || []).forEach(function (pair) {
+        if (pair && pair[0]) used[String(pair[0]).toLowerCase()] = true;
+      });
+    });
+    return used;
+  }
+
+  function renderLegend() {
+    const root = document.getElementById("map-legend");
+    if (!root || !wraps()) return;
+    const used = terrainsInUse();
+    const terrain = TERRAIN_LEGEND.filter(function (row) {
+      return !row[3] || used[row[0]];
+    })
+      .map(function (row) {
+        return '<li><i class="swatch" style="background:' + row[2] + '"></i>' + esc(row[1]) + "</li>";
+      })
+      .join("");
+    const resources = Object.keys(DEPOSIT_GLYPH)
+      .map(function (code) {
+        return '<li class="legend-icon">' + depositGlyph(code) + "<span>" + esc(code) + "</span></li>";
+      })
+      .join("");
+    const blurb = document.querySelector("#info .info-body p");
+    if (blurb && blurb.textContent.indexOf("The western lands are unexplored.") >= 0) {
+      blurb.textContent = blurb.textContent.replace(
+        "The western lands are unexplored.",
+        "Uncharted waters and lands stay under fog until they are revealed."
+      );
+    }
+    root.hidden = false;
+    root.innerHTML =
+      '<button type="button" id="legend-toggle" aria-expanded="true">Legend</button>' +
+      '<div class="legend-body">' +
+      "<p>Terrain</p><ul>" + terrain + "</ul>" +
+      "<p>Resources</p><ul class=\"legend-icons\">" + resources + "</ul>" +
+      "<p>Winds and currents</p><ul><li>Wind bands are arrows. Currents are lines with arrowheads, and they stop over land.</li></ul>" +
+      "<p>Hazards</p><ul><li>Tinted areas are hazards. An X marks a chokepoint.</li></ul>" +
+      "<p>Fog</p><ul>" +
+      "<li><i class=\"swatch\" style=\"background:#dac092\"></i>Hidden</li>" +
+      "<li><i class=\"swatch\" style=\"background:#c4b48a\"></i>Sighted</li>" +
+      "<li><i class=\"swatch\" style=\"background:#8fad62\"></i>Charted</li>" +
+      "<li><i class=\"swatch\" style=\"background:#2f6b3a\"></i>Explored</li>" +
+      "</ul></div>";
+    const button = document.getElementById("legend-toggle");
+    const body = root.querySelector(".legend-body");
+    button.addEventListener("click", function () {
+      const collapsed = root.classList.toggle("is-collapsed");
+      button.setAttribute("aria-expanded", String(!collapsed));
+      body.hidden = collapsed;
+    });
+  }
+
+  function appendRoundControls(panel) {
+    const block = document.createElement("div");
+    block.innerHTML =
+      "<p>Round world</p>" +
+      '<label><input type="checkbox" data-overlay="deposits"> Resources</label>' +
+      '<label><input type="checkbox" data-overlay="winds"> Winds &amp; currents</label>' +
+      '<label><input type="checkbox" data-overlay="hazards"> Hazards</label>' +
+      '<label><input type="checkbox" data-overlay="landmarks"> Landmarks</label>';
+    while (block.firstChild) panel.appendChild(block.firstChild);
+    panel.querySelectorAll("input[data-overlay]").forEach(function (input) {
+      if (input.dataset.bound) return;
+      input.dataset.bound = "1";
+    });
+    const fresh = panel.querySelectorAll('input[data-overlay="deposits"], input[data-overlay="winds"], input[data-overlay="hazards"], input[data-overlay="landmarks"]');
+    fresh.forEach(function (input) {
+      input.addEventListener("change", function () {
+        state.overlays[input.dataset.overlay] = input.checked;
+        renderAtlas();
+      });
+    });
+  }
+
+  function syncImageCopies(kind) {
+    if (!wraps() || !state.map) return;
+    const primary = kind === "highlight" ? state.highlightLayer : state.claimLayer;
+    const url = kind === "highlight" ? state.highlightUrl : state.claimUrl;
+    const key = kind + "Copies";
+    (state[key] || []).forEach(function (layer) {
+      if (state.map.hasLayer(layer)) state.map.removeLayer(layer);
+    });
+    state[key] = [];
+    if (!primary || !url) return;
+    viewShifts().forEach(function (shift) {
+      if (!shift) return;
+      const w = state.meta.width;
+      const layer = L.imageOverlay(url, L.latLngBounds([0, shift * w], [state.meta.height, (shift + 1) * w]), {
+        interactive: false,
+        opacity: kind === "highlight" && state.mode === "terrain" ? 0 : 1,
+        zIndex: kind === "highlight" ? 3 : 2,
+      });
+      layer.addTo(state.map);
+      state[key].push(layer);
+    });
+  }
+
+  function refreshWrapCopies() {
+    if (!wraps() || !state.map) return;
+    const sig = viewShifts().join(",");
+    if (sig === state.wrapShiftSig) return;
+    state.wrapShiftSig = sig;
+    if (state.flatCollection) applyFlat(state.flatCollection);
+    syncImageCopies("highlight");
+    syncImageCopies("claim");
+  }
+
+  function atlasLatLng(x, y) {
+    return [y, wraps() ? presentX(x) : x];
+  }
+
+  function depositTip(deposit) {
+    const luxury = deposit.luxury ? " · luxury" : "";
+    return (
+      esc(deposit.name || deposit.code) +
+      (deposit.effect ? " — " + esc(deposit.effect) : "") +
+      (deposit.worked_by ? " Worked by " + esc(deposit.worked_by) + "." : "") +
+      luxury
+    );
+  }
+
+  function renderAtlas() {
+    const map = state.map;
+    if (!map || !wraps()) return;
+    if (state.atlasLayer) {
+      map.removeLayer(state.atlasLayer);
+      state.atlasLayer = null;
+    }
+    const group = L.layerGroup();
+    const zoom = map.getZoom();
+    const showDeposits = state.overlays.deposits && zoom >= (state.meta.native_zoom || 0) - 2;
+    if (showDeposits) {
+      const byProvince = {};
+      (state.deposits || []).forEach(function (deposit) {
+        const id = Number(deposit.province);
+        if (!byProvince[id]) byProvince[id] = [];
+        byProvince[id].push(deposit);
+      });
+      Object.keys(byProvince).forEach(function (key) {
+        const prov = state.provinces.get(Number(key));
+        if (!prov || !prov.xy || !provinceIsPublic(Number(key), prov)) return;
+        byProvince[key].forEach(function (deposit, index) {
+          const x = prov.xy[0] + (index - (byProvince[key].length - 1) / 2) * 18;
+          const marker = L.marker(atlasLatLng(x, prov.xy[1]), {
+            icon: L.divIcon({
+              className: "nb-deposit" + (deposit.luxury ? " is-luxury" : ""),
+              html: depositGlyph(deposit.code),
+              iconSize: [16, 16],
+              iconAnchor: [8, 8],
+            }),
+            title: deposit.name || deposit.code,
+            keyboard: true,
+          });
+          marker.bindTooltip(depositTip(deposit), { direction: "top", className: "nb-tip" });
+          marker.addTo(group);
+        });
+      });
+    }
+    if (state.overlays.winds) {
+      const book = state.winds || { winds: [], currents: [] };
+      (book.winds || []).forEach(function (wind) {
+        const points = wind.points || wind.band || [];
+        if (points.length < 2) return;
+        const drawn = wraps() ? presentPath(points) : points;
+        L.polyline(drawn.map(function (pt) { return [pt[1], pt[0]]; }), {
+          color: "#8a6a32",
+          weight: 2,
+          opacity: 0.85,
+          interactive: false,
+        }).addTo(group);
+        const last = drawn[drawn.length - 1];
+        const prev = drawn[drawn.length - 2];
+        const angle = Math.atan2(last[1] - prev[1], last[0] - prev[0]);
+        L.marker(atlasLatLng(last[0], last[1]), {
+          icon: L.divIcon({
+            className: "nb-arrow",
+            html: '<svg viewBox="0 0 12 12" width="12" height="12"><path fill="#8a6a32" d="M1 6h7L6 3l5 3-5 3 2-3Z" transform="rotate(' + (angle * 180 / Math.PI) + ' 6 6)"/></svg>',
+            iconSize: [12, 12],
+            iconAnchor: [6, 6],
+          }),
+          interactive: false,
+        }).addTo(group);
+      });
+      (book.currents || []).forEach(function (current) {
+        const points = current.points || [];
+        const runs = [];
+        let run = [];
+        points.forEach(function (pt) {
+          const onLand = provinceAt(pt[0], pt[1]) > 0;
+          if (onLand) {
+            if (run.length > 1) runs.push(run);
+            run = [];
+            return;
+          }
+          run.push(pt);
+        });
+        if (run.length > 1) runs.push(run);
+        runs.forEach(function (part) {
+          const drawn = wraps() ? presentPath(part) : part;
+          L.polyline(drawn.map(function (pt) { return [pt[1], pt[0]]; }), {
+            color: "#2e7d8c",
+            weight: 2,
+            opacity: 0.9,
+            interactive: false,
+          }).addTo(group);
+          const last = drawn[drawn.length - 1];
+          L.circleMarker([last[1], wraps() ? last[0] : last[0]], {
+            radius: 3,
+            color: "#2e7d8c",
+            weight: 2,
+            fillOpacity: 1,
+            interactive: false,
+          }).addTo(group);
+        });
+      });
+    }
+    if (state.overlays.hazards) {
+      const book = state.hazards || { areas: [], chokepoints: [] };
+      (book.areas || []).forEach(function (area) {
+        const rings = area.rings || [];
+        if (!rings.length) return;
+        const color = HAZARD_COLOR[area.kind] || "#6a5344";
+        const coordinates = typeof rings[0][0] === "number" ? [rings] : rings;
+        L.geoJSON(
+          { type: "Feature", properties: {}, geometry: { type: "Polygon", coordinates: coordinates } },
+          {
+            interactive: false,
+            style: { color: color, weight: 1, fillColor: color, fillOpacity: 0.28 },
+            coordsToLatLng: function (coord) {
+              return L.latLng(coord[1], wraps() ? presentX(coord[0]) : coord[0]);
+            },
+          }
+        ).addTo(group);
+      });
+      (book.chokepoints || []).forEach(function (point) {
+        L.marker(atlasLatLng(point.x, point.y), {
+          icon: L.divIcon({
+            className: "nb-choke",
+            html: '<svg viewBox="0 0 12 12" width="12" height="12"><path stroke="#7a3048" stroke-width="1.6" d="M2 2l8 8M10 2L2 10"/></svg>',
+            iconSize: [12, 12],
+            iconAnchor: [6, 6],
+          }),
+          title: point.name || "Chokepoint",
+        }).addTo(group);
+      });
+    }
+    if (state.overlays.landmarks) {
+      (state.landmarks || []).forEach(function (mark) {
+        const prov = mark.province != null ? state.provinces.get(Number(mark.province)) : null;
+        const x = mark.x != null ? mark.x : prov && prov.xy ? prov.xy[0] : null;
+        const y = mark.y != null ? mark.y : prov && prov.xy ? prov.xy[1] : null;
+        if (x == null || y == null) return;
+        const marker = L.marker(atlasLatLng(x, y), {
+          icon: L.divIcon({
+            className: "nb-landmark",
+            html: '<svg viewBox="0 0 12 12" width="12" height="12"><path fill="#f4e2b0" stroke="#1b2430" stroke-width="1" d="M6 1 11 6 6 11 1 6Z"/></svg>',
+            iconSize: [12, 12],
+            iconAnchor: [6, 6],
+          }),
+          title: mark.name || "Landmark",
+          keyboard: true,
+        });
+        if (mark.name) marker.bindTooltip(esc(mark.name), { direction: "top", className: "nb-tip" });
+        marker.addTo(group);
+      });
+    }
+    state.atlasLayer = group;
+    if (group.getLayers().length) group.addTo(map);
+  }
+
+  async function loadOptionalJson(url, fallback) {
+    try {
+      const res = await fetch(url, { cache: "no-store" });
+      if (!res.ok) return fallback;
+      return await res.json();
+    } catch (err) {
+      return fallback;
+    }
+  }
+
   async function main() {
     setupInfo();
     setupSearch();
@@ -6217,6 +6851,20 @@ const claim = claimOf(nation);
     ]);
     state.lut = lut;
     indexWorld(world);
+    if (meta.wrap_x) {
+      const packs = await Promise.all([
+        loadOptionalJson("data/deposits.json?t=" + stamp, []),
+        loadOptionalJson("data/winds_currents.json?t=" + stamp, { winds: [], currents: [] }),
+        loadOptionalJson("data/hazards.json?t=" + stamp, { areas: [], chokepoints: [] }),
+        loadOptionalJson("data/landmarks.json?t=" + stamp, []),
+      ]);
+      state.deposits = Array.isArray(packs[0]) ? packs[0] : (packs[0] && packs[0].deposits) || [];
+      state.winds = packs[1] && packs[1].winds ? packs[1] : { winds: [], currents: [] };
+      state.hazards = packs[2] && packs[2].areas ? packs[2] : { areas: [], chokepoints: [] };
+      state.landmarks = Array.isArray(packs[3]) ? packs[3] : [];
+      renderLegend();
+      renderAtlas();
+    }
     state.claims = normalizeClaims(claims);
     state.capitalNames = loadCapitalNames(settlements);
     state.settlementRows = loadSettlementRows(settlements);

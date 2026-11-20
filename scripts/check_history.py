@@ -16,9 +16,113 @@ import math
 import sys
 from pathlib import Path
 
+import reveal
+
 ROOT = Path(__file__).resolve().parents[1]
 WEST = 3592
 WORK_MIN = 9000
+PROVINCE_BBOXES = []
+FOG_RINGS = []
+
+
+def point_in_ring(x, y, ring):
+    if not ring or len(ring) < 3:
+        return False
+    inside = False
+    j = len(ring) - 1
+    for i in range(len(ring)):
+        xi, yi = ring[i][0], ring[i][1]
+        xj, yj = ring[j][0], ring[j][1]
+        if (yi > y) != (yj > y):
+            denom = yj - yi
+            if denom != 0 and x < (xj - xi) * (y - yi) / denom + xi:
+                inside = not inside
+        j = i
+    return inside
+
+
+def revealed_bbox_contains(x, y):
+    for minx, miny, maxx, maxy, state in PROVINCE_BBOXES:
+        if state not in {"sighted", "charted", "explored"}:
+            continue
+        if minx <= x <= maxx and miny <= y <= maxy:
+            return True
+    return False
+
+
+def in_fog(x, y):
+    for rings in FOG_RINGS:
+        if not rings or not rings[0]:
+            continue
+        if not point_in_ring(x, y, rings[0]):
+            continue
+        if any(point_in_ring(x, y, hole) for hole in rings[1:] if hole):
+            continue
+        return True
+    return False
+
+
+def secret_point(x, y):
+    """None when the point may be published. 'west' or 'fog' when it may not.
+
+    A point inside a published province bbox is the revealed area. Everything
+    west of the legacy line, and everything inside a fog polygon, is hidden.
+    """
+    if isinstance(x, bool) or isinstance(y, bool):
+        return "bad"
+    try:
+        xf = float(x)
+        yf = float(y)
+    except (TypeError, ValueError):
+        return "bad"
+    if revealed_bbox_contains(xf, yf):
+        return None
+    if xf < WEST:
+        return "west"
+    if in_fog(xf, yf):
+        return "fog"
+    return None
+
+
+def anchor_secret(box, xy, prov=None):
+    if isinstance(prov, dict) and prov.get("state") == "hidden":
+        return True
+    points = []
+    if isinstance(box, (list, tuple)) and len(box) >= 2:
+        points.append((box[0], box[1]))
+    if isinstance(xy, (list, tuple)) and len(xy) >= 2:
+        points.append((xy[0], xy[1]))
+    elif isinstance(xy, (list, tuple)) and len(xy) == 1:
+        points.append((xy[0], 0))
+    for x, y in points:
+        if secret_point(x, y):
+            return True
+    return False
+
+
+def load_secret_geometry(provinces):
+    global PROVINCE_BBOXES, FOG_RINGS
+    PROVINCE_BBOXES = []
+    for prov in provinces.values():
+        box = (prov or {}).get("bbox")
+        if isinstance(box, list) and len(box) >= 4:
+            PROVINCE_BBOXES.append(
+                (float(box[0]), float(box[1]), float(box[2]), float(box[3]), str((prov or {}).get("state") or ""))
+            )
+    FOG_RINGS = []
+    path = ROOT / "data" / "flat.geojson"
+    if not path.is_file():
+        return
+    for feature in load(path).get("features") or []:
+        props = (feature or {}).get("properties") or {}
+        if props.get("kind") != "fog":
+            continue
+        geom = (feature or {}).get("geometry") or {}
+        coords = geom.get("coordinates") or []
+        if geom.get("type") == "Polygon":
+            FOG_RINGS.append(coords)
+        elif geom.get("type") == "MultiPolygon":
+            FOG_RINGS.extend(coords)
 
 
 def fail(message):
@@ -58,9 +162,12 @@ def check_rings(value, where, width, height):
             x, y = pt[0], pt[1]
             if isinstance(x, bool) or isinstance(y, bool) or not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
                 fail(f"{where}: point is not a number")
-            if x < WEST:
+            reason = secret_point(x, y)
+            if reason == "west":
                 fail(f"{where}: x={x} is west of {WEST}")
-            if x > width or y < 0 or y > height:
+            if reason == "fog":
+                fail(f"{where}: point {(x, y)} is inside a hidden province")
+            if x > width or y < 0 or y > height or x < 0:
                 fail(f"{where}: point {(x, y)} is outside the map")
 
 
@@ -91,9 +198,12 @@ def optional_int(value, where):
 def check_point(x, y, where, width, height):
     if isinstance(x, bool) or isinstance(y, bool) or not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
         fail(f"{where}: point is not a number")
-    if x < WEST:
+    reason = secret_point(x, y)
+    if reason == "west":
         fail(f"{where}: x={x} is west of {WEST}")
-    if x > width or y < 0 or y > height:
+    if reason == "fog":
+        fail(f"{where}: point {(x, y)} is inside a hidden province")
+    if x > width or y < 0 or y > height or x < 0:
         fail(f"{where}: point {(x, y)} is outside the map")
 
 
@@ -106,7 +216,7 @@ def check_endpoint(value, where, nations):
     record = nations[nation]
     box = record.get("bbox") or [0, 0, 0, 0]
     xy = record.get("capital_xy") or [0, 0]
-    if box[0] < WEST or xy[0] < WEST:
+    if anchor_secret(box, xy):
         fail(f"{where}: nation {nation} is west of the fog line")
     name = value.get("settlement", value.get("name"))
     if not isinstance(name, str) or not name.strip():
@@ -219,7 +329,7 @@ def check_sectors(nations, width, height, province_id):
                 fail(f"sector_control.csv:{index}: controller {nation_id} is not on the published map")
             box = nation.get("bbox") or [0, 0, 0, 0]
             xy = nation.get("capital_xy") or [0, 0]
-            if box[0] < WEST or xy[0] < WEST:
+            if anchor_secret(box, xy):
                 fail(f"sector_control.csv:{index}: controller {nation_id} is west of the fog line")
             province_id(seen[sid], f"sector_control.csv {sid}")
         if not cycle_text.isdigit():
@@ -323,7 +433,7 @@ def check_settlements(provinces, nations, places, width, height):
             fail(f"settlements.csv:{index}: province {pid} is not on the published map")
         box = provinces[pid].get("bbox") or [0, 0, 0, 0]
         xy = provinces[pid].get("xy") or [0, 0]
-        if box[0] < WEST or xy[0] < WEST:
+        if anchor_secret(box, xy):
             fail(f"settlements.csv:{index}: province {pid} is west of the fog line")
         if kind not in ("capital", "city", "town", "village"):
             fail(f"settlements.csv:{index}: type {kind} is not a settlement")
@@ -409,7 +519,7 @@ def check_buildings(provinces, nations):
             fail(f"buildings.csv:{index}: nation {nation_name} is not on the published map")
         box = nation.get("bbox") or [0, 0, 0, 0]
         xy = nation.get("capital_xy") or [0, 0]
-        if box[0] < WEST or xy[0] < WEST:
+        if anchor_secret(box, xy):
             fail(f"buildings.csv:{index}: nation {nation_name} is west of the fog line")
         if not province_text.isdigit():
             fail(f"buildings.csv:{index}: province must be an integer")
@@ -457,7 +567,7 @@ def check_alliances(nations):
             fail(f"alliances.csv:{index}: nation {nation_name} is not on the published map")
         box = nation.get("bbox") or [0, 0, 0, 0]
         xy = nation.get("capital_xy") or [0, 0]
-        if box[0] < WEST or xy[0] < WEST:
+        if anchor_secret(box, xy):
             fail(f"alliances.csv:{index}: nation {nation_name} is west of the fog line")
         if role not in ("leader", "ally", "vassal"):
             fail(f"alliances.csv:{index}: role must be leader, ally, or vassal")
@@ -507,7 +617,7 @@ def check_province_slots(provinces):
             fail(f"province_slots.json: province {pid} is not on the published map")
         box = prov.get("bbox") or [0, 0, 0, 0]
         xy = prov.get("xy") or [0, 0]
-        if box[0] < WEST or xy[0] < WEST:
+        if anchor_secret(box, xy):
             fail(f"province_slots.json: province {pid} is west of the fog line")
         for sector in (row or {}).get("sectors") or []:
             name = str((sector or {}).get("name") or "")
@@ -534,7 +644,7 @@ def check_province_slots(provinces):
                 fail(f"settlement_name_overrides.csv:{index}: province {pid} is not on the published map")
             box = prov.get("bbox") or [0, 0, 0, 0]
             xy = prov.get("xy") or [0, 0]
-            if box[0] < WEST or xy[0] < WEST:
+            if anchor_secret(box, xy):
                 fail(f"settlement_name_overrides.csv:{index}: province {pid} is west of the fog line")
 
 
@@ -556,7 +666,8 @@ def check_rivers(width, height):
             x, y = point[0], point[1]
             if not isinstance(x, (int, float)) or isinstance(x, bool) or not isinstance(y, (int, float)) or isinstance(y, bool):
                 fail(f"rivers.geojson:{index}: bad point")
-            if x < WEST or x > width or y < 0 or y > height:
+            reason = secret_point(x, y)
+            if reason or x > width or y < 0 or y > height or x < 0:
                 fail(f"rivers.geojson:{index}: a river leaves the published map")
 
 
@@ -586,7 +697,7 @@ def check_province_names(provinces):
             fail(f"province_names.csv:{index}: province {pid} is not on the published map")
         box = prov.get("bbox") or [0, 0, 0, 0]
         xy = prov.get("xy") or [0, 0]
-        if box[0] < WEST or xy[0] < WEST:
+        if anchor_secret(box, xy):
             fail(f"province_names.csv:{index}: province {pid} is west of the fog line")
         if not name or name.lower() == "terillia":
             fail(f"province_names.csv:{index}: name is missing or reserved")
@@ -626,7 +737,7 @@ def check_religions(provinces, nations):
                 fail(f"religions.csv:{index}: nation {number} is not on the published map")
             box = nation.get("bbox") or [0, 0, 0, 0]
             xy = nation.get("capital_xy") or [0, 0]
-            if box[0] < WEST or xy[0] < WEST:
+            if anchor_secret(box, xy):
                 fail(f"religions.csv:{index}: nation {number} is west of the fog line")
         else:
             prov = provinces.get(number)
@@ -634,7 +745,7 @@ def check_religions(provinces, nations):
                 fail(f"religions.csv:{index}: province {number} is not on the published map")
             box = prov.get("bbox") or [0, 0, 0, 0]
             xy = prov.get("xy") or [0, 0]
-            if box[0] < WEST or xy[0] < WEST:
+            if anchor_secret(box, xy):
                 fail(f"religions.csv:{index}: province {number} is west of the fog line")
 
 
@@ -671,7 +782,7 @@ def check_wars(nations):
                 continue
             box = nation.get("bbox") or [0, 0, 0, 0]
             xy = nation.get("capital_xy") or [0, 0]
-            if box[0] < WEST or xy[0] < WEST:
+            if anchor_secret(box, xy):
                 fail(f"wars.csv:{index}: nation {number} is west of the fog line")
 
 
@@ -835,6 +946,7 @@ def main():
     world = load(ROOT / "data" / "world.json")
     provinces = {int(key): value for key, value in world["provinces"].items()}
     nations = {int(nation["id"]): nation for nation in world["nations"]}
+    load_secret_geometry(provinces)
     index = load(ROOT / "data" / "history" / "index.json")
     files = index["snapshots"] if isinstance(index, dict) else index
     if not isinstance(files, list) or not files:
@@ -850,7 +962,7 @@ def main():
             fail(f"{where}: province {value} is not on the published map")
         box = prov.get("bbox") or [0, 0, 0, 0]
         xy = prov.get("xy") or [0, 0]
-        if box[0] < WEST or xy[0] < WEST:
+        if anchor_secret(box, xy, prov):
             fail(f"{where}: province {value} is west of the fog line")
 
     catalog_path = ROOT / "data" / "infrastructure.json"
@@ -917,16 +1029,104 @@ def main():
         for marker in snap.get("markers") or []:
             x = marker.get("x")
             y = marker.get("y")
-            if isinstance(x, bool) or not isinstance(x, (int, float)) or x < WEST:
+            if isinstance(x, bool) or isinstance(y, bool) or not isinstance(x, (int, float)) or not isinstance(y, (int, float)):
+                fail(f"{name} marker is outside the map")
+            reason = secret_point(x, y)
+            if reason == "west":
                 fail(f"{name} marker x={x} is west of the fog line")
-            if isinstance(y, bool) or not isinstance(y, (int, float)) or y < 0 or y > height or x > width:
+            if reason == "fog":
+                fail(f"{name} marker is inside a hidden province")
+            if y < 0 or y > height or x < 0 or x > width:
                 fail(f"{name} marker is outside the map")
         if "infrastructure" in snap:
             check_infra_block(snap.get("infrastructure"), f"{name} infrastructure", width, height, province_id)
         if "trade" in snap:
             check_trade_block(snap.get("trade"), f"{name} trade", nations, width, height)
     check_transfer_baselines(snaps, baked_province_nations())
+    check_reveal_layers(provinces, width, height)
     print(f"history secrecy ok ({len(files)} snapshots)")
+
+
+def _walk_points(value, found):
+    if isinstance(value, (list, tuple)):
+        if len(value) >= 2 and isinstance(value[0], (int, float)) and not isinstance(value[0], bool) and isinstance(value[1], (int, float)) and not isinstance(value[1], bool):
+            found.append((value[0], value[1]))
+            return
+        for item in value:
+            _walk_points(item, found)
+
+
+def check_reveal_layers(provinces, width, height):
+    """Published deposit, landmark, wind, and hazard files stay inside revealed land."""
+
+    def province_state(pid, where):
+        if isinstance(pid, bool) or not isinstance(pid, int) or pid not in provinces:
+            fail(f"{where}: province {pid} is not on the published map")
+        state = provinces[pid].get("state") or "explored"
+        if state == "hidden":
+            fail(f"{where}: province {pid} is hidden")
+        return state
+
+    def points_ok(value, where):
+        found = []
+        _walk_points(value, found)
+        for x, y in found:
+            check_point(x, y, where, width, height)
+
+    deposits_path = ROOT / "data" / "deposits.json"
+    if deposits_path.is_file():
+        rows = load(deposits_path)
+        if isinstance(rows, dict):
+            rows = rows.get("deposits") or []
+        if not isinstance(rows, list):
+            fail("deposits.json must be a list")
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict):
+                fail(f"deposits.json:{index} must be an object")
+            state = province_state(row.get("province"), f"deposits.json:{index}")
+            try:
+                reveal.assert_deposit(row, state, f"deposits.json:{index}")
+            except SystemExit as exc:
+                fail(str(exc))
+            points_ok(row.get("xy"), f"deposits.json:{index}")
+
+    landmarks_path = ROOT / "data" / "landmarks.json"
+    if landmarks_path.is_file():
+        rows = load(landmarks_path)
+        if isinstance(rows, dict):
+            rows = rows.get("landmarks") or []
+        if not isinstance(rows, list):
+            fail("landmarks.json must be a list")
+        for index, row in enumerate(rows):
+            if not isinstance(row, dict):
+                fail(f"landmarks.json:{index} must be an object")
+            state = province_state(row.get("province"), f"landmarks.json:{index}")
+            try:
+                reveal.assert_landmark(row, state, f"landmarks.json:{index}")
+            except SystemExit as exc:
+                fail(str(exc))
+            if row.get("x") is not None:
+                points_ok([row.get("x"), row.get("y")], f"landmarks.json:{index}")
+
+    winds_path = ROOT / "data" / "winds_currents.json"
+    if winds_path.is_file():
+        doc = load(winds_path)
+        if not isinstance(doc, dict):
+            fail("winds_currents.json must be an object")
+        for kind in ("winds", "currents"):
+            for index, row in enumerate(doc.get(kind) or []):
+                points_ok(row, f"winds_currents.json {kind} {index}")
+
+    hazards_path = ROOT / "data" / "hazards.json"
+    if hazards_path.is_file():
+        doc = load(hazards_path)
+        if not isinstance(doc, dict):
+            fail("hazards.json must be an object")
+        for index, row in enumerate(doc.get("areas") or []):
+            points_ok(row, f"hazards.json area {index}")
+        for index, row in enumerate(doc.get("chokepoints") or []):
+            if isinstance(row, dict) and row.get("x") is not None:
+                points_ok([row.get("x"), row.get("y")], f"hazards.json chokepoint {index}")
 
 
 if __name__ == "__main__":
