@@ -1783,7 +1783,7 @@ def main() -> None:
             "maxy": int(maxy[pid]),
             "water": water.get(pid),
         }
-    del minx, maxx, miny, maxy, count, water
+    del minx, maxx, miny, maxy, water
 
     log("Writing world data…")
     world = build_world(paths, ids, allowed, boxes)
