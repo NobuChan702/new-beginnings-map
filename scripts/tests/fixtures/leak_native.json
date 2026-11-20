@@ -1,0 +1,9 @@
+{
+  "fog": {"2": "charted"},
+  "provinces": [
+    {"id": 2, "rgb": [2, 0, 0], "centroid": [300, 40], "terrain": "taiga", "native_power": "Pine clan", "coastal": false}
+  ],
+  "natives": [
+    {"province": 2, "name": "Pine clan", "notes": "a full record"}
+  ]
+}

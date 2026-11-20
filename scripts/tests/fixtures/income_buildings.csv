@@ -1,0 +1,8 @@
+nation,province,sector_id,building,cycle_built,status
+Albion,1,1-A,Mine,0,done
+Albion,2,2-A,Mine,0,done
+Albion,3,3-A,Farm,0,done
+Bor,4,4-A,Market,0,done
+Bor,5,5-A,Mine,0,done
+Albion,6,6-A,Farm,0,done
+Albion,7,7-A,Port,0,done

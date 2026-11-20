@@ -1,0 +1,9 @@
+{
+  "fog": {"2": "explored"},
+  "provinces": [
+    {"id": 2, "rgb": [2, 0, 0], "centroid": [300, 40], "terrain": "plains", "area_km2": 10, "coastal": true}
+  ],
+  "landmarks": [
+    {"id": "cape", "name": "Cape", "province": 2, "x": 4, "y": 4, "charted": true}
+  ]
+}

@@ -408,7 +408,7 @@ The polygon is drawn at every zoom. Close up, it is the real outline. Zoomed out
 
 ### What must stay off the map
 
-Snapshot files, `data/infrastructure.json`, `data/trade_routes.json`, `data/sectors.geojson`, `data/sector_control.csv`, `data/settlements.csv`, `data/buildings.csv`, and `data/alliances.csv` are public. Do not put a western province id, a western name, a western nation, or a coordinate with x < 3592 in them. The page drops geometry that crosses the fog line, and a click west of it only says that the western lands are unexplored. `python3 scripts/check_history.py` checks the history files, the infrastructure catalog, the trade routes, the sectors, the settlements, the buildings, and the alliances before deploy. A trade route that is not `"public": true` fails that check. So does a sector whose controller is not a published nation, a sector with no settlement, a village that is not inside its sector, a fort in a sector that has no settlement, or an alliance nation that is not on the published map.
+Snapshot files, `data/infrastructure.json`, `data/trade_routes.json`, `data/sectors.geojson`, `data/sector_control.csv`, `data/settlements.csv`, `data/buildings.csv`, and `data/alliances.csv` are public. Do not put a hidden province id, a hidden name, a hidden nation, or a coordinate inside a hidden province in them. Until the reveal rebuild, that hidden area is still every point with x < 3592. The page drops geometry that crosses the fog line, and a click west of it only says that the western lands are unexplored. `python3 scripts/check_history.py` checks the history files, the infrastructure catalog, the trade routes, the sectors, the settlements, the buildings, and the alliances before deploy. A trade route that is not `"public": true` fails that check. So does a sector whose controller is not a published nation, a sector with no settlement, a village that is not inside its sector, a fort in a sector that has no settlement, or an alliance nation that is not on the published map.
 
 ## Zoom
 
@@ -435,6 +435,84 @@ In the repository settings, open **Settings → Pages → Build and deployment**
 
 The site is https://nobuchan702.github.io/new-beginnings-map/
 
+## Round world
+
+The next rebuild reads width and height from the source rasters. The canvas those rasters describe is 22400×5600 pixels at 5.5 km per pixel. The known world stays at x 0–12000. The new eastern strip is x 12000–22400. x = 22400 is the same meridian as x = 0, and both edges are open sea.
+
+`data/meta.json` gains `"wrap_x": true` when the build runs. Until that rebuild, the committed meta has no `wrap_x`, and the page keeps today's bounds, tiles, and click behaviour. With `wrap_x` on, the map scrolls east-west without a wall. Tile columns wrap with `((x % n) + n) % n`. Clicks and the province lookup use x modulo the map width. Routes, claims, infrastructure, and the highlight images are drawn on the copy nearest the view. The overview rectangle splits in two when the view crosses the seam.
+
+Native zoom, the tile pyramid, `lookup.png` (still scale 4), and `lookup_width` all follow the raster. Nothing in the client hardcodes 12000 or 22400.
+
+## Fog states and reveal bundle
+
+Fog is per province. The order is **hidden < sighted < charted < explored**. The GM writes `source/reveal/fog.json` as `{"<id>": "<state>"}`. An id that is not listed is hidden, except a province that already sits entirely east of x = 3592 on the base map: that one stays explored, so an empty bundle publishes the known world and nothing else.
+
+`hidden_west_of` remains. Land west of that line stays hidden unless the bundle names it. The build still refuses to publish a hidden id, a coordinate inside a hidden province, or artwork that is not the parchment fog on hidden land.
+
+| State | What the player gets |
+| --- | --- |
+| hidden | Fog art only. Lookup id 0. Absent from `world.json`, search, and outlines. A fog shape in `flat.geojson` may cover the area. |
+| sighted | Coastline silhouette, a flat sighted tint, and a world.json record `{id, state, coastal, xy, deposits}` with coastal deposits only. |
+| charted | Terrain art, terrain and mix, surface deposits, the native power's name, and landmarks marked `charted`. |
+| explored | Everything the bundle holds for that id. |
+
+The bundle lives in `source/reveal/` and is gitignored with the rest of `source/`. The GM generates it. The build merges it into the base rasters. It does not invent eastern geometry.
+
+| File | Role |
+| --- | --- |
+| `fog.json` | Id to state for every revealed id |
+| `provinces.json` | Revealed provinces only, fields already limited to the state |
+| `province_ids.png` | Full-size id raster; only revealed ids are painted |
+| `political.png`, `terrain.png`, `depth_zones.png` | Full-size, fogged where hidden; sighted coasts are silhouettes |
+| `deposits.json` | Revealed deposits: province, code, name, luxury, worked_by, effect |
+| `landmarks.json`, `natives.json`, `winds_currents.json`, `hazards.json` | Revealed items only |
+
+A leak fails the build with `SystemExit`. That includes a published id missing from `fog.json` when it is not legacy east, a deposit or landmark or native record above that province's state, a hidden id in a raster or JSON file, and a coordinate inside a hidden province. `python3 scripts/check_history.py` uses the same rule on the public files: x < 3592 still fails, and so does a point inside a fog polygon, unless it sits in a province the bundle has revealed.
+
+Clicking fog says **Uncharted waters/lands**.
+
+## Resources layer
+
+After `wrap_x` is on, Layers gains Resources, Winds & currents, Hazards, and Landmarks. They read `data/deposits.json`, `data/winds_currents.json`, `data/hazards.json`, and `data/landmarks.json`. The build writes those from the bundle. With nothing newly revealed they are empty arrays (or empty wind and hazard objects). They are not baked into the tiles.
+
+Deposit marks sit on the province centroid from two zoom steps below native resolution. The fourteen codes are Fe, Ag, Gm, S, Gt, Na, Sp, Dy, Hw, Hr, Fu, Pe, Wh, and Sf. The tooltip shows the name, the effect, who works it, and a luxury note. Winds are arrows along a band. Currents are polylines with a mark at the end, and they are dropped where they cross land. Hazards are tinted areas. Chokepoints are X marks. Landmarks are diamonds. All of them follow the east-west wrap.
+
+The legend is the collapsible box `#map-legend`. It lists terrain classes, those resource marks, winds and currents, hazards, and the four fog states. Steppe, savanna, taiga, dunes, and volcanic appear only once a revealed province uses them. Their colours are `#AAAA70`, `#B8AA62`, `#346244`, `#EED698`, and `#5C504C`.
+
+## Income helper
+
+`scripts/deposit_income.py` is a public-data calculator. It does not open a sheet or the reveal bundle.
+
+```bash
+python3 scripts/deposit_income.py data/deposits.json owners.csv data/buildings.csv data/trade_routes.json
+```
+
+`owners.csv` is `province,nation,status`. Status is `none`, `outpost`, `colony`, or `integrated`. `none` and `integrated` pay the full deposit. A colony pays half of each number, rounded down. An outpost pays nothing. The buildings file is the existing `data/buildings.csv` shape. A deposit pays only when that province has the building the rule names.
+
+| Code | Building | Income |
+| --- | --- | --- |
+| Fe | Mine | +2 iron |
+| Ag | Mine | +5 gold and no iron |
+| Ag | Market | +1 gold |
+| Gm | Mine | +3 gold (luxury) |
+| S | Mine | +1 iron and +1 powder |
+| Gt | Farm | +2 food and +50 manpower |
+| Na | Farm or Market | +2 food, +1 gold, and +1 powder |
+| Sp | Market | +5 gold (luxury) |
+| Dy | Lumber Camp or Market | +2 gold (luxury) |
+| Hw | Lumber Camp | +2 timber |
+| Hr | Farm | +1 food and +1 horses |
+| Fu | Lumber Camp or Port | +3 gold (luxury) |
+| Pe | Port | +3 gold (luxury) |
+| Wh | Port | +2 gold and +1 food |
+| Sf | Mine | +3 iron |
+
+A slash means either building pays the package once. Silver's mine and market are separate lines, so both pay when both are built. A mine on Ag or Gm pays gold instead of iron.
+
+An active standing deal in `data/trade_routes.json` pays +2 gold to each endpoint for every distinct luxury named in `goods` (Gems, Spices, Dyes, Furs, Pearls). A disrupted route does not.
+
+The GM's sheet, which this repo does not edit, gains two columns on the province tab, `deposit` (the code) and `deposit_status`, and two columns on the nation Resources tab, `powder` and `horses`.
+
 ## Hidden west
 
-The player map keeps the fog artwork from `political.png` and `terrain.png` for every pixel with x < 3592. Provinces that touch that line are left out of `data/world.json`, `data/lookup.png`, and the outline tiles. The depth layer uses the same fog art on that side, not the raw depth raster. The build stops if the western artwork still shows land against sea, or if a hidden province id or a `removed_americas` name would be written out.
+Until the rebuild, the live site still uses the western rectangle. The player map keeps the fog artwork from `political.png` and `terrain.png` for every pixel with x < 3592. Provinces that touch that line are left out of `data/world.json`, `data/lookup.png`, and the outline tiles. The depth layer uses the same fog art on that side, not the raw depth raster. The build stops if the western artwork still shows land against sea, or if a hidden province id or a `removed_americas` name would be written out. After the reveal bundle is in use, that rectangle is the legacy rule underneath the per-province states above: the old west stays fog unless `fog.json` reveals it, and the eastern strip stays fog until the same file reveals it.

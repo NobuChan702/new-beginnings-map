@@ -1,0 +1,9 @@
+{
+  "fog": {"2": "sighted"},
+  "provinces": [
+    {"id": 2, "rgb": [2, 0, 0], "centroid": [300, 40], "coastal": true}
+  ],
+  "deposits": [
+    {"province": 2, "code": "Fe", "name": "Iron", "luxury": false, "worked_by": "Mine", "effect": "+2 iron"}
+  ]
+}

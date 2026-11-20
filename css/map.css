@@ -410,6 +410,60 @@ body.has-timeline #depth-legend {
   bottom: calc(108px + env(safe-area-inset-bottom));
 }
 
+#map-legend {
+  position: fixed;
+  z-index: 900;
+  left: max(12px, env(safe-area-inset-left));
+  top: calc(var(--header-h) + 12px);
+  width: min(240px, calc(100vw - 24px));
+  max-height: min(62vh, 520px);
+  overflow: auto;
+  background: rgba(11, 26, 74, 0.94);
+  color: var(--silver);
+  border: 1px solid rgba(230, 230, 234, 0.22);
+  font-size: 0.78rem;
+}
+
+#map-legend.is-collapsed .legend-body { display: none; }
+
+#legend-toggle {
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  color: var(--silver);
+  border: 0;
+  padding: 8px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+#map-legend .legend-body { padding: 0 10px 10px; }
+
+#map-legend p {
+  margin: 8px 0 4px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 0.68rem;
+  opacity: 0.75;
+}
+
+#map-legend ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+#map-legend li { display: flex; align-items: center; gap: 6px; }
+
+#map-legend .legend-icons {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px 8px;
+}
+
 #info {
   position: fixed;
   z-index: 900;
