@@ -62,6 +62,9 @@ REVEAL = {
     "layers": None,
 }
 SIGHTED_TINT = "#c4b48a"
+# nations.yaml painted_owners: province -> nation painted on the cycle-0 political map
+# when world.json has since moved the province (annexations recorded as history).
+PAINTED_OWNERS: dict[int, int] = {}
 
 
 def log(msg: str) -> None:
@@ -482,6 +485,9 @@ def build_world(paths: dict[str, Path], ids: np.ndarray, allowed: set[int], boxe
     del removed
     doc.pop("palette", None)
     doc.pop("unclaimed_provinces", None)
+    PAINTED_OWNERS.clear()
+    for key, value in (doc.pop("painted_owners", None) or {}).items():
+        PAINTED_OWNERS[int(key)] = int(value)
 
     by_id = {int(p["id"]): p for p in provinces["provinces"]}
     terrain_by_id = {int(t["province"]): t for t in terrain_doc["provinces"]}
@@ -515,6 +521,30 @@ def build_world(paths: dict[str, Path], ids: np.ndarray, allowed: set[int], boxe
         if dropped:
             log(f"  {nation.get('name')} dropped {dropped} hidden provinces")
         if not kept:
+            if nation.get("keep_empty") and not (nation.get("provinces") or []) and nation.get("bbox") and nation.get("capital_xy"):
+                # An annexed nation kept for history: no provinces, last known box and capital point.
+                ex, ey = (float(v) for v in nation["capital_xy"])
+                if ex < HIDDEN_WEST_OF or int(nation["bbox"][0]) < HIDDEN_WEST_OF:
+                    raise SystemExit(f"secrecy: empty nation {nid} sits west of the fog line")
+                name = str(nation["name"])
+                entry = {
+                    "id": nid,
+                    "name": name,
+                    "short_name": str(nation.get("short_name") or short_name(name)),
+                    "tier": str(nation.get("type") or nation.get("tier") or ""),
+                    "color": str(nation.get("color") or "#E6E6EA"),
+                    "capital_province": int(nation["capital"]),
+                    "capital_xy": list(nation["capital_xy"]),
+                    "bbox": [int(v) for v in nation["bbox"]],
+                    "province_count": 0,
+                    "area_km2": as_num(nation.get("area_km2") or 0),
+                    "provinces": [],
+                }
+                for key in ("former_names", "subtitle"):
+                    if nation.get(key):
+                        entry[key] = nation[key]
+                published_nations.append(entry)
+                continue
             log(f"  omitting {nation.get('name')} (no published provinces)")
             continue
         kept.sort()
@@ -537,16 +567,22 @@ def build_world(paths: dict[str, Path], ids: np.ndarray, allowed: set[int], boxe
         if cx < HIDDEN_WEST_OF and capital not in (REVEAL.get("bundle_ids") or set()):
             cx = (minx + maxx) / 2
             cy = (miny + maxy) / 2
+        exact_xy = None
+        placed = nation.get("capital_xy")
+        if placed and int(nation["capital"]) == capital and float(placed[0]) >= HIDDEN_WEST_OF:
+            # Hand-placed capital marker (tools/batch_ops.py) wins over the centroid.
+            cx, cy = float(placed[0]), float(placed[1])
+            exact_xy = [placed[0], placed[1]]
         tier = str(nation.get("type") or nation.get("tier") or "")
         name = str(nation["name"])
         entry = {
             "id": nid,
             "name": name,
-            "short_name": short_name(name),
+            "short_name": str(nation.get("short_name") or short_name(name)),
             "tier": tier,
             "color": str(nation.get("color") or "#E6E6EA"),
             "capital_province": capital,
-            "capital_xy": [round(cx, 1), round(cy, 1)],
+            "capital_xy": exact_xy or [round(cx, 1), round(cy, 1)],
             "bbox": [int(minx), int(miny), int(maxx), int(maxy)],
             "province_count": len(kept),
             "area_km2": as_num(area),
@@ -555,6 +591,8 @@ def build_world(paths: dict[str, Path], ids: np.ndarray, allowed: set[int], boxe
         former = nation.get("former_names") or nation.get("aliases")
         if former:
             entry["former_names"] = [str(item) for item in former if str(item).strip()]
+        if nation.get("subtitle"):
+            entry["subtitle"] = str(nation["subtitle"])
         published_nations.append(entry)
 
     nation_of = {}
@@ -1161,6 +1199,11 @@ def write_flat_layer(
         for pid in nation["provinces"]:
             nation_of[int(pid)] = int(nation["id"])
             color_of[int(pid)] = color
+    colors = {int(n["id"]): str(n.get("color") or "#E6E6EA").lower() for n in world["nations"]}
+    for pid, nid in PAINTED_OWNERS.items():
+        if pid in nation_of and nid in colors:
+            nation_of[pid] = nid
+            color_of[pid] = colors[nid] if len(colors[nid]) == 7 else "#e6e6ea"
 
     log("  tracing shared borders…")
     arcs = _boundary_arcs(ids)

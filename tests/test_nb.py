@@ -83,6 +83,7 @@ def copy_min_repo(dest: Path) -> None:
     shutil.copytree(SOURCE / "data", dest / "data")
     (dest / "scripts").mkdir(parents=True)
     shutil.copy2(SOURCE / "scripts" / "check_history.py", dest / "scripts" / "check_history.py")
+    shutil.copy2(SOURCE / "scripts" / "reveal.py", dest / "scripts" / "reveal.py")
     flag_dir = dest / "assets" / "flags"
     flag_dir.mkdir(parents=True)
     for png in (SOURCE / "assets" / "flags").glob("*.png"):
