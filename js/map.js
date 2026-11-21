@@ -1,6 +1,23 @@
 (function () {
   "use strict";
 
+  // Leaflet doubles every canvas on a retina screen, even at 1.25 device pixels.
+  // Cap that buffer unless the screen is actually at 2x.
+  const canvasUpdate = L.Canvas && L.Canvas.prototype._update;
+  if (canvasUpdate && !L.Canvas.prototype._nbCapped) {
+    L.Canvas.prototype._nbCapped = true;
+    L.Canvas.prototype._update = function () {
+      const retina = L.Browser.retina;
+      const dpr = window.devicePixelRatio || 1;
+      if (retina && dpr < 1.75) L.Browser.retina = false;
+      try {
+        return canvasUpdate.apply(this, arguments);
+      } finally {
+        L.Browser.retina = retina;
+      }
+    };
+  }
+
   const CFG = Object.assign(
     {
       minZoom: 0,
@@ -260,6 +277,63 @@
     });
   }
 
+  // Shift a whole ring by the same amount. Moving each corner on its own
+  // folds a polygon that is wider than half the world, which is how the fog
+  // rectangle was stretched across known sea.
+  function shiftRing(ring, dx) {
+    if (!dx || !ring) return ring;
+    const out = new Array(ring.length);
+    for (let i = 0; i < ring.length; i++) out[i] = [ring[i][0] + dx, ring[i][1]];
+    return out;
+  }
+
+  function shiftGeometry(geometry, dx) {
+    if (!geometry || !dx) return geometry;
+    if (geometry.type === "Polygon") {
+      return { type: "Polygon", coordinates: geometry.coordinates.map(function (ring) { return shiftRing(ring, dx); }) };
+    }
+    if (geometry.type === "MultiPolygon") {
+      return {
+        type: "MultiPolygon",
+        coordinates: geometry.coordinates.map(function (poly) {
+          return poly.map(function (ring) { return shiftRing(ring, dx); });
+        }),
+      };
+    }
+    if (geometry.type === "LineString") {
+      return { type: "LineString", coordinates: shiftRing(geometry.coordinates, dx) };
+    }
+    if (geometry.type === "MultiLineString") {
+      return {
+        type: "MultiLineString",
+        coordinates: geometry.coordinates.map(function (line) { return shiftRing(line, dx); }),
+      };
+    }
+    return geometry;
+  }
+
+  function wrappedFeatures(features) {
+    const list = features || [];
+    if (!wraps() || !state.meta) return list;
+    const shifts = viewShifts();
+    if (shifts.length === 1 && shifts[0] === 0) return list;
+    const ordered = shifts.slice().sort(function (a, b) { return Math.abs(b) - Math.abs(a); });
+    const w = state.meta.width;
+    const out = [];
+    for (let s = 0; s < ordered.length; s++) {
+      const dx = ordered[s] * w;
+      for (let i = 0; i < list.length; i++) {
+        const feature = list[i];
+        out.push({
+          type: "Feature",
+          properties: feature.properties,
+          geometry: shiftGeometry(feature.geometry, dx),
+        });
+      }
+    }
+    return out;
+  }
+
   function outsideView(minX, minY, maxX, maxY, grown) {
     if (!wraps()) {
       return maxX < grown.getWest() || minX > grown.getEast() || maxY < grown.getSouth() || minY > grown.getNorth();
@@ -281,7 +355,8 @@
     const bh = pad.bounds.getNorth() - pad.bounds.getSouth();
     const vw = Math.max(1e-6, view.getEast() - view.getWest());
     const vh = Math.max(1e-6, view.getNorth() - view.getSouth());
-    return bw <= vw * 1.85 && bh <= vh * 1.85;
+    // Two zoom levels in either direction can keep the layer already on screen.
+    return bw <= vw * 4 && bh <= vh * 4;
   }
 
   function pointSeen(x, y, grown) {
@@ -307,8 +382,20 @@
     const props = (feature && feature.properties) || {};
     const kind = props.kind;
     const borders = state.overlays.borders;
-    if (kind === "sea" || kind === "fog") {
-      return { stroke: false, fill: !lines, fillColor: props.color || "#0B1A4A", fillOpacity: lines ? 0 : 1, interactive: false };
+    if (kind === "fog") {
+      return { stroke: false, fill: !lines, fillColor: props.color || fogColor(), fillOpacity: lines ? 0 : 1, interactive: false };
+    }
+    if (kind === "sea") {
+      // Auto and Depth keep the bathymetry tiles. Political has no depth art,
+      // so it paints the published sea colour. Fog is a separate feature.
+      const paint = state.mode === "political";
+      return {
+        stroke: false,
+        fill: paint && !lines,
+        fillColor: props.color || "#0B1A4A",
+        fillOpacity: paint && !lines ? 1 : 0,
+        interactive: false,
+      };
     }
     if (kind === "province") {
       const look = historyLook(props.id);
@@ -393,12 +480,14 @@
       setOn(depth, false);
       showPhoto(outlines, borders ? CFG.outlineOpacity : 0);
     } else if (state.mode === "depth") {
-      showPhoto(depth, photo);
+      // Known sea stays on the depth tiles at every zoom. The flat board
+      // covers land and uncharted water, not the bathymetry.
+      showPhoto(depth, 1);
       setOn(political, false);
       setOn(terrain, false);
       showPhoto(outlines, borders ? CFG.outlineOpacity * 0.7 * photo : 0);
     } else {
-      showPhoto(terrain, photo);
+      showPhoto(terrain, 1);
       showPhoto(political, politicalOpacity(zoom) * photo);
       setOn(depth, false);
       const amount = outlineOpacity(zoom) * photo;
@@ -421,6 +510,11 @@
     if (state.claimLayer && map.hasLayer(state.claimLayer)) state.claimLayer.setOpacity(state.mode === "terrain" ? 0 : photo);
     if (state.highlightLayer && map.hasLayer(state.highlightLayer)) state.highlightLayer.setOpacity(state.mode === "terrain" ? 0 : photo);
     const flatOn = state.mode !== "terrain" && flat > 0.02;
+    if (state.flatLayer && state.flatPaintMode !== state.mode) {
+      state.flatPaintMode = state.mode;
+      state.flatLayer.setStyle(function (feature) { return flatStyle(feature, false); });
+      if (state.borderLayer) state.borderLayer.setStyle(function (feature) { return flatStyle(feature, true); });
+    }
     const pane = map.getPane("flat");
     if (pane) pane.style.opacity = flatOn ? String(flat) : "0";
     setOn(state.flatLayer, flatOn);
@@ -498,7 +592,7 @@
       bounds: state.imageBounds,
       errorTileUrl: errorTile,
       updateWhenZooming: false,
-      keepBuffer: 2,
+      keepBuffer: 1,
     };
     if (pane) options.pane = pane;
     const url = "tiles/" + folder + "/{z}/{x}/{y}.webp";
@@ -543,6 +637,41 @@
       },
     });
     return new Layer(url, wrapped);
+  }
+
+  function scheduleViewWork() {
+    if (state.viewJob) return;
+    state.viewJob = requestAnimationFrame(function () {
+      state.viewJob = 0;
+      const map = state.map;
+      if (!map || map._animatingZoom) return;
+      refreshWrapCopies();
+      renderInfra();
+      renderTrade();
+      renderSectors();
+      renderVillages();
+      renderAlliances();
+      renderReligions();
+      renderRivers();
+      if (wraps()) renderAtlas();
+    });
+  }
+
+  function setMovingChrome(hidden) {
+    const map = state.map;
+    if (!map) return;
+    const visibility = hidden ? "hidden" : "";
+    ["sector", "history", "alliance", "religion", "junior", "marks"].forEach(function (name) {
+      const pane = map.getPane(name);
+      if (!pane) return;
+      const svgs = pane.getElementsByTagName("svg");
+      for (let i = 0; i < svgs.length; i++) svgs[i].style.visibility = visibility;
+    });
+    if (!state.labelLayer) return;
+    state.labelLayer.eachLayer(function (layer) {
+      const el = layer.getElement && layer.getElement();
+      if (el) el.style.visibility = visibility;
+    });
   }
 
   function initMap(meta) {
@@ -698,19 +827,17 @@
     installMinimap(map, meta);
     installLayers(map);
     state.labelLayer = L.layerGroup();
-    map.on("zoom", applyMode);
-    map.on("moveend zoomend", refreshProvinceLabels);
-    map.on("moveend zoomend", function () {
-      refreshWrapCopies();
-      renderInfra();
-      renderTrade();
-      renderSectors();
-      renderVillages();
-      renderAlliances();
-      renderReligions();
-      renderRivers();
-      if (wraps()) renderAtlas();
+    map.on("zoom", function () {
+      if (state.modeFrame) return;
+      state.modeFrame = requestAnimationFrame(function () {
+        state.modeFrame = 0;
+        applyMode();
+      });
     });
+    map.on("movestart", function () { setMovingChrome(true); });
+    map.on("moveend", function () { setMovingChrome(false); });
+    map.on("moveend zoomend", refreshProvinceLabels);
+    map.on("moveend zoomend", scheduleViewWork);
     map.fitBounds(state.imageBounds, {
       paddingTopLeft: [12, headerOffset() + 8],
       paddingBottomRight: [12, 12],
@@ -2775,6 +2902,7 @@ const claim = claimOf(nation);
       }
     });
     if (state.flatLayer) state.map.removeLayer(state.flatLayer);
+    const placed = { type: "FeatureCollection", features: wrappedFeatures(collection.features) };
     const flatOptions = {
       pane: "flat",
       renderer: state.flatRenderer,
@@ -2783,12 +2911,7 @@ const claim = claimOf(nation);
       bubblingMouseEvents: false,
       style: function (feature) { return flatStyle(feature, false); },
     };
-    if (wraps()) {
-      flatOptions.coordsToLatLng = function (coord) {
-        return L.latLng(coord[1], presentX(coord[0]));
-      };
-    }
-    state.flatLayer = L.geoJSON(collection, flatOptions);
+    state.flatLayer = L.geoJSON(placed, flatOptions);
     if (state.borderLayer) state.map.removeLayer(state.borderLayer);
     const borderOptions = {
       pane: "flatBorders",
@@ -2798,12 +2921,7 @@ const claim = claimOf(nation);
       bubblingMouseEvents: false,
       style: function (feature) { return flatStyle(feature, true); },
     };
-    if (wraps()) {
-      borderOptions.coordsToLatLng = function (coord) {
-        return L.latLng(coord[1], presentX(coord[0]));
-      };
-    }
-    state.borderLayer = L.geoJSON(collection, borderOptions);
+    state.borderLayer = L.geoJSON(placed, borderOptions);
     state.flatBorderOn = state.overlays.borders;
     state.flatById = new Map();
     state.flatLayer.eachLayer(function (layer) {
@@ -4266,7 +4384,7 @@ const claim = claimOf(nation);
           opacity: extra.opacity,
           lineCap: "round",
           lineJoin: "round",
-          smoothFactor: 0,
+          smoothFactor: 1,
           interactive: !!extra.interactive,
           className: cls,
         };
@@ -4339,7 +4457,7 @@ const claim = claimOf(nation);
             opacity: 0.92,
             lineCap: "round",
             lineJoin: "round",
-            smoothFactor: 0,
+            smoothFactor: 1,
             interactive: false,
           }
         ).addTo(group);
@@ -5408,7 +5526,8 @@ const claim = claimOf(nation);
     const map = state.map;
     const native = state.meta && state.meta.native_zoom;
     if (!map || native == null) return 4;
-    return 5 * Math.pow(2, map.getZoom() - native);
+    const z = Math.round(map.getZoom() * 2) / 2;
+    return 5 * Math.pow(2, z - native);
   }
 
   function syncOwnerSeams() {
@@ -6299,6 +6418,15 @@ const claim = claimOf(nation);
       pushFogGeom({ type: "Polygon", coordinates: sea.rings });
     });
     if (fogPolys.length) {
+      const placedPolys = [];
+      const shifts = wraps() ? viewShifts() : [0];
+      const span = state.meta ? state.meta.width : 0;
+      fogPolys.forEach(function (poly) {
+        shifts.forEach(function (shift) {
+          const dx = shift * span;
+          placedPolys.push(dx ? poly.map(function (ring) { return shiftRing(ring, dx); }) : poly);
+        });
+      });
       const fogOptions = {
         pane: "fog",
         renderer: state.fogRenderer,
@@ -6308,11 +6436,6 @@ const claim = claimOf(nation);
           return { stroke: false, fill: true, fillColor: fogColor(), fillOpacity: 1, interactive: false };
         },
       };
-      if (wraps()) {
-        fogOptions.coordsToLatLng = function (coord) {
-          return L.latLng(coord[1], presentX(coord[0]));
-        };
-      }
       // One multipolygon, one canvas. The same fill covers every concealed shape, once.
       state.fogLayer = L.geoJSON(
         {
@@ -6321,7 +6444,7 @@ const claim = claimOf(nation);
             {
               type: "Feature",
               properties: { role: "fog" },
-              geometry: { type: "MultiPolygon", coordinates: fogPolys },
+              geometry: { type: "MultiPolygon", coordinates: placedPolys },
             },
           ],
         },
