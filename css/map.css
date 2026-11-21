@@ -473,7 +473,20 @@ body.has-timeline #depth-legend {
 #map-legend .legend-icons {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 3px 8px;
+  gap: 4px 8px;
+}
+
+#map-legend .legend-icon svg,
+.nb-deposit svg {
+  display: block;
+  overflow: visible;
+}
+
+#map-legend .swatch {
+  width: 14px;
+  height: 14px;
+  border-color: rgba(244, 239, 228, 0.9);
+  box-shadow: 0 0 0 1px rgba(11, 18, 36, 0.8);
 }
 
 #info {
