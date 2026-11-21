@@ -77,6 +77,8 @@
     marksRenderer: null,
     imageBounds: null,
     activeNationId: null,
+    placeCanvases: [],
+    iconImages: new Map(),
   };
 
   const highlightCanvas = document.createElement("canvas");
@@ -259,6 +261,17 @@
       if (!(maxX + dx < grown.getWest() || minX + dx > grown.getEast() || maxY < grown.getSouth() || minY > grown.getNorth())) return false;
     }
     return true;
+  }
+
+  // A cached pad may only stand in for the view while it is still about the same size.
+  // Zooming in used to keep every marker and sector from the wider view.
+  function padHolds(pad, view) {
+    if (!pad || !pad.bounds || !view || !pad.bounds.contains(view)) return false;
+    const bw = pad.bounds.getEast() - pad.bounds.getWest();
+    const bh = pad.bounds.getNorth() - pad.bounds.getSouth();
+    const vw = Math.max(1e-6, view.getEast() - view.getWest());
+    const vh = Math.max(1e-6, view.getNorth() - view.getSouth());
+    return bw <= vw * 1.85 && bh <= vh * 1.85;
   }
 
   function pointSeen(x, y, grown) {
@@ -483,6 +496,11 @@
     const wrapped = Object.assign({}, options, { noWrap: false });
     delete wrapped.bounds;
     const Layer = L.TileLayer.extend({
+      // Horizontal copies wrap. Rows above or below the sheet are not a second map.
+      _isValidTile: function (coords) {
+        const counts = tileCounts(meta, Math.min(coords.z, meta.native_zoom));
+        return coords.y >= 0 && coords.y < counts.y;
+      },
       getTileUrl: function (coords) {
         const counts = tileCounts(meta, Math.min(coords.z, meta.native_zoom));
         if (coords.y < 0 || coords.y >= counts.y) return this.options.errorTileUrl;
@@ -536,6 +554,8 @@
       fadeAnimation: true,
       zoomAnimation: true,
       inertia: true,
+      // Vector overlays share one canvas unless a layer needs an SVG pattern.
+      preferCanvas: true,
     });
     state.map = map;
     window.nbMap = map;
@@ -586,21 +606,23 @@
     map.createPane("trade");
     const tradePane = map.getPane("trade");
     tradePane.style.zIndex = "405";
-    state.tradeRenderer = L.svg({ pane: "trade", padding: 0.5 });
+    state.tradeRenderer = L.canvas({ pane: "trade", padding: 0.2 });
     map.createPane("sector");
     const sectorPane = map.getPane("sector");
     sectorPane.style.zIndex = "358";
-    state.sectorRenderer = L.svg({ pane: "sector", padding: 0.5 });
+    state.sectorFillRenderer = L.canvas({ pane: "sector", padding: 0.2 });
+    // Occupied sectors keep an SVG renderer so the diagonal hatch can paint.
+    state.sectorRenderer = L.svg({ pane: "sector", padding: 0.2 });
     map.createPane("sectorline");
     const sectorLinePane = map.getPane("sectorline");
     sectorLinePane.style.zIndex = "359";
     sectorLinePane.style.pointerEvents = "none";
-    state.sectorLineRenderer = L.svg({ pane: "sectorline", padding: 0.5 });
+    state.sectorLineRenderer = L.canvas({ pane: "sectorline", padding: 0.2 });
     map.createPane("fog");
     const fogPane = map.getPane("fog");
     fogPane.style.zIndex = "480";
     fogPane.style.pointerEvents = "none";
-    state.fogRenderer = L.svg({ pane: "fog", padding: 0.5 });
+    state.fogRenderer = L.canvas({ pane: "fog", padding: 0.15 });
     map.createPane("alliance");
     const alliancePane = map.getPane("alliance");
     // Above history (380) so bloc colour is not buried under the transfer/
@@ -1115,6 +1137,25 @@
 
   function onMapHover(event) {
     if (!state.map || !state.meta || !state.lut || !window.NBYields) return;
+    const hit = event.containerPoint && placeHitAt(event.containerPoint);
+    if (hit && hit.title) {
+      if (!state.provinceTip) {
+        state.provinceTip = L.tooltip({
+          className: "nb-tip nb-province-tip",
+          direction: "top",
+          offset: [0, -12],
+          opacity: 1,
+          sticky: true,
+        });
+      }
+      if (state.provinceTipId !== hit.title) {
+        state.provinceTip.setContent(esc(hit.title));
+        state.provinceTipId = hit.title;
+      }
+      state.provinceTip.setLatLng(event.latlng);
+      if (!state.map.hasLayer(state.provinceTip)) state.provinceTip.addTo(state.map);
+      return;
+    }
     if (state.popupOpen) {
       closeProvinceTip();
       return;
@@ -2116,6 +2157,11 @@ if (entry.kind === "work") {
   }
 
   function onMapClick(event) {
+    const hit = event.containerPoint && placeHitAt(event.containerPoint);
+    if (hit && hit.onClick) {
+      hit.onClick(event);
+      return;
+    }
     const meta = state.meta;
     let x = event.latlng.lng;
     const y = event.latlng.lat;
@@ -2754,6 +2800,7 @@ const claim = claimOf(nation);
     renderUnionJuniors();
     renderConfederation();
     applyMode();
+    if (wraps() && state.map) state.flatShiftSig = viewShifts().join(",");
   }
 
   function collectInfra() {
@@ -3094,8 +3141,90 @@ const claim = claimOf(nation);
     return fallback || kindLabel(level);
   }
 
-  function addLedgerSettlements(group, grown, zoom, villages) {
+  function iconImage(svg) {
+    if (svg.indexOf("xmlns=") < 0) svg = svg.replace("<svg ", '<svg xmlns="http://www.w3.org/2000/svg" ');
+    let img = state.iconImages.get(svg);
+    if (img) return img;
+    img = new Image();
+    img.src = "data:image/svg+xml;charset=UTF-8," + encodeURIComponent(svg);
+    img.addEventListener("load", function () {
+      (state.placeCanvases || []).forEach(function (layer) {
+        if (layer._map) layer.redraw();
+      });
+    });
+    state.iconImages.set(svg, img);
+    return img;
+  }
+
+  function placeHitAt(point) {
+    if (!point) return null;
+    const layers = state.placeCanvases || [];
+    for (let i = layers.length - 1; i >= 0; i--) {
+      const hits = layers[i]._hits || [];
+      for (let h = hits.length - 1; h >= 0; h--) {
+        const hit = hits[h];
+        if (point.x >= hit.left && point.x <= hit.left + hit.w && point.y >= hit.top && point.y <= hit.top + hit.h) return hit;
+      }
+    }
+    return null;
+  }
+
+  // One canvas for the icons in view. The same SVG artwork is drawn, without a DOM node per place.
+  function addIconCanvas(group, items) {
+    if (!items.length) return;
+    items.sort(function (a, b) {
+      return a.z - b.z;
+    });
+    const Layer = L.Layer.extend({
+      onAdd: function (map) {
+        this._canvas = L.DomUtil.create("canvas", "nb-place-canvas");
+        this._canvas.style.pointerEvents = "none";
+        map.getPane("markerPane").appendChild(this._canvas);
+        state.placeCanvases.push(this);
+        map.on("moveend zoomend resize", this.redraw, this);
+        this.redraw();
+      },
+      onRemove: function (map) {
+        map.off("moveend zoomend resize", this.redraw, this);
+        const list = state.placeCanvases;
+        const index = list.indexOf(this);
+        if (index >= 0) list.splice(index, 1);
+        if (this._canvas && this._canvas.parentNode) this._canvas.parentNode.removeChild(this._canvas);
+      },
+      redraw: function () {
+        const map = this._map;
+        const canvas = this._canvas;
+        if (!map || !canvas) return;
+        const size = map.getSize();
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        canvas.width = Math.max(1, Math.round(size.x * dpr));
+        canvas.height = Math.max(1, Math.round(size.y * dpr));
+        canvas.style.width = size.x + "px";
+        canvas.style.height = size.y + "px";
+        L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]));
+        const ctx = canvas.getContext("2d");
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.clearRect(0, 0, size.x, size.y);
+        const hits = [];
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i];
+          const lng = wraps() ? presentX(item.x) : item.x;
+          const pt = map.latLngToContainerPoint([item.y, lng]);
+          const left = pt.x - item.anchorX;
+          const top = pt.y - item.anchorY;
+          if (left > size.x || top > size.y || left + item.size < 0 || top + item.size < 0) continue;
+          if (item.image.complete && item.image.naturalWidth) ctx.drawImage(item.image, left, top, item.size, item.size);
+          hits.push({ left: left, top: top, w: item.size, h: item.size, title: item.title, onClick: item.onClick });
+        }
+        this._hits = hits;
+      },
+    });
+    new Layer().addTo(group);
+  }
+
+  function ledgerIcons(grown, zoom, villages) {
     const index = sectorIndex();
+    const items = [];
     settlementMarkerList().forEach(function (marker) {
       const level = marker.type === "capital" ? "capital" : marker.type;
       if (villages) {
@@ -3106,37 +3235,35 @@ const claim = claimOf(nation);
       if (zoom < infraMinZoom(level)) return;
       const feature = index.get(marker.sector);
       const box = feature && feature.properties && feature.properties.bbox;
-      if (box && (box[2] < grown.getWest() || box[0] > grown.getEast() || box[3] < grown.getSouth() || box[1] > grown.getNorth())) return;
+      if (box && outsideView(box[0], box[1], box[2], box[3], grown)) return;
       const provinceId = marker.province;
       if (isConcealed(provinceId)) return;
       const point = [marker.x, marker.y];
-      if (!grown.contains(L.latLng(point[1], point[0]))) return;
+      if (!pointSeen(point[0], point[1], grown)) return;
       if (pointConcealed(point[0], point[1])) return;
       const size = level === "capital" ? 18 : level === "city" ? 16 : level === "town" ? 14 : 10;
       const name = marker.name;
       const nationId = marker.nation;
       const iconType = level === "capital" ? "capital" : level;
-      const markerIcon = L.marker([point[1], point[0]], {
-        icon: L.divIcon({
-          className: "nb-infra nb-infra-" + iconType,
-          html: infraSvg(iconType),
-          iconSize: [size, size],
-          iconAnchor: [size / 2, size / 2],
-        }),
+      items.push({
+        x: point[0],
+        y: point[1],
+        size: size,
+        anchorX: size / 2,
+        anchorY: size / 2,
+        z: level === "capital" ? 260 : level === "village" ? 120 : 180,
         title: name,
-        zIndexOffset: level === "capital" ? 260 : level === "village" ? 120 : 180,
-        keyboard: true,
+        image: iconImage(infraSvg(iconType)),
+        onClick: function (event) {
+          const html =
+            level === "village"
+              ? villageHtml({ name: name, nation: nationId, province: provinceId })
+              : infraHtml({ type: iconType, name: name, nation: nationId, province: provinceId });
+          openPlacePopup(event.latlng, html, nationId, provinceId);
+        },
       });
-      markerIcon.on("click", function (event) {
-        L.DomEvent.stopPropagation(event);
-        const html =
-          level === "village"
-            ? villageHtml({ name: name, nation: nationId, province: provinceId })
-            : infraHtml({ type: iconType, name: name, nation: nationId, province: provinceId });
-        openPlacePopup(event.latlng, html, nationId, provinceId);
-      });
-      markerIcon.addTo(group);
     });
+    return items;
   }
 
   function sectorAnchors() {
@@ -3200,37 +3327,37 @@ const claim = claimOf(nation);
     );
   }
 
-  function addSectorForts(group, grown, zoom) {
-    if (zoom < 6) return;
+  function fortIcons(grown, zoom) {
+    if (zoom < 6) return [];
     const anchors = sectorAnchors();
     const used = {};
+    const items = [];
     (state.buildings || []).forEach(function (row) {
       if (!buildingVisible(row)) return;
       const anchor = anchors.get(row.sector);
       if (!anchor) return;
       if (isConcealed(row.province) || isConcealed(anchor.province)) return;
       if (pointConcealed(anchor.x, anchor.y)) return;
-      if (!grown.contains(L.latLng(anchor.y, anchor.x))) return;
+      if (!pointSeen(anchor.x, anchor.y, grown)) return;
       const slot = used[row.sector] || 0;
       used[row.sector] = slot + 1;
       const scaffold = row.status === "building";
-      const marker = L.marker([anchor.y, anchor.x], {
-        icon: L.divIcon({
-          className: "nb-infra nb-infra-tower" + (scaffold ? " nb-infra-scaffold" : ""),
-          html: fortSvg(scaffold),
-          iconSize: [12, 12],
-          iconAnchor: [-10 - slot * 14, 12],
-        }),
+      const anchorX = -10 - slot * 14;
+      items.push({
+        x: anchor.x,
+        y: anchor.y,
+        size: 12,
+        anchorX: anchorX,
+        anchorY: 12,
+        z: 480,
         title: "Fort",
-        zIndexOffset: 480,
-        keyboard: true,
+        image: iconImage(fortSvg(scaffold)),
+        onClick: function (event) {
+          openPopup(event.latlng, fortHtml(row));
+        },
       });
-      marker.on("click", function (event) {
-        L.DomEvent.stopPropagation(event);
-        openPopup(event.latlng, fortHtml(row));
-      });
-      marker.addTo(group);
     });
+    return items;
   }
 
   function renderInfra() {
@@ -3246,11 +3373,11 @@ const claim = claimOf(nation);
       pad.band === band &&
       pad.history === state.historyIndex &&
       pad.stamp === state.infraStamp &&
-      pad.bounds.contains(view)
+      padHolds(pad, view)
     ) {
       return;
     }
-    const grown = view.pad(0.45);
+    const grown = view.pad(0.22);
     state.infraPad = {
       band: band,
       history: state.historyIndex,
@@ -3304,32 +3431,36 @@ const claim = claimOf(nation);
         line.addTo(group);
       });
     }
+    const icons = [];
     Object.keys(items.places).forEach(function (id) {
       const place = items.places[id];
       if (place.type === "village" || place.type === "city" || place.type === "town" || place.type === "capital") return;
       if (zoom < infraMinZoom(place.type)) return;
       const xy = placePoint(place);
-      if (!xy || !grown.contains(L.latLng(xy[1], xy[0]))) return;
+      if (!xy || !pointSeen(xy[0], xy[1], grown)) return;
       const size = place.type === "capital" ? 18 : place.type === "city" || place.type === "fort" || place.type === "port" || place.type === "shipyard" ? 16 : 14;
-      const marker = L.marker([xy[1], xy[0]], {
-        icon: L.divIcon({
-          className: "nb-infra nb-infra-" + place.type,
-          html: infraSvg(place.type),
-          iconSize: [size, size],
-          iconAnchor: place.type === "capital" ? [size / 2, 0] : [size / 2, size / 2],
-        }),
+      const anchorY = place.type === "capital" ? 0 : size / 2;
+      icons.push({
+        x: xy[0],
+        y: xy[1],
+        size: size,
+        anchorX: size / 2,
+        anchorY: anchorY,
+        z: place.type === "capital" ? 260 : 180,
         title: place.name || kindLabel(place.type),
-        zIndexOffset: place.type === "capital" ? 260 : 180,
-        keyboard: true,
+        image: iconImage(infraSvg(place.type)),
+        onClick: function (event) {
+          openPlacePopup(event.latlng, infraHtml(place), place.nation, place.province);
+        },
       });
-      marker.on("click", function (event) {
-        L.DomEvent.stopPropagation(event);
-        openPlacePopup(event.latlng, infraHtml(place), place.nation, place.province);
-      });
-      marker.addTo(group);
     });
-    addLedgerSettlements(group, grown, zoom, false);
-    addSectorForts(group, grown, zoom);
+    ledgerIcons(grown, zoom, false).forEach(function (item) {
+      icons.push(item);
+    });
+    fortIcons(grown, zoom).forEach(function (item) {
+      icons.push(item);
+    });
+    addIconCanvas(group, icons);
     state.infraLayer = group;
     syncInfraVisibility();
   }
@@ -3352,11 +3483,11 @@ const claim = claimOf(nation);
     const view = map.getBounds();
     const sig = String(state.historyIndex || 0) + ":" + String(state.infraStamp || 0);
     const pad = state.villagePad;
-    if (pad && pad.sig === sig && state.villageLayer && pad.bounds.contains(view)) return;
+    if (pad && pad.sig === sig && state.villageLayer && padHolds(pad, view)) return;
     dropLayer(state.villageLayer);
-    const grown = view.pad(0.45);
+    const grown = view.pad(0.22);
     const group = L.layerGroup();
-    addLedgerSettlements(group, grown, map.getZoom(), true);
+    addIconCanvas(group, ledgerIcons(grown, map.getZoom(), true));
     state.villageLayer = group;
     state.villagePad = { sig: sig, bounds: grown, empty: !group.getLayers().length };
     if (!state.villagePad.empty) group.addTo(map);
@@ -4060,8 +4191,8 @@ const claim = claimOf(nation);
     const sig = String(state.infraStamp || 0) + ":" + String(state.historyIndex || 0) + ":" + String(state.tradeStamp || 0);
     const view = map.getBounds();
     const pad = state.tradePad;
-    if (pad && state.tradeLayer && map.hasLayer(state.tradeLayer) && pad.sig === sig && pad.bounds.contains(view)) return;
-    const grown = view.pad(0.45);
+    if (pad && state.tradeLayer && map.hasLayer(state.tradeLayer) && pad.sig === sig && padHolds(pad, view)) return;
+    const grown = view.pad(0.22);
     const lines = tradeGeometry();
     state.tradePad = { sig: sig, bounds: grown };
     if (state.tradeLayer && map.hasLayer(state.tradeLayer)) map.removeLayer(state.tradeLayer);
@@ -4124,8 +4255,8 @@ const claim = claimOf(nation);
     }
     const view = map.getBounds();
     const pad = state.riverPad;
-    if (pad && state.riverLayer && pad.bounds.contains(view)) return;
-    const grown = view.pad(0.35);
+    if (pad && state.riverLayer && padHolds(pad, view)) return;
+    const grown = view.pad(0.22);
     dropLayer(state.riverLayer);
     const group = L.layerGroup();
     features.forEach(function (feature) {
@@ -5769,8 +5900,10 @@ const claim = claimOf(nation);
     if (!state.overlays.sectors || !state.sectorFeatures) {
       dropLayer(state.sectorFillLayer);
       dropLayer(state.sectorLineLayer);
+      dropLayer(state.sectorOccLayer);
       state.sectorFillLayer = null;
       state.sectorLineLayer = null;
+      state.sectorOccLayer = null;
       state.sectorPad = null;
       return;
     }
@@ -5789,9 +5922,9 @@ const claim = claimOf(nation);
       ":" +
       String(state.sectorStamp || 0);
     const pad = state.sectorPad;
-    if (pad && pad.sig === sig && pad.bounds.contains(view) && (state.sectorFillLayer || state.sectorLineLayer || pad.empty)) return;
+    if (pad && pad.sig === sig && padHolds(pad, view) && (state.sectorFillLayer || state.sectorLineLayer || state.sectorOccLayer || pad.empty)) return;
     const summary = sectorSummary();
-    const grown = view.pad(0.45);
+    const grown = view.pad(0.22);
     const fills = [];
     const lines = [];
     const halos = [];
@@ -5800,7 +5933,7 @@ const claim = claimOf(nation);
     if (parts) {
       state.sectorFeatures.forEach(function (feature) {
         const box = feature.properties.bbox;
-        if (!box || sectorOutside(box, grown)) return;
+        if (!box || outsideView(box[0], box[1], box[2], box[3], grown)) return;
         const info = summary.byId.get(feature.properties.id);
         if (!info) return;
         fills.push({
@@ -5860,39 +5993,62 @@ const claim = claimOf(nation);
     edges.forEach(function (feature) {
       lines.push(feature);
     });
+    const plain = [];
+    const occupied = [];
+    fills.forEach(function (feature) {
+      if (feature.properties && feature.properties.occupied) occupied.push(feature);
+      else plain.push(feature);
+    });
     dropLayer(state.sectorFillLayer);
     dropLayer(state.sectorLineLayer);
+    dropLayer(state.sectorOccLayer);
     state.sectorFillLayer = null;
     state.sectorLineLayer = null;
-    state.sectorPad = { sig: sig, bounds: grown, empty: !fills.length && !lines.length };
-    if (fills.length) {
-      state.sectorFillLayer = L.geoJSON(
-        { type: "FeatureCollection", features: fills },
-        {
-          pane: "sector",
-          renderer: state.sectorRenderer,
-          smoothFactor: 0,
-          style: sectorStyle,
-          onEachFeature: onSectorClick,
+    state.sectorOccLayer = null;
+    state.sectorPad = { sig: sig, bounds: grown, empty: !plain.length && !occupied.length && !lines.length };
+    const latLng = wraps()
+      ? function (coord) {
+          return L.latLng(coord[1], presentX(coord[0]));
         }
-      );
+      : null;
+    if (plain.length) {
+      const options = {
+        pane: "sector",
+        renderer: state.sectorFillRenderer,
+        smoothFactor: 0,
+        style: sectorStyle,
+        onEachFeature: onSectorClick,
+      };
+      if (latLng) options.coordsToLatLng = latLng;
+      state.sectorFillLayer = L.geoJSON({ type: "FeatureCollection", features: plain }, options);
       state.sectorFillLayer.addTo(map);
+    }
+    if (occupied.length) {
+      const options = {
+        pane: "sector",
+        renderer: state.sectorRenderer,
+        smoothFactor: 0,
+        style: sectorStyle,
+        onEachFeature: onSectorClick,
+      };
+      if (latLng) options.coordsToLatLng = latLng;
+      state.sectorOccLayer = L.geoJSON({ type: "FeatureCollection", features: occupied }, options);
+      state.sectorOccLayer.addTo(map);
       if (pairs.length) {
         installOccPatterns(pairs, document.querySelector(".leaflet-sector-pane svg"));
-        state.sectorFillLayer.setStyle(sectorStyle);
+        state.sectorOccLayer.setStyle(sectorStyle);
       }
     }
     if (lines.length) {
-      state.sectorLineLayer = L.geoJSON(
-        { type: "FeatureCollection", features: lines },
-        {
-          pane: "sectorline",
-          renderer: state.sectorLineRenderer,
-          smoothFactor: 0,
-          interactive: false,
-          style: sectorStyle,
-        }
-      );
+      const options = {
+        pane: "sectorline",
+        renderer: state.sectorLineRenderer,
+        smoothFactor: 0,
+        interactive: false,
+        style: sectorStyle,
+      };
+      if (latLng) options.coordsToLatLng = latLng;
+      state.sectorLineLayer = L.geoJSON({ type: "FeatureCollection", features: lines }, options);
       state.sectorLineLayer.addTo(map);
     }
   }
@@ -6082,30 +6238,51 @@ const claim = claimOf(nation);
       state.workLayer.addTo(map);
     }
 
-    const fogFeatures = [];
+    const fogPolys = [];
+    function pushFogGeom(geom) {
+      if (!geom) return;
+      if (geom.type === "Polygon") fogPolys.push(geom.coordinates);
+      else if (geom.type === "MultiPolygon") {
+        geom.coordinates.forEach(function (poly) {
+          fogPolys.push(poly);
+        });
+      }
+    }
     Object.keys(view.concealedProvinces).forEach(function (key) {
       const feature = provinceFeature(Number(key), { role: "fog" });
-      if (feature) fogFeatures.push(feature);
+      if (feature) pushFogGeom(feature.geometry);
     });
     view.concealedSeas.forEach(function (sea) {
-      fogFeatures.push({
-        type: "Feature",
-        properties: { role: "sea", id: sea.id },
-        geometry: { type: "Polygon", coordinates: sea.rings },
-      });
+      pushFogGeom({ type: "Polygon", coordinates: sea.rings });
     });
-    if (fogFeatures.length) {
+    if (fogPolys.length) {
+      const fogOptions = {
+        pane: "fog",
+        renderer: state.fogRenderer,
+        smoothFactor: 0,
+        interactive: false,
+        style: function () {
+          return { stroke: false, fill: true, fillColor: fogColor(), fillOpacity: 1, interactive: false };
+        },
+      };
+      if (wraps()) {
+        fogOptions.coordsToLatLng = function (coord) {
+          return L.latLng(coord[1], presentX(coord[0]));
+        };
+      }
+      // One multipolygon, one canvas. The same fill covers every concealed shape, once.
       state.fogLayer = L.geoJSON(
-        { type: "FeatureCollection", features: fogFeatures },
         {
-          pane: "fog",
-          renderer: state.fogRenderer,
-          smoothFactor: 0,
-          interactive: false,
-          style: function () {
-            return { stroke: false, fill: true, fillColor: fogColor(), fillOpacity: 1, interactive: false };
-          },
-        }
+          type: "FeatureCollection",
+          features: [
+            {
+              type: "Feature",
+              properties: { role: "fog" },
+              geometry: { type: "MultiPolygon", coordinates: fogPolys },
+            },
+          ],
+        },
+        fogOptions
       );
       state.fogLayer.addTo(map);
     }
@@ -6545,11 +6722,17 @@ const claim = claimOf(nation);
   function refreshWrapCopies() {
     if (!wraps() || !state.map) return;
     const sig = viewShifts().join(",");
-    if (sig === state.wrapShiftSig) return;
-    state.wrapShiftSig = sig;
-    if (state.flatCollection) applyFlat(state.flatCollection);
-    syncImageCopies("highlight");
-    syncImageCopies("claim");
+    if (sig !== state.wrapShiftSig) {
+      state.wrapShiftSig = sig;
+      syncImageCopies("highlight");
+      syncImageCopies("claim");
+    }
+    // The close-zoom board is one shifted copy. Rebuild it only while it is on screen.
+    const flatOn = flatAmount(state.map.getZoom()) > 0.02;
+    if (flatOn && state.flatCollection && state.flatShiftSig !== sig) {
+      state.flatShiftSig = sig;
+      applyFlat(state.flatCollection);
+    }
   }
 
   function atlasLatLng(x, y) {
