@@ -729,9 +729,7 @@
         const button = el.querySelector(".nb-layers-toggle");
         button.addEventListener("click", function () {
           const open = panel.hasAttribute("hidden");
-          if (open) panel.removeAttribute("hidden");
-          else panel.setAttribute("hidden", "");
-          button.setAttribute("aria-expanded", String(open));
+          setLayersOpen(open);
         });
         el.querySelectorAll('input[name="nb-view"]').forEach(function (input) {
           input.addEventListener("change", function () {
@@ -6653,8 +6651,8 @@ const claim = claimOf(nation);
     }
     root.hidden = false;
     root.innerHTML =
-      '<button type="button" id="legend-toggle" aria-expanded="true">Legend</button>' +
-      '<div class="legend-body">' +
+      '<button type="button" id="legend-toggle" aria-expanded="false" aria-controls="legend-body">Legend</button>' +
+      '<div id="legend-body" class="legend-body" hidden>' +
       "<p>Terrain</p><ul>" + terrain + "</ul>" +
       "<p>Resources</p><ul class=\"legend-icons\">" + resources + "</ul>" +
       "<p>Winds and currents</p><ul><li>Wind bands are arrows. Currents are lines with arrowheads, and they stop over land.</li></ul>" +
@@ -6666,12 +6664,47 @@ const claim = claimOf(nation);
       "<li><i class=\"swatch\" style=\"background:#2f6b3a\"></i>Explored</li>" +
       "</ul></div>";
     const button = document.getElementById("legend-toggle");
-    const body = root.querySelector(".legend-body");
     button.addEventListener("click", function () {
-      const collapsed = root.classList.toggle("is-collapsed");
-      button.setAttribute("aria-expanded", String(!collapsed));
-      body.hidden = collapsed;
+      const open = button.getAttribute("aria-expanded") !== "true";
+      setLegendOpen(open);
     });
+    let saved = false;
+    try {
+      saved = localStorage.getItem("nb-legend-open") === "1";
+    } catch (err) {
+      saved = false;
+    }
+    setLegendOpen(saved);
+  }
+
+  function narrowMap() {
+    return window.matchMedia("(max-width: 768px)").matches;
+  }
+
+  function setLayersOpen(open) {
+    const panel = document.getElementById("layer-panel");
+    const button = document.querySelector(".nb-layers-toggle");
+    if (!panel || !button) return;
+    if (open) panel.removeAttribute("hidden");
+    else panel.setAttribute("hidden", "");
+    button.setAttribute("aria-expanded", String(!!open));
+    if (open && narrowMap()) setLegendOpen(false);
+  }
+
+  function setLegendOpen(open) {
+    const root = document.getElementById("map-legend");
+    const button = document.getElementById("legend-toggle");
+    const body = document.getElementById("legend-body");
+    if (!root || !button || !body) return;
+    root.classList.toggle("is-collapsed", !open);
+    button.setAttribute("aria-expanded", String(!!open));
+    body.hidden = !open;
+    try {
+      localStorage.setItem("nb-legend-open", open ? "1" : "0");
+    } catch (err) {
+      /* private mode */
+    }
+    if (open && narrowMap()) setLayersOpen(false);
   }
 
   function appendRoundControls(panel) {

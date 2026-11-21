@@ -181,11 +181,13 @@ h1 {
   border: 1px solid rgba(230, 230, 234, 0.2);
   border-left: 3px solid var(--red);
   border-radius: 6px;
+  max-width: calc(100vw - 28px);
 }
 
 .leaflet-popup-content {
   margin: 12px 14px;
-  min-width: 200px;
+  min-width: 0;
+  max-width: calc(100vw - 56px);
   line-height: 1.35;
 }
 
@@ -289,7 +291,10 @@ h1 {
 .nb-flag-card img {
   width: 100%;
   height: auto;
+  max-height: min(46vh, 320px);
+  object-fit: contain;
   display: block;
+  background: #081433;
 }
 .nb-flag-card p {
   margin: 0;
@@ -412,32 +417,39 @@ body.has-timeline #depth-legend {
 
 #map-legend {
   position: fixed;
-  z-index: 900;
+  z-index: 1000;
   left: max(12px, env(safe-area-inset-left));
-  top: calc(var(--header-h) + 12px);
-  width: min(240px, calc(100vw - 24px));
-  max-height: min(62vh, 520px);
-  overflow: auto;
-  background: rgba(11, 26, 74, 0.94);
+  /* Sit below the zoom buttons so the toggle is never underneath them. */
+  top: calc(var(--header-h) + 88px);
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  background: transparent;
+  border: 0;
   color: var(--silver);
-  border: 1px solid rgba(230, 230, 234, 0.22);
   font-size: 0.78rem;
+  pointer-events: none;
 }
+
+#map-legend > * { pointer-events: auto; }
 
 #map-legend.is-collapsed .legend-body { display: none; }
 
 #legend-toggle {
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  color: var(--silver);
-  border: 0;
-  padding: 8px 10px;
-  font: inherit;
-  cursor: pointer;
+  display: block;
 }
 
-#map-legend .legend-body { padding: 0 10px 10px; }
+#map-legend .legend-body {
+  margin-top: 6px;
+  width: min(240px, calc(100vw - 28px));
+  /* Leave the header, this toggle, and the bottom cards (How to pick, cycle slider). */
+  max-height: calc(100dvh - var(--header-h) - 420px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 4px 10px 10px;
+  background: rgba(11, 26, 74, 0.96);
+  border: 1px solid rgba(230, 230, 234, 0.22);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+}
 
 #map-legend p {
   margin: 8px 0 4px;
@@ -568,7 +580,8 @@ body.has-timeline #depth-legend {
 }
 
 .nb-mini-toggle,
-.nb-layers-toggle {
+.nb-layers-toggle,
+#legend-toggle {
   background: var(--navy);
   color: var(--silver);
   border: 1px solid rgba(230, 230, 234, 0.28);
@@ -709,6 +722,27 @@ input:focus-visible,
 .leaflet-bar a:focus-visible {
   outline: 2px solid var(--red);
   outline-offset: 2px;
+}
+
+@media (max-width: 768px) {
+  body.has-timeline #depth-legend {
+    bottom: calc(136px + env(safe-area-inset-bottom));
+    max-width: calc(100vw - 24px);
+  }
+  /* The scale sits in the same corner as How to pick and the depth key. */
+  body.has-timeline .leaflet-bottom {
+    bottom: calc(180px + env(safe-area-inset-bottom));
+  }
+  #info {
+    max-height: min(38vh, 220px);
+    overflow: auto;
+  }
+  #info.is-collapsed { overflow: hidden; }
+  .nb-flag-card {
+    max-height: calc(100dvh - var(--header-h) - 150px);
+    overflow: auto;
+  }
+  .leaflet-popup-content { min-width: 0; }
 }
 
 @media (max-width: 720px) {
