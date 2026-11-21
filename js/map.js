@@ -3175,31 +3175,56 @@ const claim = claimOf(nation);
     });
     const Layer = L.Layer.extend({
       onAdd: function (map) {
-        this._canvas = L.DomUtil.create("canvas", "nb-place-canvas");
+        this._canvas = L.DomUtil.create("canvas", "leaflet-zoom-animated nb-place-canvas");
         this._canvas.style.pointerEvents = "none";
         map.getPane("markerPane").appendChild(this._canvas);
         state.placeCanvases.push(this);
         map.on("moveend zoomend resize", this.redraw, this);
+        map.on("zoomanim", this._onZoomAnim, this);
+        map.on("zoom", this._onPinchZoom, this);
         this.redraw();
       },
       onRemove: function (map) {
         map.off("moveend zoomend resize", this.redraw, this);
+        map.off("zoomanim", this._onZoomAnim, this);
+        map.off("zoom", this._onPinchZoom, this);
         const list = state.placeCanvases;
         const index = list.indexOf(this);
         if (index >= 0) list.splice(index, 1);
         if (this._canvas && this._canvas.parentNode) this._canvas.parentNode.removeChild(this._canvas);
       },
+      // Wheel and +/- zoom fire one zoomanim; the CSS transition then scales this
+      // bitmap with the tiles. Pinch updates the view every frame instead.
+      _onZoomAnim: function (event) {
+        this._followZoom(event.center, event.zoom, false);
+      },
+      _onPinchZoom: function (event) {
+        if (!event || !event.pinch) return;
+        this._followZoom(this._map.getCenter(), this._map.getZoom(), true);
+      },
+      _followZoom: function (center, zoom, instant) {
+        const map = this._map;
+        const canvas = this._canvas;
+        if (!map || !canvas || this._drawnZoom == null || !this._drawnPixelOrigin) return;
+        const scale = map.getZoomScale(zoom, this._drawnZoom);
+        const offset = this._drawnPixelOrigin.multiplyBy(scale).subtract(map._getNewPixelOrigin(center, zoom)).round();
+        canvas.style.transition = instant ? "none" : "";
+        L.DomUtil.setTransform(canvas, offset, scale);
+      },
       redraw: function () {
         const map = this._map;
         const canvas = this._canvas;
-        if (!map || !canvas) return;
+        if (!map || !canvas || map._animatingZoom) return;
         const size = map.getSize();
         const dpr = Math.min(window.devicePixelRatio || 1, 2);
         canvas.width = Math.max(1, Math.round(size.x * dpr));
         canvas.height = Math.max(1, Math.round(size.y * dpr));
         canvas.style.width = size.x + "px";
         canvas.style.height = size.y + "px";
+        canvas.style.transition = "";
         L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]));
+        this._drawnPixelOrigin = map.getPixelOrigin();
+        this._drawnZoom = map.getZoom();
         const ctx = canvas.getContext("2d");
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         ctx.clearRect(0, 0, size.x, size.y);
