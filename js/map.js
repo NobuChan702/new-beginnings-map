@@ -6602,15 +6602,40 @@ const claim = claimOf(nation);
     Sf: "M2 5h10v2H2Zm1 2h8l-1 5H4Z",
   };
 
+  // Bright inks so each mark stays distinct on the navy legend and on dark land.
+  const DEPOSIT_INK = {
+    Fe: "#ff8a3d",
+    Ag: "#e7eef8",
+    Gm: "#3ee08a",
+    S: "#ffe14a",
+    Gt: "#f0b429",
+    Na: "#c5d7f2",
+    Sp: "#ff5d4a",
+    Dy: "#e06bff",
+    Hw: "#e09a4a",
+    Hr: "#f2c9a0",
+    Fu: "#f0b7c8",
+    Pe: "#f4f0ff",
+    Wh: "#7ecff2",
+    Sf: "#ffffff",
+  };
+
   const HAZARD_COLOR = { storm: "#6a5a8a", reef: "#8a5a4a", shoal: "#c4a574", ice: "#9bb8c9", monster: "#7a3048" };
 
   function depositGlyph(code) {
     const path = DEPOSIT_GLYPH[code] || DEPOSIT_GLYPH.Fe;
+    const ink = DEPOSIT_INK[code] || "#f4efe4";
+    const stroke =
+      ' fill="none" stroke-linejoin="round" stroke-linecap="round" d="' + path + '"';
     return (
-      '<svg viewBox="0 0 14 14" width="14" height="14" aria-hidden="true">' +
-      '<path fill="none" stroke="#1b2430" stroke-width="1.3" stroke-linejoin="round" stroke-linecap="round" d="' +
-      path +
-      '"/></svg>'
+      '<svg viewBox="0 0 14 14" width="18" height="18" aria-hidden="true">' +
+      '<path stroke="#0b1224" stroke-width="3.4"' +
+      stroke +
+      "/><path stroke=\"" +
+      ink +
+      '" stroke-width="1.7"' +
+      stroke +
+      "/></svg>"
     );
   }
 
@@ -6808,8 +6833,8 @@ const claim = claimOf(nation);
             icon: L.divIcon({
               className: "nb-deposit" + (deposit.luxury ? " is-luxury" : ""),
               html: depositGlyph(deposit.code),
-              iconSize: [16, 16],
-              iconAnchor: [8, 8],
+              iconSize: [18, 18],
+              iconAnchor: [9, 9],
             }),
             title: deposit.name || deposit.code,
             keyboard: true,
