@@ -430,6 +430,46 @@
   {
    "owner": 112,
    "province": 1019
+  },
+  {
+   "owner": 18,
+   "province": 8
+  },
+  {
+   "owner": 18,
+   "province": 15
+  },
+  {
+   "owner": 18,
+   "province": 16
+  },
+  {
+   "owner": 18,
+   "province": 39
+  },
+  {
+   "owner": 18,
+   "province": 50
+  },
+  {
+   "owner": 18,
+   "province": 147
+  },
+  {
+   "owner": 19,
+   "province": 353
+  },
+  {
+   "owner": 19,
+   "province": 370
+  },
+  {
+   "owner": 19,
+   "province": 476
+  },
+  {
+   "owner": 19,
+   "province": 477
   }
  ],
  "alliances": []
