@@ -201,6 +201,16 @@
     };
   }
 
+  // Empty pixels on the right of the last column. The sheet width is not a
+  // whole number of tiles, so a wrapped copy shows that strip as a black bar.
+  function sheetPad(meta, zoom) {
+    const z = Math.min(zoom, meta.native_zoom);
+    const scale = Math.pow(2, Math.max(0, meta.native_zoom - z));
+    const sheet = Math.max(1, Math.round(meta.width / scale));
+    const extra = tileCounts(meta, z).x * meta.tile_size - sheet;
+    return extra > 0 ? extra : 0;
+  }
+
   function viewShifts() {
     if (!wraps() || !state.map) return [0];
     const w = state.meta.width;
@@ -506,11 +516,30 @@
         if (coords.y < 0 || coords.y >= counts.y) return this.options.errorTileUrl;
         return L.Util.template(this._url, { z: coords.z, x: tileX(coords.x, counts.x), y: coords.y });
       },
+      // Each world copy must start on the sheet edge. The tile grid is wider
+      // than the sheet, and that spare strip is a black bar at the seam.
+      _getTilePos: function (coords) {
+        const pos = L.GridLayer.prototype._getTilePos.call(this, coords);
+        const z = Math.min(coords.z, meta.native_zoom);
+        const counts = tileCounts(meta, z);
+        const extra = sheetPad(meta, z);
+        if (extra > 0) {
+          const copy = Math.floor(coords.x / counts.x);
+          if (copy !== 0) pos.x -= copy * extra;
+        }
+        return pos;
+      },
       createTile: function (coords, done) {
-        const counts = tileCounts(meta, Math.min(coords.z, meta.native_zoom));
+        const z = Math.min(coords.z, meta.native_zoom);
+        const counts = tileCounts(meta, z);
         const copy = L.point(tileX(coords.x, counts.x), coords.y);
         copy.z = coords.z;
-        return L.TileLayer.prototype.createTile.call(this, copy, done);
+        const tile = L.TileLayer.prototype.createTile.call(this, copy, done);
+        const pad = sheetPad(meta, z);
+        if (pad > 0 && tileX(coords.x, counts.x) === counts.x - 1) {
+          tile.style.clipPath = "inset(0 " + pad + "px 0 0)";
+        }
+        return tile;
       },
     });
     return new Layer(url, wrapped);
