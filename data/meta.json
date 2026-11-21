@@ -1,14 +1,15 @@
 {
-  "width": 12000,
+  "width": 22400,
   "height": 5600,
   "km_per_px": 5.5,
-  "native_zoom": 6,
+  "native_zoom": 7,
   "tile_size": 256,
   "lookup_scale": 4,
-  "lookup_width": 3000,
+  "lookup_width": 5600,
   "lookup_height": 1400,
   "hidden_west_of": 3592,
+  "wrap_x": true,
   "overview": "assets/overview.webp",
   "overview_width": 960,
-  "overview_height": 448
+  "overview_height": 240
 }
