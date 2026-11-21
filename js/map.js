@@ -3175,58 +3175,49 @@ const claim = claimOf(nation);
     });
     const Layer = L.Layer.extend({
       onAdd: function (map) {
-        this._canvas = L.DomUtil.create("canvas", "leaflet-zoom-animated nb-place-canvas");
+        // zoom-hide: Leaflet hides this for the CSS zoom animation. A scaled
+        // bitmap drifts off the land, especially at non-integer device pixels.
+        this._canvas = L.DomUtil.create("canvas", "leaflet-zoom-hide nb-place-canvas");
         this._canvas.style.pointerEvents = "none";
         map.getPane("markerPane").appendChild(this._canvas);
         state.placeCanvases.push(this);
-        map.on("moveend zoomend resize", this.redraw, this);
-        map.on("zoomanim", this._onZoomAnim, this);
-        map.on("zoom", this._onPinchZoom, this);
+        map.on("moveend zoomend viewreset resize", this.redraw, this);
+        map.on("zoomanim", this._hideForZoom, this);
+        map.on("zoom", this._hidePinch, this);
         this.redraw();
       },
       onRemove: function (map) {
-        map.off("moveend zoomend resize", this.redraw, this);
-        map.off("zoomanim", this._onZoomAnim, this);
-        map.off("zoom", this._onPinchZoom, this);
+        map.off("moveend zoomend viewreset resize", this.redraw, this);
+        map.off("zoomanim", this._hideForZoom, this);
+        map.off("zoom", this._hidePinch, this);
         const list = state.placeCanvases;
         const index = list.indexOf(this);
         if (index >= 0) list.splice(index, 1);
         if (this._canvas && this._canvas.parentNode) this._canvas.parentNode.removeChild(this._canvas);
       },
-      // Wheel and +/- zoom fire one zoomanim; the CSS transition then scales this
-      // bitmap with the tiles. Pinch updates the view every frame instead.
-      _onZoomAnim: function (event) {
-        this._followZoom(event.center, event.zoom, false);
+      _hideForZoom: function () {
+        if (this._canvas) this._canvas.style.visibility = "hidden";
       },
-      _onPinchZoom: function (event) {
-        if (!event || !event.pinch) return;
-        this._followZoom(this._map.getCenter(), this._map.getZoom(), true);
-      },
-      _followZoom: function (center, zoom, instant) {
-        const map = this._map;
-        const canvas = this._canvas;
-        if (!map || !canvas || this._drawnZoom == null || !this._drawnPixelOrigin) return;
-        const scale = map.getZoomScale(zoom, this._drawnZoom);
-        const offset = this._drawnPixelOrigin.multiplyBy(scale).subtract(map._getNewPixelOrigin(center, zoom)).round();
-        canvas.style.transition = instant ? "none" : "";
-        L.DomUtil.setTransform(canvas, offset, scale);
+      _hidePinch: function (event) {
+        if (event && event.pinch) this._hideForZoom();
       },
       redraw: function () {
         const map = this._map;
         const canvas = this._canvas;
-        if (!map || !canvas || map._animatingZoom) return;
+        if (!map || !canvas) return;
         const size = map.getSize();
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        canvas.width = Math.max(1, Math.round(size.x * dpr));
-        canvas.height = Math.max(1, Math.round(size.y * dpr));
+        // CSS pixels, not device pixels. A retina backing store plus a zoom
+        // transform was scaling the icons off the land and repainting a huge layer.
+        canvas.width = Math.max(1, size.x);
+        canvas.height = Math.max(1, size.y);
         canvas.style.width = size.x + "px";
         canvas.style.height = size.y + "px";
-        canvas.style.transition = "";
+        canvas.style.transition = "none";
+        canvas.style.transform = "none";
         L.DomUtil.setPosition(canvas, map.containerPointToLayerPoint([0, 0]));
-        this._drawnPixelOrigin = map.getPixelOrigin();
-        this._drawnZoom = map.getZoom();
+        canvas.style.visibility = "";
         const ctx = canvas.getContext("2d");
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+        ctx.setTransform(1, 0, 0, 1, 0, 0);
         ctx.clearRect(0, 0, size.x, size.y);
         const hits = [];
         for (let i = 0; i < items.length; i++) {
