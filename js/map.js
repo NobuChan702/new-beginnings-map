@@ -369,13 +369,18 @@
     return false;
   }
 
-  function flatAmount(zoom) {
-    if (!state.flatLayer || !state.meta) return 0;
+  function flatFade(zoom) {
+    if (!state.meta) return 0;
     const native = state.meta.native_zoom;
     const start = native + Number(CFG.flatFadeStartOffset || 0);
     const endOffset = CFG.flatFadeEndOffset == null ? 1 : Number(CFG.flatFadeEndOffset);
     const end = Math.max(start + 0.05, native + endOffset);
     return fade(zoom, start, end, 0, 1);
+  }
+
+  function flatAmount(zoom) {
+    if (!state.flatLayer || !state.meta) return 0;
+    return flatFade(zoom);
   }
 
   function flatStyle(feature, lines) {
@@ -536,6 +541,7 @@
     syncOwnerSeams();
     syncUnionJuniors();
     syncConfederation();
+    paintVisibleFlat();
   }
 
   // Province lines live on their own pane so they stay above ownership plates.
@@ -646,6 +652,7 @@
       const map = state.map;
       if (!map || map._animatingZoom) return;
       refreshWrapCopies();
+      paintVisibleFlat();
       renderInfra();
       renderTrade();
       renderSectors();
@@ -1519,14 +1526,12 @@
   }
 
   function buildLedger() {
+    if (state.slotsData) return Promise.resolve(state.slotsData);
     if (state.buildLedgerPromise) return state.buildLedgerPromise;
-    state.buildLedgerPromise = fetch("data/province_slots.json", { cache: "no-store" })
-      .then(function (res) {
-        return res.ok ? res.json() : null;
-      })
-      .catch(function () {
-        return null;
-      });
+    state.buildLedgerPromise = loadJson("data/province_slots.json", null, true).then(function (data) {
+      state.slotsData = data;
+      return data;
+    });
     return state.buildLedgerPromise;
   }
 
@@ -2886,6 +2891,146 @@ const claim = claimOf(nation);
     return stops;
   }
 
+  function ringBox(ring) {
+    let minX = Infinity;
+    let minY = Infinity;
+    let maxX = -Infinity;
+    let maxY = -Infinity;
+    for (let i = 0; i < ring.length; i++) {
+      const x = ring[i][0];
+      const y = ring[i][1];
+      if (x < minX) minX = x;
+      if (y < minY) minY = y;
+      if (x > maxX) maxX = x;
+      if (y > maxY) maxY = y;
+    }
+    return [minX, minY, maxX, maxY];
+  }
+
+  function indexFlatParts(collection) {
+    const sheets = [];
+    const provinces = [];
+    const lines = [];
+    collection.features.forEach(function (feature) {
+      const props = feature.properties || {};
+      const geom = feature.geometry;
+      if (!geom) return;
+      if (props.kind === "sea" || props.kind === "fog") {
+        const ring = geom.type === "Polygon" ? geom.coordinates[0] : geom.coordinates[0][0];
+        sheets.push({ feature: feature, box: ringBox(ring) });
+        return;
+      }
+      if (props.kind === "province") {
+        const prov = props.id && state.provinces.get(props.id);
+        const box = prov && prov.bbox ? prov.bbox : ringBox(geom.type === "Polygon" ? geom.coordinates[0] : geom.coordinates[0][0]);
+        provinces.push({ feature: feature, box: box });
+        return;
+      }
+      const parts = geom.type === "MultiLineString" ? geom.coordinates : geom.type === "LineString" ? [geom.coordinates] : [];
+      parts.forEach(function (line) {
+        if (!line || line.length < 2) return;
+        lines.push({ props: props, line: line, box: ringBox(line) });
+      });
+    });
+    return { sheets: sheets, provinces: provinces, lines: lines };
+  }
+
+  function flatWanted() {
+    if (!state.map || state.mode === "terrain") return false;
+    return flatFade(state.map.getZoom()) > 0.02;
+  }
+
+  function visibleFlatFeatures(grown) {
+    const parts = state.flatParts;
+    const raw = [];
+    function add(feature, box) {
+      if (outsideView(box[0], box[1], box[2], box[3], grown)) return;
+      raw.push(feature);
+    }
+    parts.sheets.forEach(function (item) { add(item.feature, item.box); });
+    parts.provinces.forEach(function (item) { add(item.feature, item.box); });
+    parts.lines.forEach(function (item) {
+      if (outsideView(item.box[0], item.box[1], item.box[2], item.box[3], grown)) return;
+      raw.push({
+        type: "Feature",
+        properties: item.props,
+        geometry: { type: "LineString", coordinates: item.line },
+      });
+    });
+    return wrappedFeatures(raw);
+  }
+
+  // The flat board is only the shapes in view. The full sheet is tens of
+  // thousands of points and was redrawn on every pan at max zoom.
+  function paintVisibleFlat() {
+    const map = state.map;
+    if (!map || !state.flatParts || state.flatPainting) return;
+    state.flatPainting = true;
+    let built = false;
+    try {
+      built = paintVisibleFlatBody(map) === true;
+    } finally {
+      state.flatPainting = false;
+    }
+    if (built) applyMode();
+  }
+
+  function paintVisibleFlatBody(map) {
+    if (!flatWanted()) {
+      if (state.flatLayer) {
+        map.removeLayer(state.flatLayer);
+        state.flatLayer = null;
+      }
+      if (state.borderLayer) {
+        map.removeLayer(state.borderLayer);
+        state.borderLayer = null;
+      }
+      state.flatById = new Map();
+      state.borderById = new Map();
+      state.flatPad = null;
+      return;
+    }
+    const view = map.getBounds();
+    const sig = viewShifts().join(",");
+    if (state.flatPad && state.flatPad.sig === sig && padHolds(state.flatPad, view) && state.flatLayer) return;
+    const grown = view.pad(0.85);
+    const placed = { type: "FeatureCollection", features: visibleFlatFeatures(grown) };
+    if (state.flatLayer) map.removeLayer(state.flatLayer);
+    state.flatLayer = L.geoJSON(placed, {
+      pane: "flat",
+      renderer: state.flatRenderer,
+      smoothFactor: 0,
+      interactive: false,
+      bubblingMouseEvents: false,
+      style: function (feature) { return flatStyle(feature, false); },
+    });
+    if (state.borderLayer) map.removeLayer(state.borderLayer);
+    state.borderLayer = L.geoJSON(placed, {
+      pane: "flatBorders",
+      renderer: state.borderRenderer,
+      smoothFactor: 0,
+      interactive: false,
+      bubblingMouseEvents: false,
+      style: function (feature) { return flatStyle(feature, true); },
+    });
+    state.flatBorderOn = state.overlays.borders;
+    state.flatById = new Map();
+    state.flatLayer.eachLayer(function (layer) {
+      const id = layer.feature && layer.feature.properties && layer.feature.properties.id;
+      if (id && !state.flatById.has(id)) state.flatById.set(id, layer);
+    });
+    state.borderById = new Map();
+    state.borderLayer.eachLayer(function (layer) {
+      const id = layer.feature && layer.feature.properties && layer.feature.properties.id;
+      if (id && !state.borderById.has(id)) state.borderById.set(id, layer);
+    });
+    state.flatLayer.addTo(map);
+    if (state.overlays.borders) state.borderLayer.addTo(map);
+    state.flatPad = { sig: sig, bounds: grown };
+    state.flatShiftSig = sig;
+    return true;
+  }
+
   function applyFlat(collection) {
     if (!collection || collection.type !== "FeatureCollection" || !collection.features || !state.map) return;
     state.flatCollection = collection;
@@ -2901,38 +3046,8 @@ const claim = claimOf(nation);
         }
       }
     });
-    if (state.flatLayer) state.map.removeLayer(state.flatLayer);
-    const placed = { type: "FeatureCollection", features: wrappedFeatures(collection.features) };
-    const flatOptions = {
-      pane: "flat",
-      renderer: state.flatRenderer,
-      smoothFactor: 0,
-      interactive: false,
-      bubblingMouseEvents: false,
-      style: function (feature) { return flatStyle(feature, false); },
-    };
-    state.flatLayer = L.geoJSON(placed, flatOptions);
-    if (state.borderLayer) state.map.removeLayer(state.borderLayer);
-    const borderOptions = {
-      pane: "flatBorders",
-      renderer: state.borderRenderer,
-      smoothFactor: 0,
-      interactive: false,
-      bubblingMouseEvents: false,
-      style: function (feature) { return flatStyle(feature, true); },
-    };
-    state.borderLayer = L.geoJSON(placed, borderOptions);
-    state.flatBorderOn = state.overlays.borders;
-    state.flatById = new Map();
-    state.flatLayer.eachLayer(function (layer) {
-      const id = layer.feature && layer.feature.properties && layer.feature.properties.id;
-      if (id) state.flatById.set(id, layer);
-    });
-    state.borderById = new Map();
-    state.borderLayer.eachLayer(function (layer) {
-      const id = layer.feature && layer.feature.properties && layer.feature.properties.id;
-      if (id) state.borderById.set(id, layer);
-    });
+    state.flatParts = indexFlatParts(collection);
+    state.flatPad = null;
     captureNationRings(collection);
     rebuildMarks();
     renderHistory();
@@ -2944,6 +3059,7 @@ const claim = claimOf(nation);
     renderOwnerSeams();
     renderUnionJuniors();
     renderConfederation();
+    paintVisibleFlat();
     applyMode();
     if (wraps() && state.map) state.flatShiftSig = viewShifts().join(",");
   }
@@ -6715,8 +6831,7 @@ const claim = claimOf(nation);
   async function loadHistory() {
     const fallback = [{ id: "cycle-0", cycle: 0, label: "Start (Cycle 0)" }];
     try {
-      const stamp = Date.now();
-      const res = await fetch("data/history/index.json?t=" + stamp, { cache: "no-store" });
+      const res = await fetch(dataUrl("data/history/index.json"));
       if (!res.ok) return fallback;
       const index = await res.json();
       const files = Array.isArray(index) ? index : index.snapshots || [];
@@ -6724,7 +6839,7 @@ const claim = claimOf(nation);
       for (let i = 0; i < files.length; i++) {
         const name = String(files[i] || "");
         if (!/^[\w.-]+\.json$/.test(name)) continue;
-        const file = await fetch("data/history/" + name + "?t=" + stamp, { cache: "no-store" });
+        const file = await fetch(dataUrl("data/history/" + name));
         if (!file.ok) continue;
         snaps.push(await file.json());
       }
@@ -6955,9 +7070,10 @@ const claim = claimOf(nation);
     }
     // The close-zoom board is one shifted copy. Rebuild it only while it is on screen.
     const flatOn = flatAmount(state.map.getZoom()) > 0.02;
-    if (flatOn && state.flatCollection && state.flatShiftSig !== sig) {
+    if (flatOn && state.flatParts && state.flatShiftSig !== sig) {
       state.flatShiftSig = sig;
-      applyFlat(state.flatCollection);
+      state.flatPad = null;
+      paintVisibleFlat();
     }
   }
 
@@ -7124,9 +7240,70 @@ const claim = claimOf(nation);
     if (group.getLayers().length) group.addTo(map);
   }
 
+  // Stable data URL. A Date.now() query forced a full download on every visit.
+  var DATA_REV = "4";
+  function dataUrl(path) {
+    return path + (path.indexOf("?") >= 0 ? "&" : "?") + "v=" + DATA_REV;
+  }
+
+  function pause() {
+    return new Promise(function (resolve) {
+      setTimeout(resolve, 0);
+    });
+  }
+
+  function loadJson(path, fallback, offThread) {
+    const url = dataUrl(path);
+    function onMain() {
+      return fetch(url).then(function (res) {
+        return res.ok ? res.json() : fallback;
+      }).catch(function () {
+        return fallback;
+      });
+    }
+    if (!offThread || typeof Worker !== "function") return onMain();
+    return new Promise(function (resolve) {
+      let worker;
+      try {
+        worker = new Worker("js/parse-worker.js");
+      } catch (err) {
+        worker = null;
+      }
+      if (!worker) {
+        onMain().then(resolve);
+        return;
+      }
+      let settled = false;
+      function finish(value) {
+        if (settled) return;
+        settled = true;
+        worker.terminate();
+        resolve(value);
+      }
+      worker.onmessage = function (event) {
+        const payload = event.data || {};
+        if (!payload.ok) console.error("parse worker", url, payload.error);
+        finish(payload.ok ? payload.data : fallback);
+      };
+      worker.onerror = function () {
+        worker.terminate();
+        onMain().then(finish);
+      };
+      worker.postMessage(new URL(url, window.location.href).toString());
+    });
+  }
+
+  function loadText(path, fallback) {
+    return fetch(dataUrl(path)).then(function (res) {
+      return res.ok ? res.text() : fallback;
+    }).catch(function () {
+      return fallback;
+    });
+  }
+
   async function loadOptionalJson(url, fallback) {
     try {
-      const res = await fetch(url, { cache: "no-store" });
+      const res = await fetch(dataUrl(url));
       if (!res.ok) return fallback;
       return await res.json();
     } catch (err) {
@@ -7134,146 +7311,17 @@ const claim = claimOf(nation);
     }
   }
 
-  async function main() {
-    setupInfo();
-    setupSearch();
-    headerOffset();
-    setStatus("Loading map…", false);
-    const meta = await fetch("data/meta.json").then(function (res) {
-      if (!res.ok) throw new Error("meta");
-      return res.json();
-    });
-    initMap(meta);
-    const stamp = Date.now();
-    const flatPromise = fetch("data/flat.geojson")
-      .then(function (res) {
-        if (!res.ok) throw new Error("flat");
-        return res.json();
-      })
-      .catch(function () {
-        return null;
-      });
-    const [world, claims, infra, trade, settlements, sectors, sectorControl, buildings, alliances, religions, religionDetails, provinceNames, flags, slots, rivers, lut] = await Promise.all([
-      fetch("data/world.json?t=" + stamp, { cache: "no-store" }).then(function (res) {
-        if (!res.ok) throw new Error("world");
-        return res.json();
-      }),
-      fetch("data/claims.json?t=" + stamp, { cache: "no-store" })
-        .then(function (res) {
-          return res.ok ? res.json() : {};
-        })
-        .catch(function () {
-          return {};
-        }),
-      fetch("data/infrastructure.json?t=" + stamp, { cache: "no-store" })
-        .then(function (res) {
-          return res.ok ? res.json() : { capitals: true, places: [], roads: [] };
-        })
-        .catch(function () {
-          return { capitals: true, places: [], roads: [] };
-        }),
-      fetch("data/trade_routes.json?t=" + stamp, { cache: "no-store" })
-        .then(function (res) {
-          return res.ok ? res.json() : { routes: [] };
-        })
-        .catch(function () {
-          return { routes: [] };
-        }),
-      fetch("data/settlements.csv?t=" + stamp, { cache: "no-store" })
-        .then(function (res) {
-          return res.ok ? res.text() : "";
-        })
-        .catch(function () {
-          return "";
-        }),
-      fetch("data/sectors.geojson")
-        .then(function (res) {
-          return res.ok ? res.json() : { features: [] };
-        })
-        .catch(function () {
-          return { features: [] };
-        }),
-      fetch("data/sector_control.csv?t=" + stamp, { cache: "no-store" })
-        .then(function (res) {
-          return res.ok ? res.text() : "";
-        })
-        .catch(function () {
-          return "";
-        }),
-      fetch("data/buildings.csv?t=" + stamp, { cache: "no-store" })
-        .then(function (res) {
-          return res.ok ? res.text() : "";
-        })
-        .catch(function () {
-          return "";
-        }),
-      fetch("data/alliances.csv?t=" + stamp, { cache: "no-store" })
-        .then(function (res) {
-          return res.ok ? res.text() : "";
-        })
-        .catch(function () {
-          return "";
-        }),
-      fetch("data/religions.csv?t=" + stamp, { cache: "no-store" })
-        .then(function (res) {
-          return res.ok ? res.text() : "";
-        })
-        .catch(function () {
-          return "";
-        }),
-      fetch("data/religion-details.json?t=" + stamp, { cache: "no-store" })
-        .then(function (res) {
-          return res.ok ? res.json() : {};
-        })
-        .catch(function () {
-          return {};
-        }),
-      fetch("data/province_names.csv?t=" + stamp, { cache: "no-store" })
-        .then(function (res) {
-          return res.ok ? res.text() : "";
-        })
-        .catch(function () {
-          return "";
-        }),
-      fetch("data/flags.json?t=" + stamp, { cache: "no-store" })
-        .then(function (res) {
-          return res.ok ? res.json() : {};
-        })
-        .catch(function () {
-          return {};
-        }),
-      fetch("data/province_slots.json?t=" + stamp, { cache: "no-store" })
-        .then(function (res) {
-          return res.ok ? res.json() : null;
-        })
-        .catch(function () {
-          return null;
-        }),
-      fetch("data/rivers.geojson?t=" + stamp, { cache: "no-store" })
-        .then(function (res) {
-          return res.ok ? res.json() : { features: [] };
-        })
-        .catch(function () {
-          return { features: [] };
-        }),
-      loadLookup(meta),
+  async function loadRest() {
+    const [claims, settlements, buildings, alliances, religions, religionDetails, provinceNames, flags] = await Promise.all([
+      loadJson("data/claims.json", {}),
+      loadText("data/settlements.csv", ""),
+      loadText("data/buildings.csv", ""),
+      loadText("data/alliances.csv", ""),
+      loadText("data/religions.csv", ""),
+      loadJson("data/religion-details.json", {}),
+      loadText("data/province_names.csv", ""),
+      loadJson("data/flags.json", {}),
     ]);
-    state.lut = lut;
-    indexWorld(world);
-    if (meta.wrap_x) {
-      const packs = await Promise.all([
-        loadOptionalJson("data/deposits.json?t=" + stamp, []),
-        loadOptionalJson("data/winds_currents.json?t=" + stamp, { winds: [], currents: [] }),
-        loadOptionalJson("data/hazards.json?t=" + stamp, { areas: [], chokepoints: [] }),
-        loadOptionalJson("data/landmarks.json?t=" + stamp, []),
-      ]);
-      state.deposits = Array.isArray(packs[0]) ? packs[0] : (packs[0] && packs[0].deposits) || [];
-      state.winds = packs[1] && packs[1].winds ? packs[1] : { winds: [], currents: [] };
-      state.hazards = packs[2] && packs[2].areas ? packs[2] : { areas: [], chokepoints: [] };
-      state.landmarks = Array.isArray(packs[3]) ? packs[3] : [];
-      renderLegend();
-      renderAtlas();
-    }
     state.claims = normalizeClaims(claims);
     state.capitalNames = loadCapitalNames(settlements);
     state.settlementRows = loadSettlementRows(settlements);
@@ -7283,17 +7331,66 @@ const claim = claimOf(nation);
     state.religionDetails = religionDetails || {};
     state.provinceNames = loadProvinceNames(provinceNames);
     state.flags = loadFlags(flags);
-    state.rivers = rivers && rivers.features ? rivers : { features: [] };
-    renderRivers();
+    if (state.concealedKey == null) {
+      state.concealedKey = "";
+      applyClaims();
+    }
+    await pause();
+    const sectors = await loadJson("data/sectors.geojson", { features: [] }, true);
+    const sectorControl = await loadText("data/sector_control.csv", "");
     state.sectorFeatures = (sectors && sectors.features) || [];
     state.sectorById = null;
     state.sectorPoints = new Map();
-    state.sectorLevels = loadSectorLevels(slots);
     state.sectorAnchors = null;
     state.sectorRows = loadSectorControl(sectorControl);
+    const slots = await loadJson("data/province_slots.json", null, true);
+    state.slotsData = slots;
+    state.sectorLevels = loadSectorLevels(slots);
+    await pause();
     state.historySnapshots = await loadHistory();
     installTimeline();
     goToHistory(Math.max(0, state.historySnapshots.length - 1), { force: true, silent: true });
+    await pause();
+    const infra = await loadJson("data/infrastructure.json", { capitals: true, places: [], roads: [] }, true);
+    applyInfra(infra);
+    const trade = await loadJson("data/trade_routes.json", { routes: [] });
+    applyTrade(trade);
+    const rivers = await loadJson("data/rivers.geojson", { features: [] }, true);
+    state.rivers = rivers && rivers.features ? rivers : { features: [] };
+    renderRivers();
+    await pause();
+    const flat = await loadJson("data/flat.geojson", null, true);
+    if (flat) applyFlat(flat);
+    if (state.meta && state.meta.wrap_x) {
+      const packs = await Promise.all([
+        loadOptionalJson("data/deposits.json", []),
+        loadOptionalJson("data/winds_currents.json", { winds: [], currents: [] }),
+        loadOptionalJson("data/hazards.json", { areas: [], chokepoints: [] }),
+        loadOptionalJson("data/landmarks.json", []),
+      ]);
+      state.deposits = Array.isArray(packs[0]) ? packs[0] : (packs[0] && packs[0].deposits) || [];
+      state.winds = packs[1] && packs[1].winds ? packs[1] : { winds: [], currents: [] };
+      state.hazards = packs[2] && packs[2].areas ? packs[2] : { areas: [], chokepoints: [] };
+      state.landmarks = Array.isArray(packs[3]) ? packs[3] : [];
+      renderLegend();
+      renderAtlas();
+    }
+    if (location.hash.indexOf("#nation=") === 0) openHash(true);
+  }
+
+  async function main() {
+    setupInfo();
+    setupSearch();
+    headerOffset();
+    setStatus("Loading map…", false);
+    const meta = await loadJson("data/meta.json", null);
+    if (!meta || !meta.width) throw new Error("meta");
+    initMap(meta);
+    const world = await loadJson("data/world.json", null);
+    if (!world) throw new Error("world");
+    const lut = await loadLookup(meta);
+    state.lut = lut;
+    indexWorld(world);
     state.map.on("click", onMapClick);
     state.map.on("mousemove", onMapHover);
     state.map.on("mouseout", closeProvinceTip);
@@ -7304,19 +7401,13 @@ const claim = claimOf(nation);
     state.map.on("popupclose", function () {
       state.popupOpen = false;
     });
-    if (state.concealedKey == null) {
-      state.concealedKey = "";
-      applyClaims();
-    }
-    applyInfra(infra);
-    applyTrade(trade);
+    setStatus("", false);
     window.addEventListener("hashchange", function () {
       openHash(true);
     });
-    if (location.hash.indexOf("#nation=") === 0) openHash(true);
-    setStatus("", false);
-    const flat = await flatPromise;
-    if (flat) applyFlat(flat);
+    loadRest().catch(function (err) {
+      console.error(err);
+    });
   }
 
   main().catch(function (err) {
