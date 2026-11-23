@@ -1502,7 +1502,15 @@
       }
       if (matched) loose = nation;
     }
-    return loose;
+    if (loose) return loose;
+    const renames = (state.historyView && state.historyView.renames) || {};
+    const ids = Object.keys(renames);
+    for (let i = 0; i < ids.length; i++) {
+      if (renames[ids[i]] === want) return state.nationsById.get(Number(ids[i])) || null;
+    }
+    // Cycle 2's alliance list still calls Valenia by the name Telith.
+    if (want === "Telith") return nationByName("Valenia");
+    return null;
   }
 
   function capitalPlaceName(nation) {
@@ -5953,7 +5961,7 @@ const claim = claimOf(nation);
     if (!map) return;
     dropLayer(state.juniorLayer);
     state.juniorLayer = null;
-    if (!state.flatById) return;
+    if (!state.bakedProvinces || !state.bakedProvinces.size) return;
     const features = [];
     const colors = [];
     state.provinces.forEach(function (prov, id) {
@@ -5969,7 +5977,7 @@ const claim = claimOf(nation);
     });
     if (!features.length) return;
     state.juniorLayer = L.geoJSON(
-      { type: "FeatureCollection", features: features },
+      { type: "FeatureCollection", features: wrappedFeatures(features) },
       {
         pane: "junior",
         renderer: state.juniorRenderer,
@@ -7112,6 +7120,7 @@ const claim = claimOf(nation);
       state.wrapShiftSig = sig;
       syncImageCopies("highlight");
       syncImageCopies("claim");
+      if (state.bakedProvinces && state.bakedProvinces.size) renderUnionJuniors();
     }
     // The close-zoom board is one shifted copy. Rebuild it only while it is on screen.
     const flatOn = flatAmount(state.map.getZoom()) > 0.02;
