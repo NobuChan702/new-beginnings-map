@@ -81,6 +81,21 @@
       "bloc": "Basileia Rhomania",
       "nation": "Zaniorzan",
       "role": "vassal"
+    },
+    {
+      "bloc": "Holy Empire of Sanbreque",
+      "nation": "Holy Empire of Sanbreque",
+      "role": "leader"
+    },
+    {
+      "bloc": "Holy Empire of Sanbreque",
+      "nation": "Mirapheior",
+      "role": "vassal"
+    },
+    {
+      "bloc": "Holy Empire of Sanbreque",
+      "nation": "Morsur",
+      "role": "vassal"
     }
   ],
   "markers": [

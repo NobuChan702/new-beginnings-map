@@ -129,6 +129,56 @@
    "bloc": "Basileia Rhomania",
    "nation": "Ioriss",
    "role": "vassal"
+  },
+  {
+   "bloc": "Holy Empire of Sanbreque",
+   "nation": "Holy Empire of Sanbreque",
+   "role": "leader"
+  },
+  {
+   "bloc": "Holy Empire of Sanbreque",
+   "nation": "Mirapheior",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Holy Empire of Sanbreque",
+   "nation": "Morsur",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Basileia Rhomania",
+   "nation": "Galiss",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Basileia Rhomania",
+   "nation": "Doronryn",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Quaethmor",
+   "nation": "Quaethmor",
+   "role": "leader"
+  },
+  {
+   "bloc": "Quaethmor",
+   "nation": "Issryn",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Atlantis",
+   "nation": "Atlantis",
+   "role": "leader"
+  },
+  {
+   "bloc": "Atlantis",
+   "nation": "Telbreven",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Atlantis",
+   "nation": "Quador",
+   "role": "vassal"
   }
  ],
  "cycle": 4,
