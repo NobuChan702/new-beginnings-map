@@ -518,6 +518,178 @@
   {
    "owner": 144,
    "province": 2741
+  },
+  {
+   "province": 2075,
+   "owner": 120
+  },
+  {
+   "province": 2080,
+   "owner": 120
+  },
+  {
+   "province": 2087,
+   "owner": 120
+  },
+  {
+   "province": 2089,
+   "owner": 120
+  },
+  {
+   "province": 2090,
+   "owner": 120
+  },
+  {
+   "province": 2091,
+   "owner": 120
+  },
+  {
+   "province": 2030,
+   "owner": 228
+  },
+  {
+   "province": 2031,
+   "owner": 228
+  },
+  {
+   "province": 2033,
+   "owner": 228
+  },
+  {
+   "province": 2034,
+   "owner": 228
+  },
+  {
+   "province": 2035,
+   "owner": 228
+  },
+  {
+   "province": 2036,
+   "owner": 228
+  },
+  {
+   "province": 2037,
+   "owner": 228
+  },
+  {
+   "province": 2038,
+   "owner": 228
+  },
+  {
+   "province": 2039,
+   "owner": 228
+  },
+  {
+   "province": 2043,
+   "owner": 228
+  },
+  {
+   "province": 2098,
+   "owner": 228
+  },
+  {
+   "province": 2946,
+   "owner": 82
+  },
+  {
+   "province": 2947,
+   "owner": 82
+  },
+  {
+   "province": 2958,
+   "owner": 82
+  },
+  {
+   "province": 2960,
+   "owner": 82
+  },
+  {
+   "province": 2968,
+   "owner": 82
+  },
+  {
+   "province": 2974,
+   "owner": 82
+  },
+  {
+   "province": 2978,
+   "owner": 82
+  },
+  {
+   "province": 2982,
+   "owner": 82
+  },
+  {
+   "province": 2210,
+   "owner": 344
+  },
+  {
+   "province": 2222,
+   "owner": 344
+  },
+  {
+   "province": 2237,
+   "owner": 344
+  },
+  {
+   "province": 2244,
+   "owner": 344
+  },
+  {
+   "province": 2251,
+   "owner": 344
+  },
+  {
+   "province": 2256,
+   "owner": 344
+  },
+  {
+   "province": 2270,
+   "owner": 344
+  },
+  {
+   "province": 2274,
+   "owner": 344
+  },
+  {
+   "province": 2278,
+   "owner": 344
+  },
+  {
+   "province": 2207,
+   "owner": 346
+  },
+  {
+   "province": 2224,
+   "owner": 346
+  },
+  {
+   "province": 2227,
+   "owner": 346
+  },
+  {
+   "province": 2236,
+   "owner": 346
+  },
+  {
+   "province": 2264,
+   "owner": 346
+  },
+  {
+   "province": 2269,
+   "owner": 346
+  },
+  {
+   "province": 2272,
+   "owner": 346
+  },
+  {
+   "province": 2273,
+   "owner": 346
+  },
+  {
+   "province": 2284,
+   "owner": 346
   }
  ],
  "alliances": []

@@ -119,6 +119,16 @@
    "bloc": "Holy Order of Eternea",
    "nation": "Kali",
    "role": "ally"
+  },
+  {
+   "bloc": "Basileia Rhomania",
+   "nation": "Halkas",
+   "role": "vassal"
+  },
+  {
+   "bloc": "Basileia Rhomania",
+   "nation": "Ioriss",
+   "role": "vassal"
   }
  ],
  "cycle": 4,
@@ -388,6 +398,178 @@
   {
    "owner": 217,
    "province": 2741
+  },
+  {
+   "province": 2075,
+   "owner": 207
+  },
+  {
+   "province": 2080,
+   "owner": 207
+  },
+  {
+   "province": 2087,
+   "owner": 207
+  },
+  {
+   "province": 2089,
+   "owner": 207
+  },
+  {
+   "province": 2090,
+   "owner": 207
+  },
+  {
+   "province": 2091,
+   "owner": 207
+  },
+  {
+   "province": 2030,
+   "owner": 229
+  },
+  {
+   "province": 2031,
+   "owner": 229
+  },
+  {
+   "province": 2033,
+   "owner": 229
+  },
+  {
+   "province": 2034,
+   "owner": 229
+  },
+  {
+   "province": 2035,
+   "owner": 229
+  },
+  {
+   "province": 2036,
+   "owner": 229
+  },
+  {
+   "province": 2037,
+   "owner": 229
+  },
+  {
+   "province": 2038,
+   "owner": 229
+  },
+  {
+   "province": 2039,
+   "owner": 229
+  },
+  {
+   "province": 2043,
+   "owner": 229
+  },
+  {
+   "province": 2098,
+   "owner": 229
+  },
+  {
+   "province": 2946,
+   "owner": 37
+  },
+  {
+   "province": 2947,
+   "owner": 37
+  },
+  {
+   "province": 2958,
+   "owner": 37
+  },
+  {
+   "province": 2960,
+   "owner": 37
+  },
+  {
+   "province": 2968,
+   "owner": 37
+  },
+  {
+   "province": 2974,
+   "owner": 37
+  },
+  {
+   "province": 2978,
+   "owner": 37
+  },
+  {
+   "province": 2982,
+   "owner": 37
+  },
+  {
+   "province": 2210,
+   "owner": 21
+  },
+  {
+   "province": 2222,
+   "owner": 21
+  },
+  {
+   "province": 2237,
+   "owner": 21
+  },
+  {
+   "province": 2244,
+   "owner": 21
+  },
+  {
+   "province": 2251,
+   "owner": 21
+  },
+  {
+   "province": 2256,
+   "owner": 21
+  },
+  {
+   "province": 2270,
+   "owner": 21
+  },
+  {
+   "province": 2274,
+   "owner": 21
+  },
+  {
+   "province": 2278,
+   "owner": 21
+  },
+  {
+   "province": 2207,
+   "owner": 21
+  },
+  {
+   "province": 2224,
+   "owner": 21
+  },
+  {
+   "province": 2227,
+   "owner": 21
+  },
+  {
+   "province": 2236,
+   "owner": 21
+  },
+  {
+   "province": 2264,
+   "owner": 21
+  },
+  {
+   "province": 2269,
+   "owner": 21
+  },
+  {
+   "province": 2272,
+   "owner": 21
+  },
+  {
+   "province": 2273,
+   "owner": 21
+  },
+  {
+   "province": 2284,
+   "owner": 21
   }
  ],
  "occupations": [
