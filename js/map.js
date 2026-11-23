@@ -3047,6 +3047,17 @@ const claim = claimOf(nation);
       }
     });
     state.flatParts = indexFlatParts(collection);
+    state.bakedProvinces = new Map();
+    collection.features.forEach(function (feature) {
+      const props = (feature && feature.properties) || {};
+      if (props.kind !== "province" || props.id == null || !feature.geometry) return;
+      state.bakedProvinces.set(Number(props.id), {
+        geometry: feature.geometry,
+        nation_id: props.nation_id == null || props.nation_id === "" ? 0 : Number(props.nation_id),
+        color: props.color ? String(props.color) : "",
+      });
+    });
+    state.provinceOutlines = null;
     state.flatPad = null;
     captureNationRings(collection);
     rebuildMarks();
@@ -4634,7 +4645,13 @@ const claim = claimOf(nation);
     return nationColor(owner);
   }
 
+  function bakedRecord(id) {
+    return state.bakedProvinces && state.bakedProvinces.get(Number(id));
+  }
+
   function bakedProvinceColor(id) {
+    const rec = bakedRecord(id);
+    if (rec && rec.color) return String(rec.color).toLowerCase();
     const layer = state.flatById && state.flatById.get(id);
     const color = layer && layer.feature && layer.feature.properties && layer.feature.properties.color;
     return color ? String(color).toLowerCase() : "";
@@ -4766,7 +4783,8 @@ const claim = claimOf(nation);
     }
     if (hasOwnerOverride(id)) {
       const owner = state.historyView.owners[id];
-      return { fill: owner == null ? "#E6E6EA" : nationColor(owner) };
+      // A vassal keeps its own colour. The overlord tint is a separate wash.
+      return { fill: owner == null ? "#E6E6EA" : ownNationColor(owner) };
     }
     return {};
   }
@@ -5092,8 +5110,12 @@ const claim = claimOf(nation);
   }
 
   function provinceFeature(id, props) {
+    const rec = bakedRecord(id);
+    const prov = state.provinces.get(Number(id));
+    if (rec && rec.geometry && provinceIsPublic(id, prov)) {
+      return { type: "Feature", properties: props, geometry: rec.geometry };
+    }
     const layer = state.flatById && state.flatById.get(id);
-    const prov = state.provinces.get(id);
     if (!layer || !layer.feature || !provinceIsPublic(id, prov)) return null;
     return { type: "Feature", properties: props, geometry: layer.feature.geometry };
   }
@@ -5391,7 +5413,27 @@ const claim = claimOf(nation);
   function provinceOutlines() {
     if (state.provinceOutlines) return state.provinceOutlines;
     const list = [];
-    if (state.flatById) {
+    if (state.bakedProvinces && state.bakedProvinces.size) {
+      state.bakedProvinces.forEach(function (rec, id) {
+        const geom = rec.geometry;
+        if (!geom) return;
+        const polys = geom.type === "MultiPolygon" ? geom.coordinates : geom.type === "Polygon" ? [geom.coordinates] : [];
+        if (!polys.length) return;
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        polys.forEach(function (rings) {
+          (rings[0] || []).forEach(function (pt) {
+            if (pt[0] < minX) minX = pt[0];
+            if (pt[1] < minY) minY = pt[1];
+            if (pt[0] > maxX) maxX = pt[0];
+            if (pt[1] > maxY) maxY = pt[1];
+          });
+        });
+        list.push({ id: Number(id), bbox: [minX, minY, maxX, maxY], polys: polys });
+      });
+    } else if (state.flatById) {
       state.flatById.forEach(function (layer, id) {
         const feature = layer.feature;
         const props = feature && feature.properties;
@@ -5537,7 +5579,8 @@ const claim = claimOf(nation);
     state.vassalLayer = null;
     state.annexTintLayer = null;
     state.ownerOpacityKey = null;
-    if (!state.flatById || !window.NB_FILL) {
+    const hasBake = state.bakedProvinces && state.bakedProvinces.size;
+    if (!window.NB_FILL || (!hasBake && !state.flatById)) {
       rememberAnnexGeoms([]);
       syncAnnexTint();
       return;
@@ -5590,6 +5633,8 @@ const claim = claimOf(nation);
   }
 
   function bakedNationId(id) {
+    const rec = bakedRecord(id);
+    if (rec) return rec.nation_id || 0;
     const layer = state.flatById && state.flatById.get(id);
     const props = layer && layer.feature && layer.feature.properties;
     const nation = props && props.nation_id;
