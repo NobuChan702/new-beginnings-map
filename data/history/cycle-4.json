@@ -620,6 +620,82 @@
   {
    "province": 2284,
    "owner": 21
+  },
+  {
+   "owner": 217,
+   "province": 2798
+  },
+  {
+   "owner": 217,
+   "province": 2799
+  },
+  {
+   "owner": 23,
+   "province": 1644
+  },
+  {
+   "owner": 23,
+   "province": 1646
+  },
+  {
+   "owner": 23,
+   "province": 1655
+  },
+  {
+   "owner": 23,
+   "province": 1657
+  },
+  {
+   "owner": 23,
+   "province": 2093
+  },
+  {
+   "owner": 23,
+   "province": 2094
+  },
+  {
+   "owner": 207,
+   "province": 2312
+  },
+  {
+   "owner": 207,
+   "province": 2313
+  },
+  {
+   "owner": 207,
+   "province": 2314
+  },
+  {
+   "owner": 229,
+   "province": 2032
+  },
+  {
+   "owner": 150,
+   "province": 2212
+  },
+  {
+   "owner": 150,
+   "province": 2220
+  },
+  {
+   "owner": 150,
+   "province": 2223
+  },
+  {
+   "owner": 150,
+   "province": 2231
+  },
+  {
+   "owner": 150,
+   "province": 2240
+  },
+  {
+   "owner": 150,
+   "province": 2257
+  },
+  {
+   "owner": 150,
+   "province": 2277
   }
  ],
  "occupations": [
@@ -637,6 +713,16 @@
    "occupier": 40,
    "province": 950,
    "war": "Miradorpra-Nobgamar"
+  },
+  {
+   "occupier": 217,
+   "province": 2693,
+   "war": "Rynith-Iorter"
+  },
+  {
+   "occupier": 156,
+   "province": 895,
+   "war": "Yuan-Galmar"
   }
  ],
  "revolts": [],
