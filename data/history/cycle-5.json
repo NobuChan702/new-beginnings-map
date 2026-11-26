@@ -1,0 +1,77 @@
+{
+ "cycle": 5,
+ "id": "cycle-5",
+ "label": "Cycle 5 (1104)",
+ "transfers": [
+  {
+   "owner": 21,
+   "province": 2212
+  },
+  {
+   "owner": 21,
+   "province": 2220
+  },
+  {
+   "owner": 21,
+   "province": 2223
+  },
+  {
+   "owner": 21,
+   "province": 2231
+  },
+  {
+   "owner": 21,
+   "province": 2240
+  },
+  {
+   "owner": 21,
+   "province": 2257
+  },
+  {
+   "owner": 21,
+   "province": 2277
+  }
+ ],
+ "occupations": [
+  {
+   "occupier": 12,
+   "province": 1345,
+   "war": "Marbre-Torvonob"
+  },
+  {
+   "occupier": 20,
+   "province": 25,
+   "war": "Pranobka-Surtelcai"
+  },
+  {
+   "occupier": 40,
+   "province": 950,
+   "war": "Miradorpra-Nobgamar"
+  },
+  {
+   "occupier": 217,
+   "province": 2693,
+   "war": "Rynith-Iorter"
+  },
+  {
+   "occupier": 156,
+   "province": 895,
+   "war": "Yuan-Galmar"
+  },
+  {
+   "occupier": 16,
+   "province": 97,
+   "war": "Scarlet-Amior"
+  },
+  {
+   "occupier": 16,
+   "province": 68,
+   "war": "Scarlet-Amior"
+  },
+  {
+   "occupier": 16,
+   "province": 146,
+   "war": "Scarlet-Amior"
+  }
+ ]
+}
